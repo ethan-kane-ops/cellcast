@@ -138,6 +138,35 @@ verify-mint:
     kubectl -n apps create rolebinding deployer --role=deployer --serviceaccount=apps:deployer
     CELLCAST_LIVE=1 go test ./internal/hub/broker/ -run TestLiveMint -v -count=1
 
+# Place a workload end to end and use the credential that comes back
+verify-e2e:
+    #!/usr/bin/env bash
+    # The whole product against one cluster: a caller identity, a policy, a
+    # capacity report, a placement, a mint, and a kubeconfig that is then used
+    # to talk to the cell it names. The assertion that matters is that the least
+    # loaded cell in the fleet is deliberately one the caller may not reach, so
+    # a scoring pass that ran before the permission filter would return it.
+    #
+    # Not part of `check`: it needs docker and takes about a minute.
+    set -euo pipefail
+    cluster=cellcast-e2e
+    kubeconfig=$(mktemp)
+    restore() {
+        kind delete cluster --name "$cluster" >/dev/null 2>&1 || true
+        rm -f "$kubeconfig"
+    }
+    trap restore EXIT
+    kind create cluster --name "$cluster" --kubeconfig "$kubeconfig" --wait 90s
+    export KUBECONFIG="$kubeconfig"
+    kubectl apply -f config/crd/bases/
+    kubectl create ns cellcast-system
+    kubectl create ns apps
+    kubectl -n apps create sa deployer
+    kubectl -n apps create role deployer --verb=list,get,watch --resource=pods
+    kubectl -n apps create rolebinding deployer --role=deployer --serviceaccount=apps:deployer
+    just build
+    CELLCAST_LIVE=1 go test ./internal/hub/ -run TestLiveEndToEnd -v -count=1
+
 # Everything check does, plus the race detector (CRDs: see `just verify-crds`)
 check-all: check test-race
 

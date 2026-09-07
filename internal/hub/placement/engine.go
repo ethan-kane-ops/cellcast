@@ -101,6 +101,13 @@ type Decision struct {
 	Strategy cellcastv1alpha1.ScoringStrategy
 	// TargetedDark is whether the decision was made against dark cells.
 	TargetedDark bool
+	// TokenTTL is the credential lifetime the governing policy declared, nil
+	// when it declared none.
+	//
+	// Carried on the decision so the broker is bounded by the same policy that
+	// authorised the placement. Looking it up again afterwards would open a
+	// window where the two could disagree.
+	TokenTTL *cellcastv1alpha1.TokenTTLPolicy
 	// Candidates is every registered cell with its verdict, ordered by name.
 	Candidates []Candidate
 }
@@ -210,6 +217,7 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 		Policy:       policy.Name,
 		Strategy:     strategyOf(policy),
 		TargetedDark: req.TargetDark,
+		TokenTTL:     policy.Spec.TokenTTL,
 		Candidates:   filter(clusters.Items, selector, req.TargetDark, snapshot),
 	}
 

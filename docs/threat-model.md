@@ -231,9 +231,10 @@ and it happens by accident rather than by attack.
 
 | Control | Ticket | Status |
 | --- | --- | --- |
-| The client never prints token material to stdout or stderr | ENG-114 | Planned |
-| Default output path is a kubeconfig written to a file with restrictive permissions | ENG-114 | Planned |
-| Token never appears in a process argument, where any user on the runner can read it | ENG-114 | Planned |
+| The client never prints token material to stdout or stderr | ENG-114 | Implemented |
+| Default output path is a kubeconfig written to a file with restrictive permissions | ENG-114 | Implemented: 0600, created with O_EXCL so an existing symlink is never followed |
+| Token never appears in a process argument, where any user on the runner can read it | ENG-114 | Implemented: there is no `--token` flag, and a test asserts there never is one |
+| `--json` output carries the decision with the token stripped | ENG-114 | Implemented |
 | GitHub Actions integration registers the value as a mask before use | ENG-185 | Planned (v1.0) |
 | Audit records log a hash for correlation, never the token or any prefix of it | ENG-176 | Planned (v0.2) |
 | Short TTL resolved from policy limits the value of a leaked token | ENG-113 | Implemented |
@@ -351,6 +352,7 @@ Listed so nobody has to discover them by reading code.
 | Unsigned artifacts | Repo is private and pre-release; nothing is distributed yet | ENG-182, before the ENG-188 public flip |
 | A compromised agent can misreport its own capacity | Requires already owning a registered cluster | If capacity attestation becomes worth its complexity |
 | Human callers unsupported | Pipelines only in v0.1; a human path is a separate design problem | Post-v1.0 |
+| Any authenticated caller can enumerate the fleet | `GET /api/v1/clusters` is unfiltered and `--explain` names cells the caller may not reach. Cell names and endpoints are not secrets, and withholding them from `--explain` alone would hide the answer to "why did my deploy land there" without withholding anything a caller could not already list | When a caller exists that is not operator-controlled; filtering both by policy is the fix, not filtering one |
 | A cell outside the hub's cluster needs a stored kubeconfig for the hub to mint through | Bounded by the spoke RBAC granted to it, which is minting rights rather than administrative access; `inCluster` stores nothing and covers the demo | v0.2, replacing it with ServiceAccount token federation to the spoke (T-08) |
 
 ## Explicitly not defended against

@@ -38,6 +38,10 @@ type Server struct {
 	// route refuses rather than returning a cell with no way to reach it.
 	minter Minter
 
+	// placer decides which cell a caller may reach. Nil means the placement
+	// route reports itself unavailable.
+	placer Placer
+
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
 	ready atomic.Bool
@@ -100,7 +104,6 @@ func (s *Server) SetReady(ready bool) { s.ready.Store(ready) }
 
 // apiHandler returns the authenticated API surface.
 //
-// Routes are registered by the tickets that own them: ENG-114 for placement.
 // Everything mounted here sits behind the authentication middleware by
 // construction, so a new route cannot accidentally be served anonymously.
 func (s *Server) apiHandler() http.Handler {
@@ -110,6 +113,7 @@ func (s *Server) apiHandler() http.Handler {
 		writeJSON(w, http.StatusOK, version.Get())
 	})
 
+	mux.HandleFunc("POST /api/v1/placement", s.handlePlacement)
 	mux.HandleFunc("POST /api/v1/clusters", s.handleRegisterCluster)
 	mux.HandleFunc("GET /api/v1/clusters", s.handleListClusters)
 	mux.HandleFunc("GET /api/v1/clusters/{name}", s.handleGetCluster)
