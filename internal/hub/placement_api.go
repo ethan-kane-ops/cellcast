@@ -14,27 +14,11 @@ import (
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
+	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
 // maxPlacementBytes bounds a placement request body.
 const maxPlacementBytes = 4 << 10
-
-// Refusal reasons returned to the caller.
-//
-// These are the machine-readable half of a refusal, and they exist because the
-// client's fallback stance (ENG-175) has to distinguish "you are not allowed
-// there" from "nothing is available right now". Those call for opposite
-// behaviour, and a client must never have to match on prose to tell them apart.
-const (
-	ReasonNoPolicy         = "NoPolicy"
-	ReasonDarkNotPermitted = "DarkNotPermitted"
-	ReasonNoPermittedCells = "NoPermittedCells"
-	ReasonNoEligibleCells  = "NoEligibleCells"
-	ReasonCapacityUnknown  = "CapacityUnknown"
-	ReasonMintUnavailable  = "MintUnavailable"
-	ReasonMintFailed       = "MintFailed"
-	ReasonInvalidRequest   = "InvalidRequest"
-)
 
 // placementRequest is the body of POST /api/v1/placement.
 type placementRequest struct {
@@ -89,9 +73,17 @@ type ttlResponse struct {
 
 // placementResponse is the body of a successful placement.
 type placementResponse struct {
-	Cell         string              `json:"cell"`
-	Policy       string              `json:"policy"`
-	Strategy     string              `json:"strategy"`
+	Cell     string `json:"cell"`
+	Policy   string `json:"policy"`
+	Strategy string `json:"strategy"`
+	// Confidence says how much of the permitted fleet the hub could see when it
+	// decided. Always sent, because a recommendation that does not state its
+	// own confidence is being read as a command.
+	Confidence string `json:"confidence"`
+	// DecidedFor is the subject the hub resolved the caller's token to. It
+	// answers "who did the hub think I was", and it is what lets a cached
+	// decision record whose decision it was.
+	DecidedFor   string              `json:"decidedFor"`
 	TargetedDark bool                `json:"targetedDark,omitempty"`
 	DryRun       bool                `json:"dryRun,omitempty"`
 	Credential   *credentialResponse `json:"credential,omitempty"`
@@ -111,11 +103,15 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		// Unreachable: the middleware rejects an unauthenticated request before
 		// any handler runs. Guarded because a nil identity must never be read
 		// as a caller who matches every policy.
-		writeRefusal(w, http.StatusUnauthorized, ReasonNoPolicy, "unauthenticated")
+		writeRefusal(w, http.StatusUnauthorized, refusal.NoPolicy, "unauthenticated")
 		return
 	}
 	if s.placer == nil {
-		writeRefusal(w, http.StatusServiceUnavailable, ReasonMintUnavailable, "placement unavailable")
+		// Distinct from MintUnavailable, which looks identical on the wire and
+		// is not. A hub that cannot decide may be answered by the caller's
+		// fallback stance; a hub that cannot mint may never be, because a
+		// cached placement is never a cached credential (ADR-006).
+		writeRefusal(w, http.StatusServiceUnavailable, refusal.PlacementUnavailable, "placement unavailable")
 		return
 	}
 
@@ -123,11 +119,11 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPlacementBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		writeRefusal(w, http.StatusBadRequest, ReasonInvalidRequest, "request body is not valid placement JSON")
+		writeRefusal(w, http.StatusBadRequest, refusal.InvalidRequest, "request body is not valid placement JSON")
 		return
 	}
 	if req.Workload == "" {
-		writeRefusal(w, http.StatusBadRequest, ReasonInvalidRequest, "workload must be set")
+		writeRefusal(w, http.StatusBadRequest, refusal.InvalidRequest, "workload must be set")
 		return
 	}
 
@@ -135,7 +131,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	if req.TTL != "" {
 		d, err := time.ParseDuration(req.TTL)
 		if err != nil || d <= 0 {
-			writeRefusal(w, http.StatusBadRequest, ReasonInvalidRequest, "ttl must be a positive Go duration, for example 15m")
+			writeRefusal(w, http.StatusBadRequest, refusal.InvalidRequest, "ttl must be a positive Go duration, for example 15m")
 			return
 		}
 		requested = d
@@ -151,7 +147,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 			slog.String("request_id", requestIDFrom(r.Context())),
 			slog.String("workload", req.Workload),
 			slog.String("subject", id.Subject),
-			slog.String("reason", reason),
+			slog.String("reason", string(reason)),
 		)
 		writeRefusal(w, status, reason, refusalMessage(reason))
 		return
@@ -161,6 +157,8 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		Cell:         decision.Cell,
 		Policy:       decision.Policy,
 		Strategy:     string(decision.Strategy),
+		Confidence:   string(decision.Confidence()),
+		DecidedFor:   id.Subject,
 		TargetedDark: decision.TargetedDark,
 		DryRun:       req.DryRun,
 	}
@@ -178,7 +176,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 
 	if s.minter == nil {
 		// A cell name with no way to reach it looks like success and is not.
-		writeRefusal(w, http.StatusServiceUnavailable, ReasonMintUnavailable, "credential broker unavailable")
+		writeRefusal(w, http.StatusServiceUnavailable, refusal.MintUnavailable, "credential broker unavailable")
 		return
 	}
 
@@ -189,7 +187,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 			slog.String("cell", decision.Cell),
 			slog.Any("error", err),
 		)
-		writeRefusal(w, http.StatusInternalServerError, ReasonMintFailed, "internal error")
+		writeRefusal(w, http.StatusInternalServerError, refusal.MintFailed, "internal error")
 		return
 	}
 
@@ -203,7 +201,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 			slog.String("subject", id.Subject),
 			slog.Any("error", err),
 		)
-		writeRefusal(w, http.StatusServiceUnavailable, ReasonMintFailed, "could not mint a credential for the chosen cell")
+		writeRefusal(w, http.StatusServiceUnavailable, refusal.MintFailed, "could not mint a credential for the chosen cell")
 		return
 	}
 
@@ -257,23 +255,23 @@ func explain(d *placement.Decision) []candidateResponse {
 // The split that matters is retryable against not. A caller refused on
 // authorization must not retry; one refused because every permitted cell is
 // draining should.
-func placementRefusal(err error) (int, string) {
+func placementRefusal(err error) (int, refusal.Reason) {
 	switch {
 	case errors.Is(err, placement.ErrNoPolicy):
-		return http.StatusForbidden, ReasonNoPolicy
+		return http.StatusForbidden, refusal.NoPolicy
 	case errors.Is(err, placement.ErrDarkNotPermitted):
-		return http.StatusForbidden, ReasonDarkNotPermitted
+		return http.StatusForbidden, refusal.DarkNotPermitted
 	case errors.Is(err, placement.ErrNoPermittedCells):
 		// Not 503: retrying cannot fix a selector that matches nothing, and
 		// reporting it as unavailable would send a client into a backoff loop
 		// waiting for an operator to edit a policy.
-		return http.StatusConflict, ReasonNoPermittedCells
+		return http.StatusConflict, refusal.NoPermittedCells
 	case errors.Is(err, placement.ErrNoEligibleCells):
-		return http.StatusServiceUnavailable, ReasonNoEligibleCells
+		return http.StatusServiceUnavailable, refusal.NoEligibleCells
 	case errors.Is(err, placement.ErrCapacityUnknown):
-		return http.StatusServiceUnavailable, ReasonCapacityUnknown
+		return http.StatusServiceUnavailable, refusal.CapacityUnknown
 	default:
-		return http.StatusInternalServerError, ReasonMintFailed
+		return http.StatusInternalServerError, refusal.MintFailed
 	}
 }
 
@@ -282,17 +280,17 @@ func placementRefusal(err error) (int, string) {
 // Coarse on purpose. A caller learns that it was refused and whether retrying
 // could help; which cells exist and which policy was consulted go to the hub
 // log, which the operator reads and the caller does not.
-func refusalMessage(reason string) string {
+func refusalMessage(reason refusal.Reason) string {
 	switch reason {
-	case ReasonNoPolicy:
+	case refusal.NoPolicy:
 		return "no placement policy permits this caller"
-	case ReasonDarkNotPermitted:
+	case refusal.DarkNotPermitted:
 		return "this caller may not target dark cells"
-	case ReasonNoPermittedCells:
+	case refusal.NoPermittedCells:
 		return "the matching policy permits no registered cell"
-	case ReasonNoEligibleCells:
+	case refusal.NoEligibleCells:
 		return "no permitted cell is currently accepting placements"
-	case ReasonCapacityUnknown:
+	case refusal.CapacityUnknown:
 		return "no permitted cell has usable capacity"
 	default:
 		return "internal error"
@@ -301,8 +299,8 @@ func refusalMessage(reason string) string {
 
 // writeRefusal writes a refusal carrying both a machine-readable reason and a
 // human one.
-func writeRefusal(w http.ResponseWriter, status int, reason, msg string) {
-	writeJSON(w, status, map[string]string{"reason": reason, "error": msg})
+func writeRefusal(w http.ResponseWriter, status int, reason refusal.Reason, msg string) {
+	writeJSON(w, status, map[string]string{"reason": string(reason), "error": msg})
 }
 
 // clusterByName reads one registered cell.
