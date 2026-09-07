@@ -16,6 +16,7 @@ import (
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 // maxCapacityBytes bounds a heartbeat payload. Every field is a number.
@@ -75,11 +76,10 @@ func newCapacityEntryResponse(cell string, e capacity.Entry) capacityEntryRespon
 // caller could fill the hub's memory with heartbeats for names it invented
 // (docs/threat-model.md T-06).
 //
-// Restricting an agent to reporting for its own cell is a separate control and
-// belongs to ENG-174, because it depends on the shape of the agent's own
-// projected ServiceAccount token. Until then any authenticated caller may
-// report for any registered cell, which is recorded as an open item under
-// docs/threat-model.md T-07.
+// It is refused again unless the caller is the identity the cell names in
+// `spec.reporter`. Authentication alone is not enough here: every agent in the
+// fleet holds a valid token, so without this an agent in any cell could report
+// for any other (docs/threat-model.md T-07).
 func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 	if s.k8s == nil || s.capacity == nil {
 		writeError(w, http.StatusServiceUnavailable, "registry unavailable")
@@ -100,6 +100,23 @@ func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 			slog.Any("error", err),
 		)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	id, _ := IdentityFrom(r.Context())
+	if err := authorizeReporter(&cl, id); err != nil {
+		// Logged at warn with both identities spelled out, because the shape of
+		// this failure is an operator who registered the cell with the wrong
+		// issuer, and the only way they can see the value the agent actually
+		// presents is here.
+		s.log.WarnContext(r.Context(), "capacity report refused: caller is not this cell's reporter",
+			slog.String("request_id", requestIDFrom(r.Context())),
+			slog.String("cell", name),
+			slog.String("caller_issuer", identityIssuer(id)),
+			slog.String("caller_subject", identitySubject(id)),
+			slog.String("reason", err.Error()),
+		)
+		writeError(w, http.StatusForbidden, "caller is not the declared reporter for this cell")
 		return
 	}
 
@@ -180,4 +197,48 @@ func (s *Server) handleListCapacity(w http.ResponseWriter, r *http.Request) {
 		"cells":           out,
 		"stalenessWindow": s.capacity.Staleness().String(),
 	})
+}
+
+// errNoReporterDeclared is the refusal for a cell that names no reporter.
+var errNoReporterDeclared = errors.New("cell declares no reporter identity")
+
+// authorizeReporter reports whether id is the agent entitled to speak for cl.
+//
+// An unset spec.reporter refuses every report rather than accepting any. The
+// consequence is that a cell nobody has bound an agent to stays Unknown and
+// drops out of scoring, which is the same place the staleness guard puts a cell
+// whose agent died. Both are visible; a cell scored on numbers from an
+// unentitled caller is not.
+//
+// Issuer and subject are both compared literally and both must match. The
+// issuer is the half that separates cells, because the subject is the same
+// string in every cell in the fleet.
+func authorizeReporter(cl *cellcastv1alpha1.Cluster, id *identity.Identity) error {
+	if id == nil {
+		// Unreachable behind the auth middleware. Refusing rather than
+		// dereferencing keeps that true if the route is ever mounted elsewhere.
+		return identity.ErrUnauthenticated
+	}
+	reporter := cl.Spec.Reporter
+	if reporter == nil {
+		return errNoReporterDeclared
+	}
+	if id.Issuer != reporter.Issuer || id.Subject != reporter.Subject {
+		return fmt.Errorf("cell expects %s from %s", reporter.Subject, reporter.Issuer)
+	}
+	return nil
+}
+
+func identityIssuer(id *identity.Identity) string {
+	if id == nil {
+		return ""
+	}
+	return id.Issuer
+}
+
+func identitySubject(id *identity.Identity) string {
+	if id == nil {
+		return ""
+	}
+	return id.Subject
 }

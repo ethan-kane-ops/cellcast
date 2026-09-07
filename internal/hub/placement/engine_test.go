@@ -600,3 +600,72 @@ func TestSubjectClaimsAreExactNotPrefix(t *testing.T) {
 		t.Error("the exact repository did not match")
 	}
 }
+
+// TestSubjectSelectorPinsTheSubClaim covers the case a claims-only selector
+// cannot express.
+//
+// A Kubernetes ServiceAccount token carries `sub` and a nested object and
+// nothing else the extractor can flatten, so against a cluster issuer a
+// selector naming no subject permits every workload in that cluster. Registered
+// cells now have to trust such an issuer for their agents (ADR-009), which is
+// what makes this reachable rather than theoretical.
+func TestSubjectSelectorPinsTheSubClaim(t *testing.T) {
+	const issuer = "https://oidc.cell-1.example.test"
+	agent := &identity.Identity{Issuer: issuer, Subject: "system:serviceaccount:cellcast-system:cellcast-agent"}
+	deployer := &identity.Identity{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
+
+	sel := cellcastv1alpha1.SubjectSelector{Issuer: issuer, Subject: deployer.Subject}
+
+	if matchSubject(sel, agent) {
+		t.Error("a policy naming apps/deployer matched the cellcast agent from the same issuer")
+	}
+	if !matchSubject(sel, deployer) {
+		t.Error("a policy naming apps/deployer did not match apps/deployer")
+	}
+
+	// And an unpinned selector still matches everything from the issuer, which
+	// is why pinning has to be available rather than merely advisable.
+	if !matchSubject(cellcastv1alpha1.SubjectSelector{Issuer: issuer}, agent) {
+		t.Error("an issuer-only selector did not match a caller from that issuer")
+	}
+}
+
+func TestSubjectSelectorSubjectIsExactNotPrefix(t *testing.T) {
+	const issuer = "https://oidc.cell-1.example.test"
+	sel := cellcastv1alpha1.SubjectSelector{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
+
+	for _, sub := range []string{
+		"system:serviceaccount:apps:deployer2",
+		"system:serviceaccount:apps:deploye",
+		"system:serviceaccount:other:deployer",
+		"SYSTEM:SERVICEACCOUNT:APPS:DEPLOYER",
+	} {
+		if matchSubject(sel, &identity.Identity{Issuer: issuer, Subject: sub}) {
+			t.Errorf("subject %q matched a policy naming apps/deployer", sub)
+		}
+	}
+}
+
+// TestPinnedSubjectBeatsAnIssuerWidePolicy pins the ordering, so an exception
+// carved out for one caller is not silently overruled by the broad policy it
+// was written to override.
+func TestPinnedSubjectBeatsAnIssuerWidePolicy(t *testing.T) {
+	const issuer = "https://oidc.cell-1.example.test"
+	id := &identity.Identity{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
+
+	broad := policy("all-callers", []cellcastv1alpha1.SubjectSelector{{Issuer: issuer}}, map[string]string{"env": "dev"})
+	pinned := policy("just-deployer", []cellcastv1alpha1.SubjectSelector{
+		{Issuer: issuer, Subject: id.Subject},
+	}, map[string]string{"env": "prod"})
+
+	got, ambiguous, err := selectPolicy([]cellcastv1alpha1.PlacementPolicy{*broad, *pinned}, id)
+	if err != nil {
+		t.Fatalf("selectPolicy() = %v, want nil", err)
+	}
+	if ambiguous {
+		t.Error("selectPolicy reported ambiguity between a pinned and an issuer-wide policy")
+	}
+	if got.Name != "just-deployer" {
+		t.Errorf("selectPolicy() = %s, want just-deployer", got.Name)
+	}
+}

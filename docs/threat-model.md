@@ -288,18 +288,39 @@ therefore attract or repel deploys.
 
 | Control | Ticket | Status |
 | --- | --- | --- |
-| The agent binary does not contain minting code at all | ENG-193 | Planned |
-| Agent RBAC limited to `list` and `watch` on nodes and pods | ENG-174 | Planned |
-| Agent authenticates with its own projected ServiceAccount token, not a shared secret | ENG-174 | Planned |
-| An agent can only report capacity for its own cell | ENG-174 | Planned |
+| The agent binary does not contain minting code at all, enforced by a build-graph test | ENG-193 | Implemented |
+| Agent RBAC limited to `list` and `watch` on nodes and pods, plus one named Lease | ENG-174 | Implemented |
+| Agent authenticates with its own projected ServiceAccount token, not a shared secret | ENG-174 | Implemented |
+| An agent can only report capacity for the cell whose registration names it | ENG-174 | Implemented |
+| A cell that names no reporter accepts no reports at all | ENG-174 | Implemented |
 | A malformed or negative report is refused, never clamped into a plausible value | ENG-111 | Implemented |
 | A refused report leaves the previous good one in place | ENG-111 | Implemented |
 | Staleness measured by the hub's clock, never the agent's | ENG-111 | Implemented |
 
-**Open until ENG-174.** The capacity ingest path authenticates the caller but does not yet bind an
-identity to a cell, so any authenticated caller may report for any registered cell. Closing it
-requires the shape of the agent's own projected ServiceAccount token, which is ENG-174's to define.
-Until then the control above is the registration gate, not the reporter's identity.
+**How the binding works.** `Cluster.spec.reporter` names an `issuer` and a `subject`, both compared
+literally against the authenticated caller. The agent presents a projected ServiceAccount token with
+cellcast's audience, verified by the same OIDC path as a CI caller's token, so there is one
+authentication path in the hub rather than two.
+
+**The issuer is the half that does the work.** Every cell runs the agent under the same
+ServiceAccount, so the `sub` claim is byte-identical across the fleet:
+`system:serviceaccount:cellcast-system:cellcast-agent`. Binding on the subject alone would let the
+development cell's agent report for the production one, which is the attack this control exists to
+stop.
+
+**That imposes a real prerequisite.** Each spoke must have a distinct service account issuer URL.
+EKS, GKE and AKS each give a cluster its own, so an adopter on a managed platform has nothing to do.
+A stock kubeadm or kind cluster issues as `https://kubernetes.default.svc.cluster.local` and every
+one of them collides. The signature check is what stops that silently degrading into a shared
+identity: two clusters claiming one issuer URL do not share a key set, so the hub can only ever hold
+one of them in its allowlist and the second cell's agent fails verification outright. The failure is
+a rejected agent, not an accepted impostor, but it is a failure, and the fix is configuring
+`--service-account-issuer` per cluster. See docs/architecture.md ADR-009.
+
+**Fail-closed on an unset field.** A `Cluster` with no `spec.reporter` refuses every report rather
+than accepting any. The cell then stays `Unknown` and drops out of scoring, which is exactly where
+the staleness guard puts a cell whose agent has died: a state the hub detects and an operator can
+see. Treating the absent field as a wildcard is what left this open before.
 
 **Residual risk.** A compromised agent can still lie about its own cell's utilisation and attract
 deploys to a cluster the attacker already controls. That is a strictly smaller win than T-04, because

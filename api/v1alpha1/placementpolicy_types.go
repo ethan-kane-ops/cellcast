@@ -29,6 +29,16 @@ type SubjectSelector struct {
 	// +kubebuilder:validation:MinLength=1
 	Issuer string `json:"issuer"`
 
+	// Subject is an exact-match requirement on the caller's `sub` claim.
+	//
+	// Needed because `sub` is the only claim some issuers carry that
+	// distinguishes one caller from another. A Kubernetes ServiceAccount token
+	// has `sub` and a nested object and nothing else usable, so an
+	// issuer-only selector against a cluster issuer permits every workload in
+	// that cluster.
+	// +optional
+	Subject string `json:"subject,omitempty"`
+
 	// Claims are exact-match requirements on the extracted caller claims,
 	// for example {"repository": "ethan-kane-ops/cellcast"}.
 	// +optional

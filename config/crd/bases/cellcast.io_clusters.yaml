@@ -82,6 +82,33 @@ spec:
                 - aks
                 - generic
                 type: string
+              reporter:
+                description: |-
+                  Reporter is the identity allowed to publish capacity for this cell.
+
+                  Optional, and unset means nobody may report, not anybody may. A cell with
+                  no declared reporter accepts no heartbeats, so it stays Unknown and is
+                  excluded from scoring rather than being scored on numbers from a caller
+                  who was never entitled to send them. Reading an unset field as a wildcard
+                  is what left T-07 open.
+                properties:
+                  issuer:
+                    description: |-
+                      Issuer is the exact `iss` claim of the agent's ServiceAccount token,
+                      which is the spoke's service account issuer URL. Compared literally.
+                    minLength: 1
+                    pattern: ^https://
+                    type: string
+                  subject:
+                    description: |-
+                      Subject is the exact `sub` claim, of the form
+                      `system:serviceaccount:<namespace>:<name>`.
+                    minLength: 1
+                    type: string
+                required:
+                - issuer
+                - subject
+                type: object
               state:
                 default: LIVE
                 description: |-

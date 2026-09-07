@@ -39,9 +39,12 @@ func TestBinaryBoundaries(t *testing.T) {
 		why       string
 	}{
 		{
-			binary:    mod + "/cmd/cellcast-agent",
-			forbidden: []string{mod + "/internal/hub/broker"},
-			why:       "the agent runs in every spoke and must not contain minting code",
+			binary: mod + "/cmd/cellcast-agent",
+			forbidden: []string{
+				mod + "/internal/hub/broker",
+				"sigs.k8s.io/controller-runtime",
+			},
+			why: "the agent runs in every spoke: it must not contain minting code, and it reconciles nothing, so it elects with client-go rather than dragging a manager into every cell",
 		},
 		{
 			binary: mod + "/cmd/cellcast",

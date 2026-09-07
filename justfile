@@ -167,6 +167,106 @@ verify-e2e:
     just build
     CELLCAST_LIVE=1 go test ./internal/hub/ -run TestLiveEndToEnd -v -count=1
 
+# Run three real cells with real agents and watch one drop out of scoring
+verify-agent:
+    #!/usr/bin/env bash
+    # ENG-174's done-when, and the only way to check most of it. Three kind
+    # clusters, each created with its own service account issuer, because the
+    # agent binding is on the issuer and a fleet sharing one proves nothing
+    # (docs/architecture.md ADR-009). A stock kind cluster issues as
+    # https://kubernetes.default.svc.cluster.local, so every cluster here is
+    # patched to issue as its own API server address and to serve OIDC
+    # discovery anonymously, which is what a managed cluster does for free.
+    #
+    # Not part of `check`: it needs docker and takes several minutes.
+    set -euo pipefail
+    work=$(mktemp -d)
+    clusters="cell-1 cell-2 cell-3"
+    restore() {
+        for c in $clusters; do
+            kind delete cluster --name "cellcast-$c" >/dev/null 2>&1 || true
+        done
+        rm -rf "$work"
+    }
+    trap restore EXIT
+
+    just build
+
+    port=6451
+    # Load is parked in ascending order, so cell-1 is the emptiest and is the
+    # cell placement should choose. It is also the one whose agent gets killed.
+    load=0
+    entries=""
+    for c in $clusters; do
+        issuer="https://127.0.0.1:$port"
+        kubeconfig="$work/$c.kubeconfig"
+
+        {
+            printf 'kind: Cluster\n'
+            printf 'apiVersion: kind.x-k8s.io/v1alpha4\n'
+            printf 'networking:\n'
+            printf '  apiServerAddress: "127.0.0.1"\n'
+            printf '  apiServerPort: %s\n' "$port"
+            printf 'kubeadmConfigPatches:\n'
+            printf '  - |\n'
+            printf '    kind: ClusterConfiguration\n'
+            printf '    apiServer:\n'
+            printf '      extraArgs:\n'
+            printf '        - name: service-account-issuer\n'
+            printf '          value: %s\n' "$issuer"
+            printf '        - name: service-account-jwks-uri\n'
+            printf '          value: %s/openid/v1/jwks\n' "$issuer"
+        } > "$work/$c.kind.yaml"
+
+        kind create cluster --name "cellcast-$c" --config "$work/$c.kind.yaml" \
+            --kubeconfig "$kubeconfig" --wait 120s
+        export KUBECONFIG="$kubeconfig"
+
+        # The hub verifies each agent's token against that cluster's key set,
+        # so discovery has to be readable without already holding a token.
+        kubectl create clusterrolebinding oidc-discovery \
+            --clusterrole=system:service-account-issuer-discovery \
+            --group=system:unauthenticated
+        # Namespace, ServiceAccount and RBAC only. The Deployment is not
+        # applied because these agents run as host processes against each
+        # cluster's kubeconfig, which is what lets the test kill one.
+        kubectl apply -f config/agent/00-namespace.yaml -f config/agent/10-rbac.yaml
+        kubectl create ns apps
+        kubectl -n apps create sa deployer
+
+        # Parked load, so the scoring order is a property of the fixture rather
+        # than of whichever cluster happened to be busier.
+        if [ "$load" -gt 0 ]; then
+            kubectl -n apps create deployment filler \
+                --image=registry.k8s.io/pause:3.10 --replicas="$load"
+            kubectl -n apps set resources deployment filler --requests=cpu=200m,memory=64Mi
+        fi
+
+        kubectl config view --raw --minify \
+            -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
+            | base64 -d > "$work/$c.ca.pem"
+        kubectl -n cellcast-system create token cellcast-agent \
+            --audience cellcast --duration 2h > "$work/$c.agent.jwt"
+        kubectl -n apps create token deployer \
+            --audience cellcast --duration 2h > "$work/$c.caller.jwt"
+
+        entries="$entries{\"name\":\"$c\",\"kubeconfig\":\"$kubeconfig\",\"issuer\":\"$issuer\","
+        entries="$entries\"ca\":\"$work/$c.ca.pem\",\"agentToken\":\"$work/$c.agent.jwt\","
+        entries="$entries\"callerToken\":\"$work/$c.caller.jwt\",\"load\":$load},"
+
+        port=$((port + 1))
+        load=$((load + 4))
+    done
+
+    printf '[%s]\n' "${entries%,}" > "$work/fleet.json"
+
+    # The first cell's cluster also stores the hub's registry.
+    export KUBECONFIG="$work/cell-1.kubeconfig"
+    kubectl apply -f config/crd/bases/
+
+    CELLCAST_LIVE=1 CELLCAST_FLEET="$work/fleet.json" \
+        go test ./internal/hub/ -run TestLiveAgentFleet -v -count=1 -timeout 15m
+
 # Everything check does, plus the race detector (CRDs: see `just verify-crds`)
 check-all: check test-race
 

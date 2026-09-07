@@ -16,15 +16,32 @@ const validCapacityBody = `{"nodes":6,"cpuMilliAllocatable":24000,"cpuMilliCommi
 	`"memoryBytesAllocatable":103079215104,"memoryBytesCommitted":25769803776,` +
 	`"pods":80,"podCapacity":660}`
 
+// testAgent is the identity capacityServer authenticates every caller as. A
+// cell must name it in spec.reporter before its reports are accepted.
+var testAgent = identity.Identity{
+	Issuer:  "https://oidc.c1.example.test",
+	Subject: "system:serviceaccount:cellcast-system:cellcast-agent",
+}
+
+// reportingCell returns a registered cell whose declared reporter is testAgent.
+func reportingCell(name string) *cellcastv1alpha1.Cluster {
+	cl := clusterFixture(name, 1, cellcastv1alpha1.ClusterStateLive)
+	cl.Spec.Reporter = &cellcastv1alpha1.ReporterIdentity{
+		Issuer:  testAgent.Issuer,
+		Subject: testAgent.Subject,
+	}
+	return cl
+}
+
 // capacityServer returns an authenticated server with a registry and a
 // capacity index, plus the index so a test can inspect it directly.
 func capacityServer(t *testing.T, objs ...client.Object) (*Server, *capacity.Registry, client.Client) {
 	t.Helper()
 	k8s := newFakeClient(t, objs...)
 	index := capacity.New(capacity.Options{})
-	id := &identity.Identity{Issuer: "https://example.test", Subject: "system:serviceaccount:cellcast:agent"}
+	id := testAgent
 	srv := testServer(t,
-		WithAuthenticator(stubAuthenticator{id: id}),
+		WithAuthenticator(stubAuthenticator{id: &id}),
 		WithClusterClient(k8s),
 		WithCapacityRegistry(index),
 	)
@@ -61,7 +78,7 @@ func TestReportCapacityRequiresARegisteredCell(t *testing.T) {
 }
 
 func TestReportCapacity(t *testing.T) {
-	srv, index, _ := capacityServer(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive))
+	srv, index, _ := capacityServer(t, reportingCell("c1"))
 
 	rec := do(t, srv, http.MethodPost, "/api/v1/clusters/c1/capacity", validCapacityBody)
 	if rec.Code != http.StatusAccepted {
@@ -115,7 +132,7 @@ func TestReportCapacityRejectsBadPayloads(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv, index, _ := capacityServer(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive))
+			srv, index, _ := capacityServer(t, reportingCell("c1"))
 
 			rec := do(t, srv, http.MethodPost, "/api/v1/clusters/c1/capacity", tt.body)
 			if rec.Code != tt.want {
@@ -142,8 +159,8 @@ func TestReportCapacityWithoutIndex(t *testing.T) {
 
 func TestListCapacity(t *testing.T) {
 	srv, _, _ := capacityServer(t,
-		clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive),
-		clusterFixture("c2", 1, cellcastv1alpha1.ClusterStateLive),
+		reportingCell("c1"),
+		reportingCell("c2"),
 	)
 	for _, cell := range []string{"c2", "c1"} {
 		if rec := do(t, srv, http.MethodPost, "/api/v1/clusters/"+cell+"/capacity", validCapacityBody); rec.Code != http.StatusAccepted {
@@ -182,13 +199,13 @@ func TestListCapacity(t *testing.T) {
 // TestDeletingAClusterForgetsItsCapacity keeps a decommissioned cell from
 // holding a slot in the bounded index until retention expires.
 func TestDeletingAClusterForgetsItsCapacity(t *testing.T) {
-	srv, index, k8s := capacityServer(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive))
+	srv, index, k8s := capacityServer(t, reportingCell("c1"))
 
 	if rec := do(t, srv, http.MethodPost, "/api/v1/clusters/c1/capacity", validCapacityBody); rec.Code != http.StatusAccepted {
 		t.Fatalf("POST capacity = %d, want %d", rec.Code, http.StatusAccepted)
 	}
 
-	cl := clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive)
+	cl := reportingCell("c1")
 	if err := k8s.Delete(t.Context(), cl); err != nil {
 		t.Fatalf("Delete() = %v, want nil", err)
 	}
@@ -212,5 +229,96 @@ func TestCapacityConfigRejectsRetentionUnderStaleness(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("Validate() = nil, want an error for retention shorter than staleness")
+	}
+}
+
+// TestReportCapacityRequiresTheDeclaredReporter is the T-07 closure.
+//
+// Authentication is not enough on this route: every agent in the fleet holds a
+// valid token, so without this an agent in one cell could report for another.
+func TestReportCapacityRequiresTheDeclaredReporter(t *testing.T) {
+	tests := []struct {
+		name     string
+		reporter *cellcastv1alpha1.ReporterIdentity
+		want     int
+	}{
+		{
+			name:     "the declared reporter is accepted",
+			reporter: &cellcastv1alpha1.ReporterIdentity{Issuer: testAgent.Issuer, Subject: testAgent.Subject},
+			want:     http.StatusAccepted,
+		},
+		{
+			// The case the issuer exists for. Every cell runs the agent under
+			// the same ServiceAccount, so this subject is identical fleet-wide
+			// and only the issuer separates one cell's agent from another's.
+			name: "the same subject from another cell's issuer is refused",
+			reporter: &cellcastv1alpha1.ReporterIdentity{
+				Issuer:  "https://oidc.c2.example.test",
+				Subject: testAgent.Subject,
+			},
+			want: http.StatusForbidden,
+		},
+		{
+			name: "a different subject from the right issuer is refused",
+			reporter: &cellcastv1alpha1.ReporterIdentity{
+				Issuer:  testAgent.Issuer,
+				Subject: "system:serviceaccount:default:someone-else",
+			},
+			want: http.StatusForbidden,
+		},
+		{
+			// Fail-closed. An unset field is nobody, not anybody: the cell
+			// stays Unknown and drops out of scoring, which is where the
+			// staleness guard puts a cell whose agent died. Reading it as a
+			// wildcard is what left T-07 open.
+			name:     "a cell with no declared reporter accepts nothing",
+			reporter: nil,
+			want:     http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cell := clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive)
+			cell.Spec.Reporter = tt.reporter
+			srv, index, _ := capacityServer(t, cell)
+
+			rec := do(t, srv, http.MethodPost, "/api/v1/clusters/c1/capacity", validCapacityBody)
+			if rec.Code != tt.want {
+				t.Fatalf("POST capacity = %d, want %d (body %s)", rec.Code, tt.want, rec.Body.String())
+			}
+
+			_, reported := index.Lookup("c1")
+			if want := tt.want == http.StatusAccepted; reported != want {
+				t.Errorf("index has an entry for c1 = %v, want %v", reported, want)
+			}
+		})
+	}
+}
+
+// TestReportCapacityRefusalKeepsThePreviousReport pins that a refused report
+// cannot erase a good one. Otherwise an agent from the wrong cell could blank
+// a cell's capacity without ever being allowed to set it.
+func TestReportCapacityRefusalKeepsThePreviousReport(t *testing.T) {
+	cell := reportingCell("c1")
+	srv, index, k8s := capacityServer(t, cell)
+
+	if rec := do(t, srv, http.MethodPost, "/api/v1/clusters/c1/capacity", validCapacityBody); rec.Code != http.StatusAccepted {
+		t.Fatalf("first report = %d, want %d", rec.Code, http.StatusAccepted)
+	}
+	before, _ := index.Lookup("c1")
+
+	// Re-point the cell at a different agent, then report again as the old one.
+	cell.Spec.Reporter.Issuer = "https://oidc.elsewhere.example.test"
+	if err := k8s.Update(t.Context(), cell); err != nil {
+		t.Fatalf("updating cluster: %v", err)
+	}
+	if rec := do(t, srv, http.MethodPost, "/api/v1/clusters/c1/capacity", validCapacityBody); rec.Code != http.StatusForbidden {
+		t.Fatalf("second report = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	after, ok := index.Lookup("c1")
+	if !ok || after.ObservedAt != before.ObservedAt {
+		t.Error("a refused report replaced the previous good one")
 	}
 }
