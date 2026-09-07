@@ -43,6 +43,38 @@ func TestConfigValidate(t *testing.T) {
 			mutate:  func(c *Config) { c.HeartbeatInterval = -5 * time.Second },
 			wantErr: "heartbeat-interval must be positive",
 		},
+		{
+			name:    "missing token path",
+			mutate:  func(c *Config) { c.TokenPath = "" },
+			wantErr: "token-path must not be empty",
+		},
+		{
+			name:    "request timeout longer than the heartbeat interval",
+			mutate:  func(c *Config) { c.RequestTimeout = time.Minute },
+			wantErr: "must be shorter than heartbeat-interval",
+		},
+		{
+			name:    "backoff shorter than the heartbeat interval",
+			mutate:  func(c *Config) { c.MaxBackoff = time.Second },
+			wantErr: "must not be shorter than heartbeat-interval",
+		},
+		{
+			name:    "leader election with no namespace",
+			mutate:  func(c *Config) { c.Namespace = "" },
+			wantErr: "namespace must not be empty when leader election is enabled",
+		},
+		{
+			name: "no namespace is fine without leader election",
+			mutate: func(c *Config) {
+				c.Namespace = ""
+				c.LeaderElection = false
+			},
+		},
+		{
+			name:    "unknown log level",
+			mutate:  func(c *Config) { c.LogLevel = "trace" },
+			wantErr: "log-level must be one of",
+		},
 	}
 
 	for _, tt := range tests {

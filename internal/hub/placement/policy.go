@@ -25,8 +25,17 @@ import (
 // present on the identity and equal; a claim the identity does not carry is a
 // non-match rather than a wildcard, because a token missing the claim a policy
 // constrains on is exactly the case the constraint exists to catch.
+//
+// The subject is compared the same way when the selector names one. It has to
+// be constrainable separately from Claims because some issuers put nothing else
+// distinguishing in a token: a Kubernetes ServiceAccount token carries `sub`
+// and a nested object, so against a cluster issuer an issuer-only selector
+// permits every workload in that cluster.
 func matchSubject(sel cellcastv1alpha1.SubjectSelector, id *identity.Identity) bool {
 	if sel.Issuer != id.Issuer {
+		return false
+	}
+	if sel.Subject != "" && sel.Subject != id.Subject {
 		return false
 	}
 	for key, want := range sel.Claims {
@@ -38,11 +47,20 @@ func matchSubject(sel cellcastv1alpha1.SubjectSelector, id *identity.Identity) b
 	return true
 }
 
-// specificity is how many claim constraints a subject selector imposes.
+// specificity is how many constraints a subject selector imposes beyond the
+// issuer.
 //
-// Used to order overlapping policies. A selector naming no claims matches every
-// caller from an issuer and is the least specific thing a policy can say.
-func specificity(sel cellcastv1alpha1.SubjectSelector) int { return len(sel.Claims) }
+// Used to order overlapping policies. A selector naming neither a subject nor
+// any claim matches every caller from an issuer and is the least specific thing
+// a policy can say. A pinned subject counts as one constraint, so a policy
+// carving out a single caller beats one covering the whole issuer.
+func specificity(sel cellcastv1alpha1.SubjectSelector) int {
+	n := len(sel.Claims)
+	if sel.Subject != "" {
+		n++
+	}
+	return n
+}
 
 // policyMatch is a policy that applies to a caller, and how tightly.
 type policyMatch struct {

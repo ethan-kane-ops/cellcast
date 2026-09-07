@@ -24,8 +24,8 @@ Pre-v0.1. Design is settled and recorded; implementation is in progress. Not usa
 
 | | |
 | --- | --- |
-| [Architecture](docs/architecture.md) | System shape, the placement path, and eight decision records with the alternatives that were rejected |
-| [Threat model](docs/threat-model.md) | Trust boundaries, seven threats with mitigations, and the risks explicitly accepted for v0.1 |
+| [Architecture](docs/architecture.md) | System shape, the placement path, and nine decision records with the alternatives that were rejected |
+| [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted for v0.1 |
 
 ## Components
 
@@ -35,7 +35,7 @@ agent runs in every registered cell and does not contain the minting code.
 | Binary | Runs in | Job |
 | --- | --- | --- |
 | `cellcast-hub` | the hub cluster | API, controllers, the only component that can mint |
-| `cellcast-agent` | every registered cell | reports capacity on a heartbeat |
+| `cellcast-agent` | every registered cell | reports capacity on a heartbeat, under its own projected ServiceAccount token |
 | `cellcast` | the pipeline runner | client CLI |
 
 ## Requirements
@@ -60,6 +60,16 @@ just check-all      # the above, plus the race detector
 just generate       # regenerate deepcopy from api/
 just manifests      # regenerate CRD manifests from api/
 just hooks          # install the pre-commit hooks
+```
+
+Four recipes verify against real clusters instead of fakes. They need docker and
+take a few minutes each, so they sit outside `just check`:
+
+```bash
+just verify-crds    # the generated CRDs install and reach Established
+just verify-mint    # a real credential is minted and is bounded by its RBAC
+just verify-e2e     # a placement end to end, and the kubeconfig it returns works
+just verify-agent   # three cells, three agents, and one dropping out of scoring
 ```
 
 `api/v1alpha1` is the source of truth for the CRDs. Everything in

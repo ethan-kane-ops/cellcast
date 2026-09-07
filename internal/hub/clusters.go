@@ -78,6 +78,14 @@ type clusterRegistration struct {
 	TrustConfigRef string            `json:"trustConfigRef"`
 	Labels         map[string]string `json:"labels,omitempty"`
 	State          string            `json:"state,omitempty"`
+	Reporter       *reporterPayload  `json:"reporter,omitempty"`
+}
+
+// reporterPayload is the wire form of the identity allowed to report capacity
+// for a cell. Both halves are compared literally by the ingest path.
+type reporterPayload struct {
+	Issuer  string `json:"issuer"`
+	Subject string `json:"subject"`
 }
 
 // clusterResponse is the API representation of a registered cell.
@@ -93,6 +101,7 @@ type clusterResponse struct {
 	TrustConfigRef string            `json:"trustConfigRef"`
 	Labels         map[string]string `json:"labels,omitempty"`
 	State          string            `json:"state"`
+	Reporter       *reporterPayload  `json:"reporter,omitempty"`
 	ObservedState  string            `json:"observedState,omitempty"`
 	// StateSince is when the hub last observed the state change. Absent until
 	// the controller has reconciled the cell at least once.
@@ -181,6 +190,7 @@ func (reg *clusterRegistration) validate() error {
 	}
 
 	problems = append(problems, validateLabels(reg.Labels)...)
+	problems = append(problems, validateReporter(reg.Reporter)...)
 
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
@@ -251,6 +261,55 @@ func validateLabels(in map[string]string) []string {
 	return problems
 }
 
+// validateReporter checks the identity that will be allowed to report capacity.
+//
+// Omitting it is legal and means no agent may report for this cell, which is
+// how a cell registered before its agent exists behaves: Unknown, and excluded
+// from scoring. Supplying half of it is not legal, because an identity missing
+// either half matches nothing and would look like a working binding.
+func validateReporter(in *reporterPayload) []string {
+	if in == nil {
+		return nil
+	}
+
+	var problems []string
+	if in.Issuer == "" {
+		problems = append(problems, "reporter.issuer is required; it is the half that distinguishes one cell's agent from another's")
+	} else {
+		u, err := url.Parse(in.Issuer)
+		switch {
+		case err != nil:
+			problems = append(problems, "reporter.issuer is not a valid URL")
+		case u.Scheme != "https":
+			problems = append(problems, "reporter.issuer must use https")
+		case u.Host == "":
+			problems = append(problems, "reporter.issuer must include a host")
+		case u.RawQuery != "" || u.Fragment != "":
+			// Matches the issuer rules the authenticator enforces, so a cell
+			// cannot be registered against an issuer no token could ever carry.
+			problems = append(problems, "reporter.issuer must not carry a query string or fragment")
+		}
+	}
+	if in.Subject == "" {
+		problems = append(problems, "reporter.subject is required")
+	}
+	return problems
+}
+
+func (in *reporterPayload) toAPI() *cellcastv1alpha1.ReporterIdentity {
+	if in == nil {
+		return nil
+	}
+	return &cellcastv1alpha1.ReporterIdentity{Issuer: in.Issuer, Subject: in.Subject}
+}
+
+func newReporterPayload(in *cellcastv1alpha1.ReporterIdentity) *reporterPayload {
+	if in == nil {
+		return nil
+	}
+	return &reporterPayload{Issuer: in.Issuer, Subject: in.Subject}
+}
+
 // isReservedLabel reports whether key sits in cellcast's own label namespace.
 func isReservedLabel(key string) bool {
 	domain, _, ok := strings.Cut(key, "/")
@@ -280,6 +339,7 @@ func (reg *clusterRegistration) toCluster(namespace string) *cellcastv1alpha1.Cl
 			CABundle:       reg.CABundle,
 			Provider:       cellcastv1alpha1.Provider(reg.Provider),
 			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: reg.TrustConfigRef},
+			Reporter:       reg.Reporter.toAPI(),
 			State:          state,
 		},
 	}
@@ -294,6 +354,7 @@ func newClusterResponse(cl *cellcastv1alpha1.Cluster) clusterResponse {
 		TrustConfigRef: cl.Spec.TrustConfigRef.Name,
 		Labels:         cl.Labels,
 		State:          string(cl.Spec.State),
+		Reporter:       newReporterPayload(cl.Spec.Reporter),
 		ObservedState:  string(cl.Status.ObservedState),
 		StateSince:     stateSince(cl),
 		CreatedAt:      cl.CreationTimestamp.Time,

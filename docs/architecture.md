@@ -62,7 +62,7 @@ Three binaries, deployed in two places.
 | Binary | Runs in | Job |
 | --- | --- | --- |
 | `cellcast-hub` | the hub cluster | HTTP API, controllers, the only component that can mint |
-| `cellcast-agent` | every registered spoke | reports capacity to the hub on a heartbeat |
+| `cellcast-agent` | every registered spoke | reports capacity to the hub on a heartbeat, under its own projected ServiceAccount token |
 | `cellcast` | the pipeline runner or an operator's laptop | client CLI |
 
 ## The placement path
@@ -109,6 +109,7 @@ stance on that split, and a client must never have to match on prose to find it.
 | [ADR-006](#adr-006-cellcast-is-advisory-not-authoritative) | Failure stance | Advisory, cacheable, pipeline falls back | Hard dependency in the deploy path |
 | [ADR-007](#adr-007-three-binaries-not-one) | Packaging | Three binaries: hub, agent, client | One binary with subcommands |
 | [ADR-008](#adr-008-cluster-state-has-three-values-not-two) | Cluster state | `LIVE`, `DARK`, `DRAINING` | `LIVE` and `DARK` only |
+| [ADR-009](#adr-009-an-agent-may-only-report-for-the-cell-that-names-it) | Reporter identity | Each `Cluster` names the issuer and subject allowed to report for it | Trusting any authenticated caller, or matching on the subject alone |
 
 ---
 
@@ -396,16 +397,48 @@ transition-handling code.
 
 ---
 
+### ADR-009: an agent may only report for the cell that names it
+
+**Context.** Capacity steers every placement, so whoever can write it can steer deploys. The ingest
+path authenticated the caller from the start, but authentication alone does not separate cells:
+every agent in the fleet holds a valid token, so any of them could report for any registered cell.
+
+**Decision.** `Cluster.spec.reporter` names an `issuer` and a `subject`. A capacity report is
+accepted only when the authenticated caller matches both, compared literally. The agent presents a
+projected ServiceAccount token carrying cellcast's audience, verified through the same OIDC path as
+a CI caller's token, so the hub has one authentication path rather than two.
+
+**Consequences.** The subject alone would not have worked. Every cell runs the agent under the same
+ServiceAccount, so `sub` is the identical string fleet-wide and matching on it would have bound
+nothing. The issuer is what separates one cell from another, which makes a distinct service account
+issuer URL per spoke a real prerequisite rather than a detail: EKS, GKE and AKS each give a cluster
+its own, while a stock kubeadm or kind cluster issues as
+`https://kubernetes.default.svc.cluster.local` and every one of them collides. Two clusters claiming
+one issuer URL do not share a key set, so such a fleet fails as a rejected agent rather than as an
+accepted impostor, but it does fail, and the fix is `--service-account-issuer` per cluster.
+
+**An unset `spec.reporter` refuses everything.** A cell that names no reporter accepts no reports, so
+it stays `Unknown` and drops out of scoring. That is the same place the staleness guard puts a cell
+whose agent has died, which is a state the hub detects and an operator can see. Reading the absent
+field as "anyone may report" would be the wildcard that made the field decorative.
+
+**Rejected.** Trusting any authenticated caller, which is what the ingest path did before and what
+docs/threat-model.md T-07 recorded as open. Also rejected: a shared secret per fleet, which makes
+every cell a place to steal it from, and mutual TLS, which puts a private key and a rotation problem
+in every spoke to answer a question the cluster's own token service already answers.
+
+---
+
 ## Data model
 
 Two custom resources, both `v1alpha1`, versioned from the start so a `v1beta1` is additive rather
 than breaking.
 
 **`Cluster`** is the durable registry entry: endpoint, CA bundle, provider (`eks`, `gke`, `aks`,
-`generic`), a reference to trust configuration, arbitrary labels (`group`, `env`, `region` and
-whatever the operator adds), and state. Registration writes trust configuration only. A registration
-payload carrying a static kubeconfig token is rejected, which is the invariant that keeps ADR-004
-true.
+`generic`), a reference to trust configuration, the identity permitted to report capacity for the
+cell, arbitrary labels (`group`, `env`, `region` and whatever the operator adds), and state.
+Registration writes trust configuration only. A registration payload carrying a static kubeconfig
+token is rejected, which is the invariant that keeps ADR-004 true.
 
 **`PlacementPolicy`** maps authenticated caller claims to a permitted label selector, a scoring
 strategy, and TTL bounds.
@@ -418,6 +451,8 @@ Capacity is deliberately not a resource. It lives in memory per ADR-002.
 | --- | --- |
 | Hub unreachable | Client applies its declared `--on-unavailable` stance (ADR-006) |
 | Agent stopped reporting | Cell goes `Unknown` after the staleness window and drops out of scoring |
+| Agent cannot reach the hub | Retries with jittered backoff, buffering nothing; the cell goes `Unknown` rather than being scored on stale numbers |
+| Cell names no reporter | No capacity is accepted for it, so it stays `Unknown` and is never scored (ADR-009) |
 | All candidate cells `Unknown` | Placement fails closed with a distinct error |
 | Caller JWT invalid or unverifiable | Reject, with a structured reason that is logged and metered |
 | JWKS endpoint unreachable | Serve from cache; never fall back to accepting unverified tokens |

@@ -1,0 +1,7 @@
+# Files here are numbered because `kubectl apply -f config/agent/` applies them
+# in name order, and both the ServiceAccount and the Deployment need this
+# namespace to exist first.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cellcast-system

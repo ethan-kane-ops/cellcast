@@ -154,6 +154,16 @@ spec:
                         also be on the hub's issuer allowlist; naming it here does not add it.
                       minLength: 1
                       type: string
+                    subject:
+                      description: |-
+                        Subject is an exact-match requirement on the caller's `sub` claim.
+
+                        Needed because `sub` is the only claim some issuers carry that
+                        distinguishes one caller from another. A Kubernetes ServiceAccount token
+                        has `sub` and a nested object and nothing else usable, so an
+                        issuer-only selector against a cluster issuer permits every workload in
+                        that cluster.
+                      type: string
                   required:
                   - issuer
                   type: object

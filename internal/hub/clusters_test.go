@@ -197,6 +197,27 @@ func TestRegisterClusterValidation(t *testing.T) {
 			wantMsg: "endpoint must use https",
 		},
 		{
+			name: "reporter with no issuer",
+			body: base(func(r *clusterRegistration) {
+				r.Reporter = &reporterPayload{Subject: "system:serviceaccount:cellcast-system:cellcast-agent"}
+			}),
+			wantMsg: "reporter.issuer is required",
+		},
+		{
+			name: "reporter with no subject",
+			body: base(func(r *clusterRegistration) {
+				r.Reporter = &reporterPayload{Issuer: "https://oidc.c1.example.test"}
+			}),
+			wantMsg: "reporter.subject is required",
+		},
+		{
+			name: "plaintext reporter issuer",
+			body: base(func(r *clusterRegistration) {
+				r.Reporter = &reporterPayload{Issuer: "http://oidc.c1.example.test", Subject: "s"}
+			}),
+			wantMsg: "reporter.issuer must use https",
+		},
+		{
 			name:    "endpoint embeds credentials",
 			body:    base(func(r *clusterRegistration) { r.Endpoint = "https://admin:hunter2@c1.example.test" }),
 			wantMsg: "endpoint must not embed credentials",
@@ -402,5 +423,51 @@ func TestRegistrationBodyIsBounded(t *testing.T) {
 	rec := do(t, registryServer(t, newFakeClient(t)), http.MethodPost, "/api/v1/clusters", oversized)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversized POST = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// TestRegisterClusterStoresTheReporter pins that the identity permitted to
+// report capacity survives the round trip through the API, since a registration
+// that silently dropped it would produce a cell no agent could ever report for.
+func TestRegisterClusterStoresTheReporter(t *testing.T) {
+	reporter := &reporterPayload{
+		Issuer:  "https://oidc.eks.eu-west-1.example.test/id/ABC123",
+		Subject: "system:serviceaccount:cellcast-system:cellcast-agent",
+	}
+	body, err := json.Marshal(clusterRegistration{
+		Name:           "c1",
+		Endpoint:       "https://c1.example.test",
+		Provider:       "generic",
+		TrustConfigRef: "t1",
+		Reporter:       reporter,
+	})
+	if err != nil {
+		t.Fatalf("marshalling registration: %v", err)
+	}
+
+	k8s := newFakeClient(t)
+	rec := do(t, registryServer(t, k8s), http.MethodPost, "/api/v1/clusters", string(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST clusters = %d, want %d (body %s)", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var stored cellcastv1alpha1.Cluster
+	key := client.ObjectKey{Namespace: testNamespace, Name: "c1"}
+	if err := k8s.Get(t.Context(), key, &stored); err != nil {
+		t.Fatalf("reading stored cluster: %v", err)
+	}
+	if stored.Spec.Reporter == nil {
+		t.Fatal("spec.reporter is nil; the registration dropped it")
+	}
+	if stored.Spec.Reporter.Issuer != reporter.Issuer || stored.Spec.Reporter.Subject != reporter.Subject {
+		t.Errorf("spec.reporter = %+v, want %+v", *stored.Spec.Reporter, *reporter)
+	}
+
+	var out clusterResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if out.Reporter == nil || *out.Reporter != *reporter {
+		t.Errorf("response reporter = %+v, want %+v", out.Reporter, reporter)
 	}
 }

@@ -49,6 +49,33 @@ type TrustConfigReference struct {
 	Name string `json:"name"`
 }
 
+// ReporterIdentity is the workload identity permitted to publish capacity for
+// one cell.
+//
+// The issuer is the load-bearing half. Every spoke runs the agent under the
+// same ServiceAccount name, so the `sub` claim is byte-identical in every cell
+// in the fleet: `system:serviceaccount:cellcast-system:cellcast-agent`. Binding
+// on the subject alone would let the development cell's agent report capacity
+// for the production one, which is the exact confusion this type exists to
+// prevent (docs/threat-model.md T-07).
+//
+// That in turn requires each spoke to have its own service account issuer URL.
+// The managed providers do this already; a stock kubeadm or kind cluster issues
+// as `https://kubernetes.default.svc.cluster.local` and every one of them
+// collides. See docs/architecture.md ADR-009.
+type ReporterIdentity struct {
+	// Issuer is the exact `iss` claim of the agent's ServiceAccount token,
+	// which is the spoke's service account issuer URL. Compared literally.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^https://`
+	Issuer string `json:"issuer"`
+
+	// Subject is the exact `sub` claim, of the form
+	// `system:serviceaccount:<namespace>:<name>`.
+	// +kubebuilder:validation:MinLength=1
+	Subject string `json:"subject"`
+}
+
 // ClusterSpec is the durable registry entry for one cell.
 type ClusterSpec struct {
 	// Endpoint is the Kubernetes API server URL for this cell.
@@ -68,6 +95,16 @@ type ClusterSpec struct {
 	// TrustConfigRef references the trust configuration used to mint
 	// credentials for this cell.
 	TrustConfigRef TrustConfigReference `json:"trustConfigRef"`
+
+	// Reporter is the identity allowed to publish capacity for this cell.
+	//
+	// Optional, and unset means nobody may report, not anybody may. A cell with
+	// no declared reporter accepts no heartbeats, so it stays Unknown and is
+	// excluded from scoring rather than being scored on numbers from a caller
+	// who was never entitled to send them. Reading an unset field as a wildcard
+	// is what left T-07 open.
+	// +optional
+	Reporter *ReporterIdentity `json:"reporter,omitempty"`
 
 	// State is the operator-declared placement state. Defaults to LIVE.
 	//
