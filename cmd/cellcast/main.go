@@ -1,19 +1,16 @@
+// Command cellcast is the client pipelines invoke to resolve a placement and
+// obtain a credential for it.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
+	"github.com/ethan-kane-ops/cellcast/internal/cli"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "cellcast",
-	Short: "Multi-cluster deployment placement oracle and short-lived credential broker",
-}
-
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := cli.NewRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

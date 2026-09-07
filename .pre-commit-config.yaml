@@ -1,3 +1,7 @@
+# Local verification layer. CI is dormant until the repository goes public
+# (ENG-188), so these hooks and `just check` are what actually gate a commit.
+#
+# Install with `just hooks`.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -5,9 +9,27 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-added-large-files
+      - id: check-yaml
+        # Generated CRDs are large and valid; helm templates are not plain YAML.
+        exclude: ^(config/crd/bases/|charts/.*/templates/)
+      - id: check-merge-conflict
+      - id: detect-private-key
 
   - repo: local
     hooks:
+      - id: go-fmt
+        name: gofmt
+        entry: gofmt -l -w
+        language: system
+        types: [go]
+
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        pass_filenames: false
+        files: ^(go\.mod|go\.sum)$
+
       - id: go-vet
         name: go vet
         entry: go vet ./...
@@ -21,3 +43,19 @@ repos:
         language: system
         pass_filenames: false
         types: [go]
+
+      - id: go-test
+        name: go test
+        entry: go test ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      # Generated deepcopy and CRD output must match the types they come from.
+      # A hand-edited CRD is a silent correctness bug.
+      - id: verify-generate
+        name: verify generated output
+        entry: just verify-generate
+        language: system
+        pass_filenames: false
+        files: ^api/

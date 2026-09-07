@@ -1,23 +1,44 @@
-name: CI
-
-on:
-  push:
-  pull_request:
-    branches: [main]
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go mod tidy && git diff --exit-code go.mod go.sum
-      - run: go vet ./...
-      - run: go test -race ./...
+# CI is intentionally dormant until this repository goes public (ENG-188).
+#
+# Nothing below runs: the whole workflow is commented out. Verification happens
+# locally through `just check` and the pre-commit hooks, which cover the same
+# ground (tidy, generated-output freshness, vet, golangci-lint, tests).
+#
+# Reasons for the deferral:
+#   - Workflow maintenance on a private repo does not survive to the public
+#     launch, and the release, signing and scanning pipelines (ENG-181, ENG-182,
+#     ENG-183) are all designed against the public repository anyway.
+#   - OSSF Scorecard is computed against the public repo, so the remediation
+#     pass in ENG-183 has to happen around the flip regardless.
+#
+# When re-enabling, note the bug this file shipped with: the tidy check below
+# runs `git diff --exit-code go.mod go.sum`, which cannot fail on an *untracked*
+# file. go.sum was missing from the repository for the whole of its private life
+# and this check stayed green throughout. Assert the files exist as well as
+# comparing them.
+#
+# ---8<--- original workflow, restore under ENG-183 ---8<---
+#
+# name: CI
+#
+# on:
+#   push:
+#   pull_request:
+#     branches: [main]
+#
+# concurrency:
+#   group: ci-${{ github.ref }}
+#   cancel-in-progress: true
+#
+# jobs:
+#   ci:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: actions/setup-go@v5
+#         with:
+#           go-version-file: go.mod
+#           cache: true
+#       - run: go mod tidy && git diff --exit-code go.mod go.sum
+#       - run: go vet ./...
+#       - run: go test -race ./...
