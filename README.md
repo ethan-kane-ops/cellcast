@@ -27,26 +27,43 @@ Pre-v0.1. Design is settled and recorded; implementation is in progress. Not usa
 | [Architecture](docs/architecture.md) | System shape, the placement path, and eight decision records with the alternatives that were rejected |
 | [Threat model](docs/threat-model.md) | Trust boundaries, seven threats with mitigations, and the risks explicitly accepted for v0.1 |
 
+## Components
+
+Three binaries, deployed in two places. The split is a security boundary: the
+agent runs in every registered cell and does not contain the minting code.
+
+| Binary | Runs in | Job |
+| --- | --- | --- |
+| `cellcast-hub` | the hub cluster | API, controllers, the only component that can mint |
+| `cellcast-agent` | every registered cell | reports capacity on a heartbeat |
+| `cellcast` | the pipeline runner | client CLI |
+
 ## Requirements
 
-- Go 1.22+
-- [mise](https://mise.jdx.dev/) — runtime manager (`brew install mise`)
-- [just](https://just.systems/) — task runner (managed by mise)
+- Go 1.26+
+- [mise](https://mise.jdx.dev/) - runtime manager (`brew install mise`)
+- [just](https://just.systems/) - task runner (managed by mise)
 
 ## Getting started
 
 ```bash
 mise install        # install pinned Go + tools
-just build          # compile → bin/cellcast
+just build          # compile all three binaries into bin/
 ./bin/cellcast --help
 ```
 
 ## Development
 
 ```bash
-just check          # tidy + lint + test (run before every commit)
-just test           # go test ./...
-just lint           # go vet + golangci-lint
-just build          # compile
-just install        # install to $GOBIN
+just check          # tidy + verify-generate + lint + test (run before every commit)
+just check-all      # the above, plus the race detector
+just generate       # regenerate deepcopy from api/
+just manifests      # regenerate CRD manifests from api/
+just hooks          # install the pre-commit hooks
 ```
+
+`api/v1alpha1` is the source of truth for the CRDs. Everything in
+`config/crd/bases/` is generated; `just check` fails on a stale diff.
+
+Continuous integration is deliberately dormant until this repository is public.
+`just check` and the pre-commit hooks are the verification layer in the meantime.
