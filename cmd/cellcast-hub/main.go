@@ -19,6 +19,7 @@ import (
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
 
@@ -153,9 +154,12 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		broker.NewKubernetesProvider(connector.Connect),
 	)
 
+	engine := placement.NewEngine(mgr.GetClient(), index, cfg.Namespace, log)
+
 	serverOpts := []hub.Option{
 		hub.WithClusterClient(mgr.GetClient()),
 		hub.WithCapacityRegistry(index),
+		hub.WithPlacer(engine),
 		hub.WithMinter(minter),
 		hub.WithCacheSync(mgr.GetCache().WaitForCacheSync),
 	}

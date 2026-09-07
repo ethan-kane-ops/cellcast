@@ -90,6 +90,13 @@ region.
 `--explain` renders steps 2 through 4 as a table so a surprising placement is legible without a
 debug build. `--dry-run` runs 1 through 4 and stops before 5. (ENG-114)
 
+A refusal carries a machine-readable `reason` alongside its message, and the status code separates
+refusals a caller must not retry from ones that may clear on their own. `NoPolicy` and
+`DarkNotPermitted` are 403 and never become a yes. `NoPermittedCells` is 409, because retrying cannot
+fix a selector that matches nothing. `NoEligibleCells` and `CapacityUnknown` are 503, because a
+draining cell comes back and an agent starts reporting again. ENG-175 builds the client's fallback
+stance on that split, and a client must never have to match on prose to find it.
+
 ## Decision records
 
 | # | Decision | Choice | Rejected |

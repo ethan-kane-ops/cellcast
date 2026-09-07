@@ -16,7 +16,7 @@ import (
 	"slices"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
-	"github.com/ethan-kane-ops/cellcast/internal/hub"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 // matchSubject reports whether a policy subject selector matches a caller.
@@ -25,7 +25,7 @@ import (
 // present on the identity and equal; a claim the identity does not carry is a
 // non-match rather than a wildcard, because a token missing the claim a policy
 // constrains on is exactly the case the constraint exists to catch.
-func matchSubject(sel cellcastv1alpha1.SubjectSelector, id *hub.Identity) bool {
+func matchSubject(sel cellcastv1alpha1.SubjectSelector, id *identity.Identity) bool {
 	if sel.Issuer != id.Issuer {
 		return false
 	}
@@ -58,7 +58,7 @@ type policyMatch struct {
 // they mean to carve an exception out of a policy constraining {repository}.
 // Ties on specificity are broken by name so the answer is stable, and reported
 // so the ambiguity is visible rather than silently resolved.
-func selectPolicy(policies []cellcastv1alpha1.PlacementPolicy, id *hub.Identity) (*cellcastv1alpha1.PlacementPolicy, bool, error) {
+func selectPolicy(policies []cellcastv1alpha1.PlacementPolicy, id *identity.Identity) (*cellcastv1alpha1.PlacementPolicy, bool, error) {
 	var matches []policyMatch
 	for i := range policies {
 		best := -1

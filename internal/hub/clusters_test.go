@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 const testNamespace = "cellcast-system"
@@ -46,7 +47,7 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 // registryServer returns an authenticated server backed by k8s.
 func registryServer(t *testing.T, k8s client.Client) *Server {
 	t.Helper()
-	id := &Identity{Issuer: "https://example.test", Subject: "repo:example/app"}
+	id := &identity.Identity{Issuer: "https://example.test", Subject: "repo:example/app"}
 	opts := []Option{WithAuthenticator(stubAuthenticator{id: id})}
 	if k8s != nil {
 		opts = append(opts, WithClusterClient(k8s))

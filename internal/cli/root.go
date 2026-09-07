@@ -23,6 +23,7 @@ issues. There is no secret to configure.`,
 		SilenceUsage: true,
 	}
 
+	cmd.AddCommand(newPlaceCmd())
 	cmd.AddCommand(version.NewCommand())
 	return cmd
 }

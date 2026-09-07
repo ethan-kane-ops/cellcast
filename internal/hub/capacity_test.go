@@ -8,6 +8,7 @@ import (
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -21,7 +22,7 @@ func capacityServer(t *testing.T, objs ...client.Object) (*Server, *capacity.Reg
 	t.Helper()
 	k8s := newFakeClient(t, objs...)
 	index := capacity.New(capacity.Options{})
-	id := &Identity{Issuer: "https://example.test", Subject: "system:serviceaccount:cellcast:agent"}
+	id := &identity.Identity{Issuer: "https://example.test", Subject: "system:serviceaccount:cellcast:agent"}
 	srv := testServer(t,
 		WithAuthenticator(stubAuthenticator{id: id}),
 		WithClusterClient(k8s),
@@ -129,7 +130,7 @@ func TestReportCapacityRejectsBadPayloads(t *testing.T) {
 
 func TestReportCapacityWithoutIndex(t *testing.T) {
 	srv := testServer(t,
-		WithAuthenticator(stubAuthenticator{id: &Identity{Issuer: "https://example.test"}}),
+		WithAuthenticator(stubAuthenticator{id: &identity.Identity{Issuer: "https://example.test"}}),
 		WithClusterClient(newFakeClient(t)),
 	)
 

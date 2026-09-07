@@ -13,8 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
-	"github.com/ethan-kane-ops/cellcast/internal/hub"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 // Placement outcomes that callers distinguish.
@@ -101,6 +101,13 @@ type Decision struct {
 	Strategy cellcastv1alpha1.ScoringStrategy
 	// TargetedDark is whether the decision was made against dark cells.
 	TargetedDark bool
+	// TokenTTL is the credential lifetime the governing policy declared, nil
+	// when it declared none.
+	//
+	// Carried on the decision so the broker is bounded by the same policy that
+	// authorised the placement. Looking it up again afterwards would open a
+	// window where the two could disagree.
+	TokenTTL *cellcastv1alpha1.TokenTTLPolicy
 	// Candidates is every registered cell with its verdict, ordered by name.
 	Candidates []Candidate
 }
@@ -152,7 +159,7 @@ func NewEngine(reader client.Reader, index *capacity.Registry, namespace string,
 // The order below is the security control. Permission is evaluated before
 // eligibility, eligibility before scoring, and scoring only ever chooses among
 // cells that already passed both.
-func (e *Engine) Place(ctx context.Context, id *hub.Identity, req Request) (*Decision, error) {
+func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) (*Decision, error) {
 	if id == nil {
 		// Unreachable through the API, where the middleware rejects an
 		// unauthenticated request before any handler runs. Guarded anyway
@@ -210,6 +217,7 @@ func (e *Engine) Place(ctx context.Context, id *hub.Identity, req Request) (*Dec
 		Policy:       policy.Name,
 		Strategy:     strategyOf(policy),
 		TargetedDark: req.TargetDark,
+		TokenTTL:     policy.Spec.TokenTTL,
 		Candidates:   filter(clusters.Items, selector, req.TargetDark, snapshot),
 	}
 

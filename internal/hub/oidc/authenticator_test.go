@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethan-kane-ops/cellcast/internal/hub"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 const testAudience = "https://cellcast.example.test"
@@ -254,8 +254,8 @@ func TestAuthenticateRejects(t *testing.T) {
 			// Every rejection must be unauthenticated as far as the middleware
 			// is concerned, so no failure mode can be mistaken for anonymous
 			// access.
-			if !errors.Is(err, hub.ErrUnauthenticated) {
-				t.Errorf("Authenticate() error does not wrap hub.ErrUnauthenticated: %v", err)
+			if !errors.Is(err, identity.ErrUnauthenticated) {
+				t.Errorf("Authenticate() error does not wrap identity.ErrUnauthenticated: %v", err)
 			}
 		})
 	}
