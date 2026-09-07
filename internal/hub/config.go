@@ -20,6 +20,13 @@ type Config struct {
 	LogLevel string
 	// LogFormat is one of json, text.
 	LogFormat string
+	// Namespace is where the hub reads and writes its own resources.
+	//
+	// Cluster and PlacementPolicy are namespaced so that one hub cluster can
+	// host more than one cellcast installation without either seeing the
+	// other's fleet, and so the chart can grant a Role rather than a
+	// ClusterRole.
+	Namespace string
 }
 
 // DefaultConfig returns the configuration the hub runs with when nothing is
@@ -32,6 +39,7 @@ func DefaultConfig() Config {
 		ShutdownTimeout:   30 * time.Second,
 		LogLevel:          "info",
 		LogFormat:         "json",
+		Namespace:         "cellcast-system",
 	}
 }
 
@@ -61,6 +69,9 @@ func (c Config) Validate() error {
 	case "json", "text":
 	default:
 		return fmt.Errorf("log-format must be one of json, text, got %q", c.LogFormat)
+	}
+	if c.Namespace == "" {
+		return fmt.Errorf("namespace must not be empty")
 	}
 	return nil
 }

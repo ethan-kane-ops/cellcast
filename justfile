@@ -80,11 +80,34 @@ verify-generate: generate manifests
 # Full local gate. Run before every commit.
 check: tidy verify-generate lint test
 
-# Everything check does, plus the race detector
-#
-# CRDs are not schema-validated here: kubeconform's schema store has no
-# CustomResourceDefinition schema, and the validation that actually matters is
-# installing them into a real API server. That lands with envtest in ENG-177.
+# Prove the generated CRDs actually install into a real API server
+verify-crds:
+    #!/usr/bin/env bash
+    # kubeconform cannot do this: its schema store has no CustomResourceDefinition
+    # schema, so every invocation fails with "could not find schema" regardless of
+    # the -kubernetes-version or -schema-location given. The only validation that
+    # means anything is an API server accepting them, so this spins up a throwaway
+    # kind cluster, applies the CRDs, waits for Established, and tears it down.
+    #
+    # Not part of `check`: it needs docker and takes about a minute. ENG-177
+    # supersedes it with envtest, which does the same thing without the cluster.
+    set -euo pipefail
+    cluster=cellcast-crd-verify
+    previous=$(kubectl config current-context 2>/dev/null || true)
+    restore() {
+        kind delete cluster --name "$cluster" >/dev/null 2>&1 || true
+        if [ -n "$previous" ]; then
+            kubectl config use-context "$previous" >/dev/null 2>&1 || true
+        fi
+    }
+    trap restore EXIT
+    kind create cluster --name "$cluster" --wait 90s
+    kubectl --context "kind-$cluster" apply -f config/crd/bases/
+    kubectl --context "kind-$cluster" wait --for=condition=Established \
+        --timeout=60s crd/clusters.cellcast.io crd/placementpolicies.cellcast.io
+    echo "CRDs install and reach Established"
+
+# Everything check does, plus the race detector (CRDs: see `just verify-crds`)
 check-all: check test-race
 
 # Install pre-commit hooks into .git/hooks

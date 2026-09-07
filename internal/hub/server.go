@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
 
@@ -18,6 +20,14 @@ type Server struct {
 	cfg   Config
 	log   *slog.Logger
 	authn Authenticator
+
+	// k8s is the registry. Reads are served from the manager's informer cache,
+	// so listing the fleet on every placement costs no API server traffic.
+	k8s client.Client
+
+	// waitForSync blocks until the registry cache is usable. Nil means there is
+	// nothing to wait for, which is the case in tests.
+	waitForSync func(context.Context) bool
 
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
@@ -34,6 +44,25 @@ type Option func(*Server)
 // identify who is asking.
 func WithAuthenticator(a Authenticator) Option {
 	return func(s *Server) { s.authn = a }
+}
+
+// WithClusterClient supplies the Kubernetes client backing the registry.
+//
+// Without it the cluster endpoints report 503 rather than panicking, so a hub
+// misconfigured with no cluster access fails visibly instead of at the first
+// registration.
+func WithClusterClient(c client.Client) Option {
+	return func(s *Server) { s.k8s = c }
+}
+
+// WithCacheSync defers readiness until the registry cache has synced.
+//
+// The listeners come up immediately either way, so probes answer from the first
+// moment. Readiness is what gates traffic, and a replica that answered a list
+// from an unsynced cache would report an empty fleet, which fails a placement
+// that should have succeeded.
+func WithCacheSync(fn func(context.Context) bool) Option {
+	return func(s *Server) { s.waitForSync = fn }
 }
 
 // NewServer builds a hub API server.
@@ -53,16 +82,18 @@ func (s *Server) SetReady(ready bool) { s.ready.Store(ready) }
 
 // apiHandler returns the authenticated API surface.
 //
-// Routes are registered by the tickets that own them: ENG-110 for cluster
-// registration, ENG-114 for placement. Everything mounted here sits behind the
-// authentication middleware by construction, so a new route cannot accidentally
-// be served anonymously.
+// Routes are registered by the tickets that own them: ENG-114 for placement.
+// Everything mounted here sits behind the authentication middleware by
+// construction, so a new route cannot accidentally be served anonymously.
 func (s *Server) apiHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, version.Get())
 	})
+
+	mux.HandleFunc("POST /api/v1/clusters", s.handleRegisterCluster)
+	mux.HandleFunc("GET /api/v1/clusters", s.handleListClusters)
 
 	return chain(mux,
 		requestID,
@@ -115,7 +146,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() { errc <- serve(probe, "probe", s.log) }()
 	go func() { errc <- serve(api, "api", s.log) }()
 
-	s.SetReady(true)
+	go s.markReadyWhenSynced(ctx)
 
 	select {
 	case err := <-errc:
@@ -128,6 +159,21 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdown(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout, s.log, api, probe)
 		return nil
 	}
+}
+
+// markReadyWhenSynced flips the readiness probe once the registry is usable.
+func (s *Server) markReadyWhenSynced(ctx context.Context) {
+	if s.waitForSync != nil {
+		if !s.waitForSync(ctx) {
+			// Either the process is shutting down or the cache never synced. In
+			// both cases staying unready is the answer, and the manager reports
+			// the failure that caused it.
+			s.log.Warn("registry cache did not sync, staying unready")
+			return
+		}
+		s.log.Info("registry cache synced")
+	}
+	s.SetReady(true)
 }
 
 func serve(srv *http.Server, name string, log *slog.Logger) error {

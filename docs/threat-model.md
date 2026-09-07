@@ -6,8 +6,8 @@ the registry, bounded only by policy. This document states what that bound actua
 
 **Status of this document.** Written before implementation, as the design contract the code is held
 to. Every mitigation below names its implementing ticket, or is listed explicitly as a risk accepted
-for v0.1. Nothing here is claimed as done. Statuses are updated as tickets land; if a status says
-`Planned` the control does not exist yet.
+for v0.1. Statuses are updated as tickets land: `Planned` means the control does not exist yet, and
+`Implemented` means it is in the code with a test that names this threat.
 
 ## Scope
 
@@ -161,11 +161,21 @@ attacker's cluster. That is exfiltration of both workload and token.
 
 | Control | Ticket | Status |
 | --- | --- | --- |
-| Registration is a `Cluster` CRD write, gated by the hub cluster's own RBAC | ENG-110 | Planned |
-| Creating a `Cluster` is an operator-level action, documented as privileged | ENG-110, ENG-186 | Planned |
-| Registration writes trust configuration only; a payload carrying a static token is rejected | ENG-110 | Planned |
+| Registration is a `Cluster` CRD write, gated by the hub cluster's own RBAC | ENG-110 | Implemented |
+| Creating a `Cluster` is an operator-level action, documented as privileged | ENG-110, ENG-186 | Implemented in code; operator docs pending ENG-186 |
+| Registration writes trust configuration only; a payload carrying a static token is rejected | ENG-110 | Implemented |
+| Registration is refused outright if it carries a credential, rather than stripping the field | ENG-110 | Implemented |
+| The `cellcast.io/` label namespace is reserved, so a registrant cannot forge a label a policy trusts | ENG-110 | Implemented |
 | New cells are not scorable until an authenticated agent reports capacity | ENG-111, ENG-174 | Planned |
-| Registration and state transitions are visible in the API server audit log | ENG-110 | Planned |
+| Registration and state transitions are visible in the API server audit log | ENG-110 | Implemented |
+
+**Registration does not probe the endpoint.** `POST /api/v1/clusters` validates the endpoint's shape
+and stores it. It does not connect to it to check reachability or certificate validity. Probing
+would be friendlier, and it would also turn registration into a request-forgery primitive: the hub
+would issue outbound connections to a URL the caller chose, from inside the hub cluster's network.
+An unreachable endpoint is caught by the first mint attempt against it, which is a failure the
+operator sees anyway. If reachability checking is ever added, it belongs behind an explicit
+allowlist of destinations, not on the registration path.
 
 **Documented consequence.** `create` on `clusters.cellcast.io` is equivalent to deploy access
 across every policy whose selector the new cluster's labels can match. Treat it as an administrative
