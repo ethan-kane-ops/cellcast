@@ -173,7 +173,7 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //
 // Reconcilers are added here rather than in main so that the set of controllers
 // the hub runs is a property of the package that owns them.
-func RegisterControllers(mgr manager.Manager, index *capacity.Registry) error {
+func RegisterControllers(mgr manager.Manager, index *capacity.Registry, namespace string) error {
 	r := &ClusterReconciler{
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorder("cellcast-hub"),
@@ -191,6 +191,17 @@ func RegisterControllers(mgr manager.Manager, index *capacity.Registry) error {
 	policies := &PlacementPolicyReconciler{Client: mgr.GetClient()}
 	if err := policies.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("registering placement policy controller: %w", err)
+	}
+
+	// GetAPIReader, not GetClient: credential Secrets are read straight from
+	// the API server so that none of them are held in the informer cache.
+	trust := &TrustConfigReconciler{
+		Client:    mgr.GetClient(),
+		Secrets:   mgr.GetAPIReader(),
+		Namespace: namespace,
+	}
+	if err := trust.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("registering trust config controller: %w", err)
 	}
 	return nil
 }

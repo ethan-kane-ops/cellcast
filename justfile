@@ -104,8 +104,39 @@ verify-crds:
     kind create cluster --name "$cluster" --wait 90s
     kubectl --context "kind-$cluster" apply -f config/crd/bases/
     kubectl --context "kind-$cluster" wait --for=condition=Established \
-        --timeout=60s crd/clusters.cellcast.io crd/placementpolicies.cellcast.io
+        --timeout=60s crd/clusters.cellcast.io crd/placementpolicies.cellcast.io \
+        crd/trustconfigs.cellcast.io
     echo "CRDs install and reach Established"
+
+# Mint a real credential against a throwaway cluster and check what it can do
+verify-mint:
+    #!/usr/bin/env bash
+    # The minting path is the one place a bug hands out live cluster access, and
+    # a fake client cannot check it: the TokenRequest API refuses any lifetime
+    # under ten minutes, and a fake accepts whatever it is given. This spins up a
+    # cluster, mints for real, and asserts the credential authenticates as the
+    # configured service account and is bounded by that account's RBAC.
+    #
+    # Not part of `check`: it needs docker and takes about a minute.
+    set -euo pipefail
+    cluster=cellcast-mint-verify
+    kubeconfig=$(mktemp)
+    restore() {
+        kind delete cluster --name "$cluster" >/dev/null 2>&1 || true
+        rm -f "$kubeconfig"
+    }
+    trap restore EXIT
+    kind create cluster --name "$cluster" --kubeconfig "$kubeconfig" --wait 90s
+    export KUBECONFIG="$kubeconfig"
+    kubectl apply -f config/crd/bases/
+    kubectl create ns cellcast-system
+    kubectl create ns apps
+    kubectl -n apps create sa deployer
+    # Deliberately narrow: the assertion is that the minted credential gets
+    # exactly this and not the permissions the hub itself holds.
+    kubectl -n apps create role deployer --verb=list,get,watch --resource=pods
+    kubectl -n apps create rolebinding deployer --role=deployer --serviceaccount=apps:deployer
+    CELLCAST_LIVE=1 go test ./internal/hub/broker/ -run TestLiveMint -v -count=1
 
 # Everything check does, plus the race detector (CRDs: see `just verify-crds`)
 check-all: check test-race

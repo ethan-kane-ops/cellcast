@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
@@ -31,6 +32,16 @@ type Config struct {
 	// CapacityMaxCells bounds the in-memory capacity index.
 	CapacityMaxCells int
 
+	// TokenTTLCeiling is the absolute bound on minted credential lifetime. No
+	// PlacementPolicy and no request may exceed it.
+	//
+	// This is a real control rather than defence in depth. A Kubernetes API
+	// server applies no maximum of its own unless the operator configured
+	// --service-account-max-token-expiration, and a default kind cluster will
+	// issue a token lasting years if asked. This bound is the one that is
+	// certain to exist (docs/threat-model.md T-01).
+	TokenTTLCeiling time.Duration
+
 	// Namespace is where the hub reads and writes its own resources.
 	//
 	// Cluster and PlacementPolicy are namespaced so that one hub cluster can
@@ -53,6 +64,7 @@ func DefaultConfig() Config {
 		CapacityStaleness: capacity.DefaultStaleness,
 		CapacityRetention: capacity.DefaultRetention,
 		CapacityMaxCells:  capacity.DefaultMaxCells,
+		TokenTTLCeiling:   time.Hour,
 		Namespace:         "cellcast-system",
 	}
 }
@@ -94,6 +106,16 @@ func (c Config) Validate() error {
 	}
 	if c.CapacityMaxCells <= 0 {
 		return fmt.Errorf("capacity-max-cells must be positive, got %d", c.CapacityMaxCells)
+	}
+	if c.TokenTTLCeiling <= 0 {
+		return fmt.Errorf("token-max-ttl must be positive, got %s", c.TokenTTLCeiling)
+	}
+	if c.TokenTTLCeiling < broker.KubernetesMinTTL {
+		// Rejected at startup rather than at deploy time. A ceiling under the
+		// provider floor is not a stricter policy, it is a hub that accepts
+		// every placement and then refuses to mint for any of them.
+		return fmt.Errorf("token-max-ttl (%s) is below the %s floor the kubernetes TokenRequest API enforces; "+
+			"no credential could ever be minted", c.TokenTTLCeiling, broker.KubernetesMinTTL)
 	}
 	if c.Namespace == "" {
 		return fmt.Errorf("namespace must not be empty")

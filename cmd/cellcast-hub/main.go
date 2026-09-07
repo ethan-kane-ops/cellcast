@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
@@ -74,6 +75,7 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&cfg.CapacityStaleness, "capacity-staleness", cfg.CapacityStaleness, "how long an agent capacity report stays usable before the cell is excluded from scoring")
 	f.DurationVar(&cfg.CapacityRetention, "capacity-retention", cfg.CapacityRetention, "how long a stale capacity entry is kept before it is dropped entirely")
 	f.IntVar(&cfg.CapacityMaxCells, "capacity-max-cells", cfg.CapacityMaxCells, "maximum number of cells held in the in-memory capacity index")
+	f.DurationVar(&cfg.TokenTTLCeiling, "token-max-ttl", cfg.TokenTTLCeiling, "absolute ceiling on minted credential lifetime; no policy or request may exceed it")
 	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for controller metrics (0 disables)")
 	f.BoolVar(&mgrOpts.LeaderElection, "leader-election", mgrOpts.LeaderElection, "elect a leader for the reconciler path")
 	f.StringVar(&mgrOpts.LeaderElectionNamespace, "leader-election-namespace", mgrOpts.LeaderElectionNamespace, "namespace holding the leader election lease (defaults to --namespace)")
@@ -136,13 +138,25 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		Retention: cfg.CapacityRetention,
 		MaxCells:  cfg.CapacityMaxCells,
 	})
-	if err := hub.RegisterControllers(mgr, index); err != nil {
+	if err := hub.RegisterControllers(mgr, index, cfg.Namespace); err != nil {
 		return err
 	}
+
+	// GetAPIReader for credential Secrets, GetClient for everything else. The
+	// split is the point: trust configuration is cached because it is read on
+	// every mint and changes rarely, while the material that authenticates the
+	// hub to a spoke is fetched at the moment it is used and not retained
+	// (docs/threat-model.md T-08).
+	connector := broker.NewSecretConnector(mgr.GetAPIReader(), cfg.Namespace, mgr.GetConfig())
+	minter := broker.New(
+		mgr.GetClient(), cfg.Namespace, cfg.TokenTTLCeiling, log,
+		broker.NewKubernetesProvider(connector.Connect),
+	)
 
 	serverOpts := []hub.Option{
 		hub.WithClusterClient(mgr.GetClient()),
 		hub.WithCapacityRegistry(index),
+		hub.WithMinter(minter),
 		hub.WithCacheSync(mgr.GetCache().WaitForCacheSync),
 	}
 

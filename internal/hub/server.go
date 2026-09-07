@@ -34,6 +34,10 @@ type Server struct {
 	// endpoints report 503 rather than panicking.
 	capacity *capacity.Registry
 
+	// minter issues credentials for a chosen cell. Nil means the placement
+	// route refuses rather than returning a cell with no way to reach it.
+	minter Minter
+
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
 	ready atomic.Bool
