@@ -185,7 +185,8 @@ attacker's cluster. That is exfiltration of both workload and token.
 | Registration is refused outright if it carries a credential, rather than stripping the field | ENG-110 | Implemented |
 | The `cellcast.io/` label namespace is reserved, so a registrant cannot forge a label a policy trusts | ENG-110 | Implemented |
 | New cells are not scorable until an authenticated agent reports capacity | ENG-111, ENG-174 | Planned |
-| Registration and state transitions are visible in the API server audit log | ENG-110 | Implemented |
+| Registration and state transitions are visible in the API server audit log | ENG-110, ENG-112 | Implemented |
+| State changes write `spec.state` only, so a stale read cannot revert an endpoint or label | ENG-112 | Implemented |
 
 **Registration does not probe the endpoint.** `POST /api/v1/clusters` validates the endpoint's shape
 and stores it. It does not connect to it to check reachability or certificate validity. Probing

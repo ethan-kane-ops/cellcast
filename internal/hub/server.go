@@ -94,6 +94,8 @@ func (s *Server) apiHandler() http.Handler {
 
 	mux.HandleFunc("POST /api/v1/clusters", s.handleRegisterCluster)
 	mux.HandleFunc("GET /api/v1/clusters", s.handleListClusters)
+	mux.HandleFunc("GET /api/v1/clusters/{name}", s.handleGetCluster)
+	mux.HandleFunc("PATCH /api/v1/clusters/{name}/state", s.handleSetClusterState)
 
 	return chain(mux,
 		requestID,

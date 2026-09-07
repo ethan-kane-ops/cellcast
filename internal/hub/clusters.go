@@ -94,7 +94,10 @@ type clusterResponse struct {
 	Labels         map[string]string `json:"labels,omitempty"`
 	State          string            `json:"state"`
 	ObservedState  string            `json:"observedState,omitempty"`
-	CreatedAt      time.Time         `json:"createdAt"`
+	// StateSince is when the hub last observed the state change. Absent until
+	// the controller has reconciled the cell at least once.
+	StateSince *time.Time `json:"stateSince,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
 }
 
 // decodeRegistration reads and validates the shape of a registration payload.
@@ -292,8 +295,16 @@ func newClusterResponse(cl *cellcastv1alpha1.Cluster) clusterResponse {
 		Labels:         cl.Labels,
 		State:          string(cl.Spec.State),
 		ObservedState:  string(cl.Status.ObservedState),
+		StateSince:     stateSince(cl),
 		CreatedAt:      cl.CreationTimestamp.Time,
 	}
+}
+
+func stateSince(cl *cellcastv1alpha1.Cluster) *time.Time {
+	if cl.Status.StateSince == nil {
+		return nil
+	}
+	return &cl.Status.StateSince.Time
 }
 
 // handleRegisterCluster serves POST /api/v1/clusters.
@@ -392,4 +403,33 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 	// Wrapped in an object rather than returned as a bare array so that
 	// pagination can be added without breaking every existing client.
 	writeJSON(w, http.StatusOK, map[string]any{"clusters": out})
+}
+
+// handleGetCluster serves GET /api/v1/clusters/{name}.
+//
+// Present so that a caller can read back the state it just set without listing
+// the whole fleet, which is both wasteful and a wider disclosure than the
+// question needs.
+func (s *Server) handleGetCluster(w http.ResponseWriter, r *http.Request) {
+	if s.k8s == nil {
+		writeError(w, http.StatusServiceUnavailable, "registry unavailable")
+		return
+	}
+
+	var cl cellcastv1alpha1.Cluster
+	key := client.ObjectKey{Namespace: s.cfg.Namespace, Name: r.PathValue("name")}
+	if err := s.k8s.Get(r.Context(), key, &cl); err != nil {
+		if apierrors.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "no such cluster")
+			return
+		}
+		s.log.ErrorContext(r.Context(), "reading cluster failed",
+			slog.String("request_id", requestIDFrom(r.Context())),
+			slog.Any("error", err),
+		)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newClusterResponse(&cl))
 }

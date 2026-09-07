@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.state
       name: State
       type: string
+    - jsonPath: .status.conditions[?(@.type=="AcceptingPlacements")].status
+      name: Accepting
+      type: string
     - jsonPath: .spec.endpoint
       name: Endpoint
       type: string
@@ -192,6 +195,16 @@ spec:
                 - LIVE
                 - DARK
                 - DRAINING
+                type: string
+              stateSince:
+                description: |-
+                  StateSince is when the hub last observed the state change.
+
+                  Not derivable from the AcceptingPlacements condition: DARK and DRAINING
+                  both leave that condition False, so a cell moved from DARK straight to
+                  DRAINING has no condition transition to read. During an upgrade window
+                  "how long has this cell been draining" is the question being asked.
+                format: date-time
                 type: string
             type: object
         type: object

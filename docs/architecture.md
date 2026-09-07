@@ -276,6 +276,22 @@ Transitioning a cell to `DRAINING` must not fail placements already issued. Beca
 the CRD, `kubectl patch` is a legitimate operator interface and every transition is visible in the
 API server audit log.
 
+**Implemented in ENG-112.** The semantics above live on the `ClusterState` type itself
+(`AcceptsPlacement`, `ServesProductionTraffic`) rather than in the hub, because darkgate (ENG-92)
+consumes the same values from a different repository and a second copy of the table is how the two
+drift apart. The `ClusterReconciler` publishes the hub's view as
+`status.conditions[AcceptingPlacements]` and `status.stateSince`, so "why is nothing landing here"
+and "how long has this been draining" are both answered by `kubectl get cluster`.
+
+**`DRAINING` refuses an explicitly dark-targeted request too.** A cell in the middle of an upgrade is
+not a safe target for a smoke test either, so `DRAINING` is not a synonym for "dark to everyone
+except QA".
+
+**Nothing has to be done to protect placements already issued.** A placement is an advisory decision
+returned to the caller and never retained by the hub (ADR-006). There is no in-flight record for a
+state change to invalidate, which is why the guarantee is structural rather than a piece of
+transition-handling code.
+
 ---
 
 ## Data model

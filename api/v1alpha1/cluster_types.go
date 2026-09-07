@@ -95,6 +95,15 @@ type ClusterStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
+	// StateSince is when the hub last observed the state change.
+	//
+	// Not derivable from the AcceptingPlacements condition: DARK and DRAINING
+	// both leave that condition False, so a cell moved from DARK straight to
+	// DRAINING has no condition transition to read. During an upgrade window
+	// "how long has this cell been draining" is the question being asked.
+	// +optional
+	StateSince *metav1.Time `json:"stateSince,omitempty"`
+
 	// Conditions describe the cell's current condition.
 	// +optional
 	// +listType=map
@@ -107,6 +116,7 @@ type ClusterStatus struct {
 // +kubebuilder:resource:shortName=cc
 // +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=`.spec.provider`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.spec.state`
+// +kubebuilder:printcolumn:name="Accepting",type=string,JSONPath=`.status.conditions[?(@.type=="AcceptingPlacements")].status`
 // +kubebuilder:printcolumn:name="Endpoint",type=string,JSONPath=`.spec.endpoint`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
