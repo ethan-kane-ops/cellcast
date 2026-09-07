@@ -2,9 +2,7 @@ module github.com/ethan-kane-ops/cellcast
 
 go 1.22
 
-require (
-	github.com/spf13/cobra v1.8.1
-)
+require github.com/spf13/cobra v1.8.1
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
