@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
@@ -70,6 +71,9 @@ what a compromise of this process does and does not grant.`,
 	f.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level (debug, info, warn, error)")
 	f.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format (json, text)")
 	f.StringVar(&cfg.Namespace, "namespace", cfg.Namespace, "namespace holding the cellcast registry")
+	f.DurationVar(&cfg.CapacityStaleness, "capacity-staleness", cfg.CapacityStaleness, "how long an agent capacity report stays usable before the cell is excluded from scoring")
+	f.DurationVar(&cfg.CapacityRetention, "capacity-retention", cfg.CapacityRetention, "how long a stale capacity entry is kept before it is dropped entirely")
+	f.IntVar(&cfg.CapacityMaxCells, "capacity-max-cells", cfg.CapacityMaxCells, "maximum number of cells held in the in-memory capacity index")
 	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for controller metrics (0 disables)")
 	f.BoolVar(&mgrOpts.LeaderElection, "leader-election", mgrOpts.LeaderElection, "elect a leader for the reconciler path")
 	f.StringVar(&mgrOpts.LeaderElectionNamespace, "leader-election-namespace", mgrOpts.LeaderElectionNamespace, "namespace holding the leader election lease (defaults to --namespace)")
@@ -126,12 +130,19 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 	if err != nil {
 		return err
 	}
-	if err := hub.RegisterControllers(mgr); err != nil {
+
+	index := capacity.New(capacity.Options{
+		Staleness: cfg.CapacityStaleness,
+		Retention: cfg.CapacityRetention,
+		MaxCells:  cfg.CapacityMaxCells,
+	})
+	if err := hub.RegisterControllers(mgr, index); err != nil {
 		return err
 	}
 
 	serverOpts := []hub.Option{
 		hub.WithClusterClient(mgr.GetClient()),
+		hub.WithCapacityRegistry(index),
 		hub.WithCacheSync(mgr.GetCache().WaitForCacheSync),
 	}
 
@@ -155,6 +166,11 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 	// that looks healthy and answers wrongly.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// The capacity index is not in the fate-sharing set. It holds no listener
+	// and nothing to fail: it stops when runCtx is cancelled by whichever of
+	// the two below stops first.
+	go index.Run(runCtx, log)
 
 	errc := make(chan error, 2)
 	go func() { errc <- mgr.Start(runCtx) }()

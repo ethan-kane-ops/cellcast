@@ -3,6 +3,8 @@ package hub
 import (
 	"fmt"
 	"time"
+
+	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
 // Config is the hub's runtime configuration.
@@ -20,6 +22,15 @@ type Config struct {
 	LogLevel string
 	// LogFormat is one of json, text.
 	LogFormat string
+	// CapacityStaleness is how long an agent report stays usable. Past it the
+	// cell is Unknown and excluded from scoring rather than read as empty.
+	CapacityStaleness time.Duration
+	// CapacityRetention is how long an Unknown entry is kept before it is
+	// dropped, so "went quiet" stays distinguishable from "never reported".
+	CapacityRetention time.Duration
+	// CapacityMaxCells bounds the in-memory capacity index.
+	CapacityMaxCells int
+
 	// Namespace is where the hub reads and writes its own resources.
 	//
 	// Cluster and PlacementPolicy are namespaced so that one hub cluster can
@@ -39,6 +50,9 @@ func DefaultConfig() Config {
 		ShutdownTimeout:   30 * time.Second,
 		LogLevel:          "info",
 		LogFormat:         "json",
+		CapacityStaleness: capacity.DefaultStaleness,
+		CapacityRetention: capacity.DefaultRetention,
+		CapacityMaxCells:  capacity.DefaultMaxCells,
 		Namespace:         "cellcast-system",
 	}
 }
@@ -69,6 +83,17 @@ func (c Config) Validate() error {
 	case "json", "text":
 	default:
 		return fmt.Errorf("log-format must be one of json, text, got %q", c.LogFormat)
+	}
+	if c.CapacityStaleness <= 0 {
+		return fmt.Errorf("capacity-staleness must be positive, got %s", c.CapacityStaleness)
+	}
+	if c.CapacityRetention < c.CapacityStaleness {
+		return fmt.Errorf("capacity-retention (%s) must not be shorter than capacity-staleness (%s); "+
+			"dropping entries while they are still fresh would hide working cells",
+			c.CapacityRetention, c.CapacityStaleness)
+	}
+	if c.CapacityMaxCells <= 0 {
+		return fmt.Errorf("capacity-max-cells must be positive, got %d", c.CapacityMaxCells)
 	}
 	if c.Namespace == "" {
 		return fmt.Errorf("namespace must not be empty")

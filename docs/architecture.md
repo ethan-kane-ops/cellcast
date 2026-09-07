@@ -148,6 +148,28 @@ deploy in the estate. So:
 - If every candidate is `Unknown`, placement fails closed with a distinct error rather than guessing.
 - Staleness is a first-class metric with a documented alert. (ENG-178)
 
+**Implemented in ENG-111** as `internal/hub/capacity`, which knows nothing about Kubernetes, HTTP or
+policy: it is a bounded map with an injectable clock, which is what makes the staleness guard
+testable without a cluster. Four decisions in it are load-bearing:
+
+- **Health is computed at read time, never written by the prune loop.** A stalled or crashed sweeper
+  must not be able to leave a stale entry looking fresh, which is the failure mode that turns the
+  guard into decoration.
+- **Utilisation is the worst dimension, not the mean.** A cell at 95% memory and 10% CPU is not half
+  loaded, it is nearly full. Averaging is how a scheduler keeps sending work to a cell that is one
+  pod away from evicting things. A dimension with zero allocatable is skipped rather than counted as
+  zero pressure, for the same reason.
+- **Commitment is measured from pod requests, not usage.** The scheduler places on requests, so
+  requests decide whether the next deploy fits. A cell can sit at 20% CPU usage and be completely
+  unschedulable.
+- **An invalid report is rejected, not clamped.** A clamped value produces a plausible utilisation
+  that steers real deploys, and the agent that sent it never learns it is broken. A rejected report
+  also leaves the previous good one in place, so a broken agent cannot blank out its cell.
+
+A report is refused unless the cell is already a registered `Cluster`. That is the correctness rule
+and it is also the bound on the index: without it an authenticated caller could fill hub memory with
+heartbeats for names it invented.
+
 ---
 
 ### ADR-003: callers authenticate by OIDC workload identity federation

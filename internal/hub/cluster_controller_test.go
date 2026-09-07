@@ -260,3 +260,8 @@ func TestClusterReconcilerRecordsTransitions(t *testing.T) {
 	default:
 	}
 }
+
+// reconcileRequest is the request for a cluster in the test namespace.
+func reconcileRequest(name string) ctrl.Request {
+	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: testNamespace, Name: name}}
+}
