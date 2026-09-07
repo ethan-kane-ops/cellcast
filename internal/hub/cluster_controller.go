@@ -187,5 +187,10 @@ func RegisterControllers(mgr manager.Manager, index *capacity.Registry) error {
 	if err := r.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("registering cluster controller: %w", err)
 	}
+
+	policies := &PlacementPolicyReconciler{Client: mgr.GetClient()}
+	if err := policies.SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("registering placement policy controller: %w", err)
+	}
 	return nil
 }

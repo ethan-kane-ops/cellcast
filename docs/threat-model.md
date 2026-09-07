@@ -153,10 +153,10 @@ asking. It says nothing about what they may ask for.
 
 | Control | Ticket | Status |
 | --- | --- | --- |
-| Filter-then-score: permission is evaluated before any scoring | ENG-173 | Planned |
-| `PlacementPolicy` maps authenticated claims to a permitted label selector | ENG-173 | Planned |
-| Deny by default; no matching policy is a clean rejection, never "any cell" | ENG-173 | Planned |
-| Scoring strategy chosen by policy, not by the caller | ENG-173 | Planned |
+| Filter-then-score: permission is evaluated before any scoring | ENG-173 | Implemented |
+| `PlacementPolicy` maps authenticated claims to a permitted label selector | ENG-173 | Implemented |
+| Deny by default; no matching policy is a clean rejection, never "any cell" | ENG-173 | Implemented |
+| Scoring strategy chosen by policy, not by the caller | ENG-173 | Implemented |
 | e2e test asserting a dev token cannot reach a prod-labelled cell | ENG-177 | Planned |
 | `--explain` renders the filter step separately so a rejection is legible | ENG-114 | Planned |
 
@@ -165,6 +165,18 @@ tests and routes a dev deploy into the least-loaded production cluster the first
 quiet. The ordering in
 [ADR-005](architecture.md#adr-005-placement-is-filter-then-score-and-policy-is-a-crd) is the control,
 and it is enforced by the e2e test above rather than by comments.
+
+`TestDevPipelineCannotReachAProdCell` pins it at the engine level: the prod cell is deliberately the
+emptiest in the fleet, so a score-then-filter implementation returns it. The test asserts both the
+rejection and the stage it happened at, because being refused late means the cell's capacity was
+consulted first. The full token-to-decision path is ENG-177's, per the table above.
+
+**A second, quieter way this control fails.** A policy constraining `repo` against an authenticator
+emitting `repository` matches nothing, and a policy that matches nothing is a deny-all that looks
+correct in review. Neither package's tests would catch it alone, so
+`TestPolicyClaimKeysMatchWhatTheAuthenticatorProduces` compares the two vocabularies directly, and
+the `PlacementPolicy` `Ready` condition reports the live match count so a mislabelled selector is
+visible in `kubectl get placementpolicy` before anyone deploys against it.
 
 ---
 
