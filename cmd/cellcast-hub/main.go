@@ -7,13 +7,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
 
@@ -31,6 +34,8 @@ func newRootCmd() *cobra.Command {
 		// port by default in a credential broker is not a free choice.
 		MetricsAddr: "0",
 	}
+	authCfg := oidc.DefaultConfig()
+	var issuerFlags []string
 
 	cmd := &cobra.Command{
 		Use:   "cellcast-hub",
@@ -46,7 +51,14 @@ what a compromise of this process does and does not grant.`,
 			if mgrOpts.LeaderElectionNamespace == "" {
 				mgrOpts.LeaderElectionNamespace = cfg.Namespace
 			}
-			return run(cmd.Context(), cfg, mgrOpts)
+			for _, raw := range issuerFlags {
+				issuer, err := oidc.ParseIssuerFlag(raw)
+				if err != nil {
+					return err
+				}
+				authCfg.Issuers = append(authCfg.Issuers, issuer)
+			}
+			return run(cmd.Context(), cfg, mgrOpts, authCfg)
 		},
 	}
 
@@ -61,12 +73,46 @@ what a compromise of this process does and does not grant.`,
 	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for controller metrics (0 disables)")
 	f.BoolVar(&mgrOpts.LeaderElection, "leader-election", mgrOpts.LeaderElection, "elect a leader for the reconciler path")
 	f.StringVar(&mgrOpts.LeaderElectionNamespace, "leader-election-namespace", mgrOpts.LeaderElectionNamespace, "namespace holding the leader election lease (defaults to --namespace)")
+	f.StringArrayVar(&issuerFlags, "oidc-issuer", nil, "trusted OIDC issuer as url=provider (repeatable), for example https://token.actions.githubusercontent.com=github")
+	f.StringVar(&authCfg.Audience, "oidc-audience", authCfg.Audience, "audience callers must request, identifying this cellcast instance")
+	f.DurationVar(&authCfg.ClockSkew, "oidc-clock-skew", authCfg.ClockSkew, "tolerance applied to token exp, nbf and iat")
+	f.DurationVar(&authCfg.RefreshInterval, "oidc-refresh-interval", authCfg.RefreshInterval, "how often issuer metadata is re-resolved")
+	f.DurationVar(&authCfg.HTTPTimeout, "oidc-http-timeout", authCfg.HTTPTimeout, "timeout for issuer discovery and JWKS fetches")
 
 	cmd.AddCommand(version.NewCommand())
 	return cmd
 }
 
-func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions) error {
+// buildAuthenticator returns the OIDC authenticator, or nil to leave the hub's
+// fail-closed default in place.
+//
+// Starting with no issuers is allowed and leaves every API route returning 401.
+// Refusing to start instead would take down a hub whose OIDC configuration was
+// mistakenly cleared, when what it should do is stop authorizing deploys and
+// keep answering probes so the operator can see why.
+func buildAuthenticator(ctx context.Context, cfg oidc.Config, log *slog.Logger) (*oidc.Authenticator, error) {
+	if len(cfg.Issuers) == 0 {
+		log.Warn("no --oidc-issuer configured; every API request will be rejected as unauthenticated")
+		return nil, nil
+	}
+
+	authn, err := oidc.New(ctx, cfg, log)
+	if err != nil {
+		return nil, err
+	}
+
+	issuers := make([]string, 0, len(cfg.Issuers))
+	for _, iss := range cfg.Issuers {
+		issuers = append(issuers, iss.Issuer)
+	}
+	log.Info("oidc authentication enabled",
+		"issuers", strings.Join(issuers, ","),
+		"audience", cfg.Audience,
+	)
+	return authn, nil
+}
+
+func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCfg oidc.Config) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -84,10 +130,20 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions) error 
 		return err
 	}
 
-	srv, err := hub.NewServer(cfg, log,
+	serverOpts := []hub.Option{
 		hub.WithClusterClient(mgr.GetClient()),
 		hub.WithCacheSync(mgr.GetCache().WaitForCacheSync),
-	)
+	}
+
+	authn, err := buildAuthenticator(ctx, authCfg, log)
+	if err != nil {
+		return err
+	}
+	if authn != nil {
+		serverOpts = append(serverOpts, hub.WithAuthenticator(authn))
+	}
+
+	srv, err := hub.NewServer(cfg, log, serverOpts...)
 	if err != nil {
 		return err
 	}
