@@ -205,17 +205,56 @@ thing that makes it dangerous.
 `TokenRequest` only. AWS STS `AssumeRole` lands in v0.2 behind the same trust-provider interface,
 which is designed for both from day one.
 
-TTL is policy, not a constant. It resolves from the target cell's `env` label: production short
-(default 5 minutes), development longer (default 30 minutes), with a hard ceiling the operator sets.
-A caller may request a shorter TTL than policy allows. A caller may never request a longer one.
+TTL is policy, not a constant. It resolves from the target cell's `env` label: production short,
+development longer, with a hard ceiling the operator sets. A caller may request a shorter TTL than
+policy allows. A caller may never request a longer one.
 
 **Consequences.** `TokenRequest` demos end to end on kind with no cloud account, which keeps the
 recorded demo reproducible. Shipping one provider first gets the broker semantics right before a
 second implementation calcifies them.
 
-**Rejected.** Stored kubeconfigs, in any form. A single global 15-minute TTL was the original plan
-and is the wrong default in both directions at once: too long for production, too short for a slow
-dev deploy.
+**Rejected.** Stored kubeconfigs handed to callers, in any form. A single global 15-minute TTL was
+the original plan and is the wrong default in both directions at once: too long for production, too
+short for a slow dev deploy.
+
+#### Implemented in ENG-113
+
+**The production default is 10 minutes, not the 5 this record originally specified.** The Kubernetes
+`TokenRequest` API rejects any `expirationSeconds` below 600 outright: *"may not specify a duration
+less than 10 minutes"*. Five minutes was never achievable and the number stood here because nobody
+had tried it. AWS STS `AssumeRole` has a 15-minute floor of its own, so the constraint is not a
+Kubernetes quirk to be engineered around in v0.2; it gets worse. A provider therefore declares its
+floor and the broker reasons about it.
+
+The resolved bounds, narrowest layer last:
+
+| Layer | Source | May widen? |
+| --- | --- | --- |
+| Built-in defaults | the cell's `env` label | n/a |
+| Policy override | `PlacementPolicy.spec.tokenTTL` | yes, it is operator-authored |
+| Hub ceiling | `--token-max-ttl` | never |
+
+| `env` | Default | Max |
+| --- | --- | --- |
+| `prod`, `production` | 10m | 15m |
+| `stage`, `staging` | 15m | 30m |
+| `dev`, `development` | 30m | 60m |
+| anything else, including unset | 10m | 15m |
+
+An unlabelled cell gets the **tightest** bounds, not the loosest and not a middle value. The
+realistic mistake is registering a production cell and forgetting the label, and that must not be
+the thing that grants an hour of cluster access.
+
+Two rules follow from the floor and they point in opposite directions. A *request* below the floor is
+raised to it, because the operator's ceiling still holds. A *ceiling* below the floor is refused,
+because minting a ten-minute credential under a five-minute policy would overrule the operator on the
+one number they set to bound a compromise, in the direction that grants more access.
+
+**The hub ceiling is the only ceiling that is certain to exist.** A Kubernetes API server applies no
+maximum of its own unless `--service-account-max-token-expiration` was configured; a default cluster
+will issue a token lasting years if asked for one. `--token-max-ttl` is therefore a load-bearing
+control rather than defence in depth, and it is enforced against the token that came back as well as
+the number that went out.
 
 ---
 

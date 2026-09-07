@@ -2,7 +2,8 @@
 //
 // The API is versioned from the start so that a v1beta1 can be additive rather
 // than breaking. Field-level semantics are owned by the tickets that implement
-// them: ENG-110 for Cluster, ENG-173 for PlacementPolicy.
+// them: ENG-110 for Cluster, ENG-173 for PlacementPolicy, ENG-113 for
+// TrustConfig.
 //
 // This package depends only on apimachinery. Keeping controller-runtime out of
 // it means anything that needs the types (the client CLI, a downstream
@@ -36,6 +37,7 @@ func addKnownTypes(s *runtime.Scheme) error {
 	s.AddKnownTypes(GroupVersion,
 		&Cluster{}, &ClusterList{},
 		&PlacementPolicy{}, &PlacementPolicyList{},
+		&TrustConfig{}, &TrustConfigList{},
 	)
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil

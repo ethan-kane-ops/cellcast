@@ -59,13 +59,17 @@ credential to steal, by construction (see [ADR-004](architecture.md#adr-004-down
 | B3 | Hub into its own API server | Bounded by cellcast's ServiceAccount RBAC |
 | B4 | Minted token into a CI runner | The runner is shared, log-capturing, and frequently compromised |
 | B5 | Token into a spoke API server | Bounded by the token's audience, scope and TTL |
+| B6 | Hub into a spoke API server to mint | Bounded by the spoke RBAC granted to the hub's own identity there |
 
 ## Threats
 
 ### T-01: compromised cellcast hub process
 
 **What an attacker gets.** The ability to mint any credential the operator's policy permits, for as
-long as they hold the process. Not a vault to drain: there is nothing stored to exfiltrate.
+long as they hold the process. Not a vault to drain: nothing the hub returns to a caller is stored
+anywhere, so there is no accumulated stock of credentials to take. The one thing it can reach is its
+own way in to each spoke, which is T-08 and which grants the same minting ability by another route
+rather than a broader one.
 
 **Honest blast radius.** This is the worst case in the system and it is bad. An attacker with code
 execution in the hub can mint into every cell in the registry, subject to two ceilings: the policy
@@ -78,8 +82,10 @@ size cellcast's per-spoke RBAC as tightly as their deploys allow, and should not
 
 | Control | Ticket | Status |
 | --- | --- | --- |
-| Policy ceiling on TTL that no request can raise | ENG-113 | Planned |
-| Per-cell RBAC scoping documented and minimal by default | ENG-113, ENG-180 | Planned |
+| Policy ceiling on TTL that no request can raise | ENG-113 | Implemented |
+| Hub-wide `--token-max-ttl` no policy can exceed | ENG-113 | Implemented |
+| Credential lifetime checked against the ceiling on the way back, not only on the way out | ENG-113 | Implemented |
+| Per-cell RBAC scoping documented and minimal by default | ENG-113, ENG-180 | Partial: the boundary is the service account named in the TrustConfig; the chart that sets it up is ENG-180 |
 | Audit record for every mint, so a compromise is reconstructable | ENG-176 | Planned (v0.2) |
 | Distroless non-root image, read-only root filesystem, no shell | ENG-180 | Planned |
 | Signed images and SBOM so the running binary is the reviewed one | ENG-182 | Planned (v1.0) |
@@ -230,11 +236,18 @@ and it happens by accident rather than by attack.
 | Token never appears in a process argument, where any user on the runner can read it | ENG-114 | Planned |
 | GitHub Actions integration registers the value as a mask before use | ENG-185 | Planned (v1.0) |
 | Audit records log a hash for correlation, never the token or any prefix of it | ENG-176 | Planned (v0.2) |
-| Short TTL resolved from policy limits the value of a leaked token | ENG-113 | Planned |
+| Short TTL resolved from policy limits the value of a leaked token | ENG-113 | Implemented |
+| The credential type redacts its own token under `%v`, `String()` and `slog` | ENG-113 | Implemented |
 
 **Note for reviewers.** The usual way this control fails is a debug log line added later by someone
 who did not read this document. A test asserting that no token material appears in any log output is
 worth more than the rule itself, and it is part of ENG-176's done-when.
+
+ENG-113 takes the same view one step further and makes the mistake unavailable rather than
+forbidden. `broker.Credential` implements `String` and `slog.LogValue` so that printing one, wrapping
+it in an error, or logging it with `slog.Any` emits `Token:[redacted]`. A reviewer no longer has to
+notice the difference between a safe log line and an unsafe one, because there is no unsafe one to
+notice.
 
 ---
 
@@ -293,6 +306,39 @@ the attacker must already own a registered production cluster. Not separately mi
 
 ---
 
+### T-08: the hub's own credential for reaching a spoke
+
+**What this is.** To mint through a cell's `TokenRequest` API, the hub has to authenticate to that
+cell. This is the hub's own identity in the spoke, and it is a different thing from the credential
+the caller receives. Conflating the two is the fastest way to misread ADR-004: what cellcast never
+stores is the credential it hands out. It necessarily holds some way to reach each spoke, exactly as
+any multi-cluster control plane does.
+
+**What an attacker gets.** Whatever that identity can do in the spoke. Because that identity's job
+is to mint tokens for a named service account, an attacker who takes it can mint those tokens, which
+is the same win as T-01 by a different route rather than a new one.
+
+**Mitigations.**
+
+| Control | Ticket | Status |
+| --- | --- | --- |
+| `inCluster` configuration stores nothing at all, and is what the demo uses | ENG-113 | Implemented |
+| Credential Secrets are read uncached, straight from the API server, at the moment of use | ENG-113 | Implemented |
+| The hub never holds a resident map of spoke credentials, and needs no `watch` on Secrets | ENG-113 | Implemented |
+| Client construction is per mint with no pooling, so nothing retains the material | ENG-113 | Implemented |
+| A parse failure on a kubeconfig never puts its contents in an error or a log | ENG-113 | Implemented |
+| The spoke identity is scoped to `create` on `serviceaccounts/token` for named accounts | ENG-180 | Planned |
+
+**Residual risk.** A `secretRef` configuration is a stored credential, and calling it anything else
+would be dishonest. It is bounded by the RBAC the operator grants it in the spoke, and the intended
+shape of that grant is the ability to mint for specific service accounts and nothing else, so it is
+not an administrative credential. The configuration that stores nothing is `inCluster`, and it only
+covers cells in the hub's own cluster. Replacing `secretRef` with ServiceAccount token federation,
+where the spoke trusts the hub cluster's issuer and no material is stored for the multi-cluster case
+either, is v0.2 work and is listed as an accepted risk below.
+
+---
+
 ## Accepted risks for v0.1
 
 Listed so nobody has to discover them by reading code.
@@ -305,6 +351,7 @@ Listed so nobody has to discover them by reading code.
 | Unsigned artifacts | Repo is private and pre-release; nothing is distributed yet | ENG-182, before the ENG-188 public flip |
 | A compromised agent can misreport its own capacity | Requires already owning a registered cluster | If capacity attestation becomes worth its complexity |
 | Human callers unsupported | Pipelines only in v0.1; a human path is a separate design problem | Post-v1.0 |
+| A cell outside the hub's cluster needs a stored kubeconfig for the hub to mint through | Bounded by the spoke RBAC granted to it, which is minting rights rather than administrative access; `inCluster` stores nothing and covers the demo | v0.2, replacing it with ServiceAccount token federation to the spoke (T-08) |
 
 ## Explicitly not defended against
 
