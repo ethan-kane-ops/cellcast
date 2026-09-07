@@ -13,8 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
-	"github.com/ethan-kane-ops/cellcast/internal/hub"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 // Placement outcomes that callers distinguish.
@@ -152,7 +152,7 @@ func NewEngine(reader client.Reader, index *capacity.Registry, namespace string,
 // The order below is the security control. Permission is evaluated before
 // eligibility, eligibility before scoring, and scoring only ever chooses among
 // cells that already passed both.
-func (e *Engine) Place(ctx context.Context, id *hub.Identity, req Request) (*Decision, error) {
+func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) (*Decision, error) {
 	if id == nil {
 		// Unreachable through the API, where the middleware rejects an
 		// unauthenticated request before any handler runs. Guarded anyway

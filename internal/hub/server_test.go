@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 func testServer(t *testing.T, opts ...Option) *Server {
@@ -74,17 +76,17 @@ func TestAPIDeniesByDefault(t *testing.T) {
 }
 
 // stubAuthenticator stands in for the OIDC implementation landing in ENG-172.
-type stubAuthenticator struct{ id *Identity }
+type stubAuthenticator struct{ id *identity.Identity }
 
-func (s stubAuthenticator) Authenticate(context.Context, *http.Request) (*Identity, error) {
+func (s stubAuthenticator) Authenticate(context.Context, *http.Request) (*identity.Identity, error) {
 	if s.id == nil {
-		return nil, ErrUnauthenticated
+		return nil, identity.ErrUnauthenticated
 	}
 	return s.id, nil
 }
 
 func TestAPIServesAuthenticatedCaller(t *testing.T) {
-	want := &Identity{Issuer: "https://token.actions.githubusercontent.com", Subject: "repo:example/app"}
+	want := &identity.Identity{Issuer: "https://token.actions.githubusercontent.com", Subject: "repo:example/app"}
 	srv := testServer(t, WithAuthenticator(stubAuthenticator{id: want}))
 
 	rec := httptest.NewRecorder()
@@ -100,9 +102,9 @@ func TestAPIServesAuthenticatedCaller(t *testing.T) {
 }
 
 func TestIdentityRoundTripsThroughContext(t *testing.T) {
-	want := &Identity{Issuer: "https://example.test", Subject: "sub", Claims: map[string]string{"repository": "example/app"}}
+	want := &identity.Identity{Issuer: "https://example.test", Subject: "sub", Claims: map[string]string{"repository": "example/app"}}
 
-	var got *Identity
+	var got *identity.Identity
 	var ok bool
 	handler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got, ok = IdentityFrom(r.Context())

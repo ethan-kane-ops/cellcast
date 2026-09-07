@@ -12,9 +12,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"k8s.io/apimachinery/pkg/runtime"
+
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
-	"github.com/ethan-kane-ops/cellcast/internal/hub"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 )
 
@@ -52,8 +54,8 @@ func subject(claims map[string]string) cellcastv1alpha1.SubjectSelector {
 	return cellcastv1alpha1.SubjectSelector{Issuer: githubIssuer, Claims: claims}
 }
 
-func identity(claims map[string]string) *hub.Identity {
-	return &hub.Identity{Issuer: githubIssuer, Subject: "repo:example/app:ref:refs/heads/main", Claims: claims}
+func caller(claims map[string]string) *identity.Identity {
+	return &identity.Identity{Issuer: githubIssuer, Subject: "repo:example/app:ref:refs/heads/main", Claims: claims}
 }
 
 // loaded returns a capacity index reporting the given utilisation per cell.
@@ -76,13 +78,21 @@ func loaded(t *testing.T, util map[string]float64) *capacity.Registry {
 	return index
 }
 
+// testScheme is local rather than hub.NewScheme so that this package's tests do
+// not import the HTTP layer. Placement depends on the API types and on the
+// caller's identity, and on nothing else.
+func testScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	if err := cellcastv1alpha1.AddToScheme(s); err != nil {
+		t.Fatalf("registering cellcast scheme: %v", err)
+	}
+	return s
+}
+
 func newEngine(t *testing.T, index *capacity.Registry, objs ...client.Object) *Engine {
 	t.Helper()
-	scheme, err := hub.NewScheme()
-	if err != nil {
-		t.Fatalf("NewScheme() = %v, want nil", err)
-	}
-	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	k8s := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
 	return NewEngine(k8s, index, testNamespace, discardLogger())
 }
 
@@ -102,7 +112,7 @@ func TestDevPipelineCannotReachAProdCell(t *testing.T) {
 		}, map[string]string{"env": "dev"}),
 	)
 
-	dev := identity(map[string]string{"repository": "example/app", "environment": "dev"})
+	dev := caller(map[string]string{"repository": "example/app", "environment": "dev"})
 	decision, err := engine.Place(t.Context(), dev, Request{Workload: "api"})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
@@ -136,7 +146,7 @@ func TestPermissionIsEvaluatedBeforeState(t *testing.T) {
 		policy("dev", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
-	decision, err := engine.Place(t.Context(), identity(nil), Request{})
+	decision, err := engine.Place(t.Context(), caller(nil), Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
@@ -156,19 +166,19 @@ func TestDenyByDefault(t *testing.T) {
 
 	tests := []struct {
 		name string
-		id   *hub.Identity
+		id   *identity.Identity
 	}{
 		{
 			name: "a caller no policy names",
-			id:   identity(map[string]string{"repository": "someone-else/app"}),
+			id:   caller(map[string]string{"repository": "someone-else/app"}),
 		},
 		{
 			name: "a caller missing the constrained claim entirely",
-			id:   identity(nil),
+			id:   caller(nil),
 		},
 		{
 			name: "the right claims from the wrong issuer",
-			id: &hub.Identity{
+			id: &identity.Identity{
 				Issuer: "https://agent.buildkite.com",
 				Claims: map[string]string{"repository": "example/app"},
 			},
@@ -227,7 +237,7 @@ func TestEligibilityStacksOnPermission(t *testing.T) {
 			engine := newEngine(t, loaded(t, map[string]float64{"c1": 0.1}),
 				cell("c1", tt.state, map[string]string{"env": "dev"}), pol)
 
-			decision, err := engine.Place(t.Context(), identity(nil), Request{TargetDark: tt.targetDark})
+			decision, err := engine.Place(t.Context(), caller(nil), Request{TargetDark: tt.targetDark})
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("Place() = %v, want %v", err, tt.wantErr)
@@ -263,7 +273,7 @@ func TestStaleCellIsNeverChosen(t *testing.T) {
 		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
-	decision, err := engine.Place(t.Context(), identity(nil), Request{})
+	decision, err := engine.Place(t.Context(), caller(nil), Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
@@ -325,7 +335,7 @@ func TestRefusalsAreDistinguishable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := newEngine(t, loaded(t, tt.util), tt.objs...)
-			_, err := engine.Place(t.Context(), identity(nil), Request{})
+			_, err := engine.Place(t.Context(), caller(nil), Request{})
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("Place() = %v, want %v", err, tt.want)
 			}
@@ -341,7 +351,7 @@ func TestNoCapacityIndexFailsClosed(t *testing.T) {
 		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
-	if _, err := engine.Place(t.Context(), identity(nil), Request{}); !errors.Is(err, ErrCapacityUnknown) {
+	if _, err := engine.Place(t.Context(), caller(nil), Request{}); !errors.Is(err, ErrCapacityUnknown) {
 		t.Fatalf("Place() with no capacity index = %v, want ErrCapacityUnknown", err)
 	}
 }
@@ -358,7 +368,7 @@ func TestLeastLoadedPicksTheEmptiestAndBreaksTiesByName(t *testing.T) {
 	// Repeated so that a map-iteration-order dependency shows up rather than
 	// passing four times out of five.
 	for i := range 20 {
-		decision, err := engine.Place(t.Context(), identity(nil), Request{})
+		decision, err := engine.Place(t.Context(), caller(nil), Request{})
 		if err != nil {
 			t.Fatalf("Place() call %d = %v, want a placement", i, err)
 		}
@@ -382,7 +392,7 @@ func TestRoundRobinRotatesDeterministically(t *testing.T) {
 
 	var got []string
 	for range 7 {
-		decision, err := engine.Place(t.Context(), identity(nil), Request{})
+		decision, err := engine.Place(t.Context(), caller(nil), Request{})
 		if err != nil {
 			t.Fatalf("Place() = %v, want a placement", err)
 		}
@@ -409,7 +419,7 @@ func TestStrategyComesFromPolicyNotTheRequest(t *testing.T) {
 		pol,
 	)
 
-	decision, err := engine.Place(t.Context(), identity(nil), Request{})
+	decision, err := engine.Place(t.Context(), caller(nil), Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
@@ -431,7 +441,7 @@ func TestUnsetStrategyDefaultsToLeastLoaded(t *testing.T) {
 		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
-	decision, err := engine.Place(t.Context(), identity(nil), Request{})
+	decision, err := engine.Place(t.Context(), caller(nil), Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
@@ -452,7 +462,7 @@ func TestTraceCoversEveryRegisteredCell(t *testing.T) {
 		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
-	decision, err := engine.Place(t.Context(), identity(nil), Request{})
+	decision, err := engine.Place(t.Context(), caller(nil), Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
@@ -494,7 +504,7 @@ func TestMostSpecificPolicyWins(t *testing.T) {
 		}, map[string]string{"tier": "narrow"}),
 	)
 
-	id := identity(map[string]string{"repository": "example/app", "environment": "production"})
+	id := caller(map[string]string{"repository": "example/app", "environment": "production"})
 	decision, err := engine.Place(t.Context(), id, Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
@@ -524,7 +534,7 @@ func TestEquallySpecificPoliciesResolveByName(t *testing.T) {
 		}, map[string]string{"tier": "z"}),
 	)
 
-	id := identity(map[string]string{"repository": "example/app"})
+	id := caller(map[string]string{"repository": "example/app"})
 	for i := range 10 {
 		decision, err := engine.Place(t.Context(), id, Request{})
 		if err != nil {
@@ -563,7 +573,7 @@ func TestPolicyClaimKeysMatchWhatTheAuthenticatorProduces(t *testing.T) {
 		}
 
 		for _, claim := range p.Claims {
-			id := &hub.Identity{Issuer: githubIssuer, Claims: map[string]string{claim: "value"}}
+			id := &identity.Identity{Issuer: githubIssuer, Claims: map[string]string{claim: "value"}}
 			sel := cellcastv1alpha1.SubjectSelector{
 				Issuer: githubIssuer,
 				Claims: map[string]string{claim: "value"},
@@ -582,11 +592,11 @@ func TestSubjectClaimsAreExactNotPrefix(t *testing.T) {
 	sel := subject(map[string]string{"repository": "example/app"})
 
 	for _, claim := range []string{"example/app-staging", "example/app2", "example/ap", "EXAMPLE/APP"} {
-		if matchSubject(sel, identity(map[string]string{"repository": claim})) {
+		if matchSubject(sel, caller(map[string]string{"repository": claim})) {
 			t.Errorf("repository %q matched a policy naming example/app", claim)
 		}
 	}
-	if !matchSubject(sel, identity(map[string]string{"repository": "example/app"})) {
+	if !matchSubject(sel, caller(map[string]string{"repository": "example/app"})) {
 		t.Error("the exact repository did not match")
 	}
 }

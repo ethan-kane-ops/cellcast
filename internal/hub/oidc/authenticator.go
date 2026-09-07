@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethan-kane-ops/cellcast/internal/hub"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 // Rejection reasons. They are a closed set so that a failing pipeline can be
@@ -34,7 +34,7 @@ var (
 
 // Authenticator verifies a caller's workload identity token.
 //
-// It implements hub.Authenticator. Construction does no network I/O; issuer
+// It satisfies hub.Authenticator. Construction does no network I/O; issuer
 // metadata is fetched on first use per issuer.
 type Authenticator struct {
 	cfg        Config
@@ -48,8 +48,6 @@ type Authenticator struct {
 }
 
 // compile-time check that this satisfies the seam it exists to fill.
-var _ hub.Authenticator = (*Authenticator)(nil)
-
 // Option configures an Authenticator.
 type Option func(*Authenticator)
 
@@ -95,7 +93,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger, opts ...Option) (*Au
 // and the issuer allowlist come first, so an unknown caller is rejected before
 // the hub does anything expensive or reaches out to the network on their
 // behalf.
-func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*hub.Identity, error) {
+func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*identity.Identity, error) {
 	raw, err := bearerToken(r)
 	if err != nil {
 		return nil, a.reject(ctx, err)
@@ -167,7 +165,7 @@ func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*hub
 		return nil, a.reject(ctx, ErrNoSubject)
 	}
 
-	return &hub.Identity{
+	return &identity.Identity{
 		Issuer:  std.Issuer,
 		Subject: std.Subject,
 		Claims:  source.provider.extract(claims),
@@ -184,10 +182,10 @@ func (a *Authenticator) Authenticate(ctx context.Context, r *http.Request) (*hub
 func (a *Authenticator) reject(ctx context.Context, reason error) error {
 	a.log.WarnContext(ctx, "oidc authentication rejected", slog.String("reason", reason.Error()))
 	// Both errors are wrapped. The middleware only asks whether this is
-	// hub.ErrUnauthenticated, but a caller distinguishing an expired token from
+	// identity.ErrUnauthenticated, but a caller distinguishing an expired token from
 	// a rejected issuer needs the specific reason to survive too, and that is
 	// what makes the rejection table above assert anything.
-	return fmt.Errorf("%w: %w", hub.ErrUnauthenticated, reason)
+	return fmt.Errorf("%w: %w", identity.ErrUnauthenticated, reason)
 }
 
 // validateTimes enforces exp, nbf and iat with the configured skew.
