@@ -236,6 +236,32 @@ toy and something with an authorization model. Deny by default: a caller with no
 rejected cleanly. Policy lives in Git, is reviewable in a pull request, and is auditable through the
 API server, because policy that nobody can diff is policy that drifts.
 
+**Implemented in ENG-173** as `internal/hub/placement`. Three filter stages run in a fixed order,
+and a cell is recorded at the first one that refuses it:
+
+| Stage | Refuses |
+| --- | --- |
+| `permission` | the cell is outside the caller's policy selector |
+| `state` | the cell is `DRAINING`, or `DARK` without a permitted dark-targeting request |
+| `capacity` | the cell has never reported, or its report is stale and it is `Unknown` |
+
+Permission is first so that a rejection can never disclose the state or utilisation of a cell the
+caller may not reach. Every registered cell appears in the trace exactly once with its verdict, which
+is what `--explain` (ENG-114) renders.
+
+**Overlapping policies resolve to the most specific.** A policy constraining `{repository,
+environment}` beats one constraining `{repository}`, because that is what an operator writes when
+they mean to carve an exception out of a general rule. Equal specificity is broken by name so the
+answer is stable, and logged so the ambiguity is visible rather than silently resolved.
+
+**Targeting a dark cell without permission is refused, not downgraded.** Silently turning a QA smoke
+test into an ordinary placement lands it on a live cell, which is the opposite of what was asked for.
+
+**Four distinguishable refusals**, because they call for different operator action and, under
+ENG-175, different client behaviour: no matching policy, policy permits no registered cell, no
+permitted cell is accepting, and no permitted cell has usable capacity. Collapsing them would make an
+authorization refusal indistinguishable from a fleet-wide capacity blackout.
+
 ---
 
 ### ADR-006: cellcast is advisory, not authoritative
@@ -255,6 +281,14 @@ be treated differently:
 
 - Cannot determine whether the caller is permitted: **refuse**.
 - Cannot determine which permitted cell is least loaded: **any permitted cell is fine**.
+
+**Where that sits against ADR-002, which says an all-`Unknown` fleet fails closed.** The two are not
+in conflict once the layer is named. The hub always refuses and returns a *distinguishable* error;
+falling open is a client stance, declared per caller by `--on-unavailable`, never a hub default. So
+partial capacity loss is handled inside the hub by scoring the cells that did report, and total
+capacity loss is handed to the caller as `ErrCapacityUnknown` for its declared fallback to act on. A
+hub that picked a cell for itself when it could not tell which was least loaded would be guessing
+with someone else's production traffic.
 
 **Token minting never falls back.** A cached placement is a cached decision, never a cached
 credential. The client re-mints or fails.
