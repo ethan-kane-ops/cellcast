@@ -3,6 +3,7 @@ module github.com/ethan-kane-ops/cellcast
 go 1.26.0
 
 require (
+	github.com/go-logr/logr v1.4.3
 	github.com/spf13/cobra v1.10.2
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
@@ -18,7 +19,6 @@ require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
 	github.com/go-openapi/swag v0.27.1 // indirect

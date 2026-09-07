@@ -51,6 +51,11 @@ func TestConfigValidate(t *testing.T) {
 			mutate:  func(c *Config) { c.LogFormat = "logfmt" },
 			wantErr: "log-format must be one of",
 		},
+		{
+			name:    "empty namespace",
+			mutate:  func(c *Config) { c.Namespace = "" },
+			wantErr: "namespace must not be empty",
+		},
 	}
 
 	for _, tt := range tests {
