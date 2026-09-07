@@ -12,6 +12,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
 
@@ -28,6 +29,10 @@ type Server struct {
 	// waitForSync blocks until the registry cache is usable. Nil means there is
 	// nothing to wait for, which is the case in tests.
 	waitForSync func(context.Context) bool
+
+	// capacity is the in-memory utilisation index. Nil means the capacity
+	// endpoints report 503 rather than panicking.
+	capacity *capacity.Registry
 
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
@@ -53,6 +58,15 @@ func WithAuthenticator(a Authenticator) Option {
 // registration.
 func WithClusterClient(c client.Client) Option {
 	return func(s *Server) { s.k8s = c }
+}
+
+// WithCapacityRegistry supplies the in-memory capacity index.
+//
+// Separate from the cluster client because the two have opposite durability
+// stories: the registry is etcd-backed and survives a restart, the capacity
+// index is deliberately lost on one (docs/architecture.md ADR-002).
+func WithCapacityRegistry(c *capacity.Registry) Option {
+	return func(s *Server) { s.capacity = c }
 }
 
 // WithCacheSync defers readiness until the registry cache has synced.
@@ -96,6 +110,8 @@ func (s *Server) apiHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/clusters", s.handleListClusters)
 	mux.HandleFunc("GET /api/v1/clusters/{name}", s.handleGetCluster)
 	mux.HandleFunc("PATCH /api/v1/clusters/{name}/state", s.handleSetClusterState)
+	mux.HandleFunc("POST /api/v1/clusters/{name}/capacity", s.handleReportCapacity)
+	mux.HandleFunc("GET /api/v1/capacity", s.handleListCapacity)
 
 	return chain(mux,
 		requestID,

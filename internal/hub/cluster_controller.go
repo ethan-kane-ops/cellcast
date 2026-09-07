@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -13,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/recorder"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
 // ClusterReconciler publishes the state the hub is acting on into a Cluster's
@@ -33,6 +35,12 @@ type ClusterReconciler struct {
 	Client   client.Client
 	Recorder recorder.EventRecorder
 
+	// Capacity is the in-memory utilisation index, if one is running. A
+	// deleted Cluster's capacity entry is dropped here rather than waiting for
+	// retention to expire, so decommissioning a cell reclaims its slot in the
+	// bounded index immediately.
+	Capacity interface{ Forget(cell string) }
+
 	// Now supplies the transition timestamp. Overridden only in tests, where
 	// two transitions land inside metav1.Time's one-second resolution and the
 	// assertion would otherwise be untestable rather than merely imprecise.
@@ -50,6 +58,9 @@ func (r *ClusterReconciler) now() metav1.Time {
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cl cellcastv1alpha1.Cluster
 	if err := r.Client.Get(ctx, req.NamespacedName, &cl); err != nil {
+		if apierrors.IsNotFound(err) && r.Capacity != nil {
+			r.Capacity.Forget(req.Name)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -162,10 +173,16 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //
 // Reconcilers are added here rather than in main so that the set of controllers
 // the hub runs is a property of the package that owns them.
-func RegisterControllers(mgr manager.Manager) error {
+func RegisterControllers(mgr manager.Manager, index *capacity.Registry) error {
 	r := &ClusterReconciler{
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorder("cellcast-hub"),
+	}
+	// Guarded rather than assigned unconditionally: a typed nil pointer stored
+	// in an interface is not a nil interface, and the delete path checks the
+	// interface.
+	if index != nil {
+		r.Capacity = index
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("registering cluster controller: %w", err)

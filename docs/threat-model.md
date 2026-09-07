@@ -184,7 +184,7 @@ attacker's cluster. That is exfiltration of both workload and token.
 | Registration writes trust configuration only; a payload carrying a static token is rejected | ENG-110 | Implemented |
 | Registration is refused outright if it carries a credential, rather than stripping the field | ENG-110 | Implemented |
 | The `cellcast.io/` label namespace is reserved, so a registrant cannot forge a label a policy trusts | ENG-110 | Implemented |
-| New cells are not scorable until an authenticated agent reports capacity | ENG-111, ENG-174 | Planned |
+| New cells are not scorable until an authenticated agent reports capacity | ENG-111, ENG-174 | Implemented |
 | Registration and state transitions are visible in the API server audit log | ENG-110, ENG-112 | Implemented |
 | State changes write `spec.state` only, so a stale read cannot revert an endpoint or label | ENG-112 | Implemented |
 
@@ -243,6 +243,8 @@ every deploy in the estate, which is a worse outage than the problem cellcast so
 | Unauthenticated requests rejected before expensive work | ENG-172 | Planned |
 | Multi-replica stateless API path with a PodDisruptionBudget | ENG-179 | Planned (v0.2) |
 | Agent heartbeats jittered to avoid a synchronised herd | ENG-174 | Planned |
+| Capacity index bounded, and reports for unregistered cells refused | ENG-111 | Implemented |
+| Capacity report payloads size-bounded before decoding | ENG-111 | Implemented |
 
 **Fallback never extends to credentials.** A cached placement is a cached decision. The client
 re-mints or fails. A cached credential would reintroduce exactly the long-lived secret this project
@@ -264,6 +266,14 @@ therefore attract or repel deploys.
 | Agent RBAC limited to `list` and `watch` on nodes and pods | ENG-174 | Planned |
 | Agent authenticates with its own projected ServiceAccount token, not a shared secret | ENG-174 | Planned |
 | An agent can only report capacity for its own cell | ENG-174 | Planned |
+| A malformed or negative report is refused, never clamped into a plausible value | ENG-111 | Implemented |
+| A refused report leaves the previous good one in place | ENG-111 | Implemented |
+| Staleness measured by the hub's clock, never the agent's | ENG-111 | Implemented |
+
+**Open until ENG-174.** The capacity ingest path authenticates the caller but does not yet bind an
+identity to a cell, so any authenticated caller may report for any registered cell. Closing it
+requires the shape of the agent's own projected ServiceAccount token, which is ENG-174's to define.
+Until then the control above is the registration gate, not the reporter's identity.
 
 **Residual risk.** A compromised agent can still lie about its own cell's utilisation and attract
 deploys to a cluster the attacker already controls. That is a strictly smaller win than T-04, because
