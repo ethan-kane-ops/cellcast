@@ -99,15 +99,33 @@ is the primary remote attack and the JWT parser is the most exposed code in the 
 
 | Control | Ticket | Status |
 | --- | --- | --- |
-| Issuer allowlist checked before any attacker-influenced parsing | ENG-172 | Planned |
-| Full signature verification against the issuer's JWKS | ENG-172 | Planned |
-| Explicit algorithm allowlist; `alg: none` and algorithm confusion rejected | ENG-172 | Planned |
-| `aud` bound to this specific cellcast instance | ENG-172 | Planned |
-| `exp` and `nbf` enforced with a bounded, configured clock skew | ENG-172 | Planned |
-| JWKS cached with background refresh and key rotation handling | ENG-172 | Planned |
-| JWKS unavailability never degrades to accepting unverified tokens | ENG-172 | Planned |
+| Issuer allowlist checked before any attacker-influenced parsing | ENG-172 | Implemented |
+| Issuer compared literally, never by prefix or suffix | ENG-172 | Implemented |
+| Full signature verification against the issuer's JWKS | ENG-172 | Implemented |
+| Explicit algorithm allowlist; `alg: none` and algorithm confusion rejected | ENG-172 | Implemented |
+| `aud` bound to this specific cellcast instance | ENG-172 | Implemented |
+| `exp`, `nbf` and `iat` enforced with a bounded, configured clock skew | ENG-172 | Implemented |
+| A token with no `exp` is refused rather than treated as non-expiring | ENG-172 | Implemented |
+| JWKS cached, with key rotation handled by refetch on an unknown key id | ENG-172 | Implemented |
+| JWKS unavailability never degrades to accepting unverified tokens | ENG-172 | Implemented |
+| Token size bounded before any decoding | ENG-172 | Implemented |
 | Fuzz target over claim extraction, per provider | ENG-184 | Planned (v0.2) |
-| Structured rejection reasons, logged and metered | ENG-172, ENG-178 | Planned |
+| Structured rejection reasons, logged | ENG-172 | Implemented |
+| Rejection reasons metered | ENG-178 | Planned (v0.2) |
+
+**What is read before verification, and why.** Selecting a key set requires knowing which issuer
+signed the token, and that can only come from the token itself. The pre-verification step is
+therefore kept to the smallest thing that makes verification possible: a length bound, a split into
+three segments, and a base64 decode of the header's `alg` and the payload's `iss`. Nothing read
+there is trusted or retained. The issuer is re-read from the verified payload and compared again
+after the signature checks out, so a token whose unsigned header names an allowlisted issuer and
+whose signed body names another is rejected.
+
+**Background refresh, stated accurately.** Key rotation is handled by refetching the JWKS when a key
+id is not recognised, rate-limited so unknown key ids cannot be turned into load on the issuer. The
+periodic loop re-resolves issuer metadata and swaps the key set only if `jwks_uri` has moved; it
+does not pre-warm keys, because the underlying key set exposes no refresh hook. The cost is one
+extra fetch on the first request after a rotation, not a rejected request.
 
 **Replay, stated plainly.** A valid caller JWT replayed inside its own validity window **will** mint
 again. cellcast does not maintain a nonce or `jti` replay cache in v0.1. The exposure is bounded by
