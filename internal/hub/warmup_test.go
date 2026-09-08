@@ -195,10 +195,12 @@ func warmupServer(t *testing.T, check WarmupCheck, warmupTimeout time.Duration) 
 	return srv
 }
 
-func TestWarmthLatchesAndNeverFallsBack(t *testing.T) {
-	// Warmth going backwards would take readiness with it, so a fleet-wide bad
-	// minute would pull every replica out of the Service at once and turn a
-	// degraded decision into no hub at all.
+func TestTheWarmupPollStopsOnceWarm(t *testing.T) {
+	// Warmth latches, and the poll behind it has to stop as well. A poll that
+	// kept running is one edit away from mirroring a later failing check back
+	// onto the latch, and warmth that could fall back would take readiness with
+	// it: one bad minute across the fleet would pull every replica out of the
+	// Service at once, turning a degraded decision into no hub at all.
 	script := &scriptedCheck{answers: []bool{true, false, false}}
 	srv := warmupServer(t, script.check, time.Minute)
 
@@ -206,13 +208,15 @@ func TestWarmthLatchesAndNeverFallsBack(t *testing.T) {
 	if !srv.warm.Load() {
 		t.Fatal("warm = false after a passing check, want true")
 	}
+	settled := script.calls.Load()
 
-	// Drive the check past its first answer and confirm nothing unlatches.
-	for range 3 {
-		script.check(t.Context())
+	time.Sleep(2 * warmupPollInterval)
+
+	if got := script.calls.Load(); got != settled {
+		t.Errorf("the warmup check ran %d more times after latching, want the poll stopped", got-settled)
 	}
 	if !srv.warm.Load() {
-		t.Error("warm = false after the check started failing, want it to have latched")
+		t.Error("warm = false after latching, want it to have stayed")
 	}
 }
 
