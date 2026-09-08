@@ -7,3 +7,6 @@ coverage.out
 .DS_Store
 .env
 .env.local
+
+# mkdocs build output
+site/

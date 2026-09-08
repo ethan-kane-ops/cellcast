@@ -1,0 +1,156 @@
+# Placement policy
+
+A `PlacementPolicy` answers two questions in order: **which callers may reach
+which cells**, and **how the survivors are ranked**. The order is the security
+control.
+
+## Deny by default
+
+A caller matching no policy is refused with `NoPolicy`. There is no "any cell"
+fallback, and no flag turns one on. This is the single most important property
+of the object and everything else follows from it.
+
+## The shape
+
+```yaml
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: app-prod
+  namespace: cellcast-system
+spec:
+  subjects:
+    - issuer: https://token.actions.githubusercontent.com
+      subject: repo:acme/checkout:ref:refs/heads/main
+      claims:
+        repository: acme/checkout
+  permittedCells:
+    matchLabels:
+      env: prod
+    matchExpressions:
+      - key: region
+        operator: In
+        values: [euw1, euw2]
+  strategy: LeastLoaded
+  tokenTTL:
+    default: 15m
+    max: 30m
+  allowDarkTargeting: false
+```
+
+### `subjects`
+
+Who the policy is about, matched against the caller's verified token claims.
+Every field present must match; a `SubjectSelector` is an AND.
+
+`issuer` is required and must also be on the hub's own allowlist. Naming an
+issuer here does not add it: the hub verifies signatures only against issuers it
+was started with, so a policy naming an unconfigured issuer matches nothing.
+
+`subject` and `claims` are exact-match. There is deliberately no pattern
+matching. A glob in a policy is read as narrower than it is, and the failure is
+silent until somebody notices a branch they did not expect deploying to
+production.
+
+!!! warning "An issuer-only selector is broader than it looks"
+
+    Against a Kubernetes cluster issuer, an issuer-only selector permits every
+    workload in that cluster, because `sub` is the only claim distinguishing
+    them. Against a CI issuer it permits every repository on the platform.
+    Name a `subject`, or a `claims` entry, for anything but a development
+    policy.
+
+### `permittedCells`
+
+A standard label selector over registered `Cluster` objects, evaluated at
+decision time. Labelling a new cell `env: prod` adds it to every policy that
+selects on that label, without editing any of them. That is the point, and it is
+also the thing to be careful about.
+
+An empty selector matches every registered cell. That is valid and occasionally
+what you want; it is never what you want in production.
+
+### `strategy`
+
+How the permitted, eligible survivors are ranked:
+
+| Strategy | Ranking |
+|---|---|
+| `LeastLoaded` (default) | Lowest committed capacity, where committed is the larger of CPU and memory pressure |
+| `RoundRobin` | Even distribution, ignoring load |
+
+Utilisation is the **maximum** of CPU and memory pressure, not the mean. A cell
+at 95% memory and 10% CPU is nearly full, not half loaded, and averaging is how
+a scheduler keeps sending work to a cell one pod away from evicting things.
+
+Scoring only ever runs on cells that already passed the filter. The least-loaded
+cell in the estate is never returned to a caller not permitted to reach it.
+
+### `tokenTTL`
+
+`default` is granted when the caller asks for nothing. `max` is the ceiling; a
+longer request is clamped, and the response says so. The hub's own
+`--token-max-ttl` bounds every policy, so a policy cannot raise it.
+
+The Kubernetes `TokenRequest` API enforces a floor of ten minutes and applies no
+maximum of its own unless the cluster operator configured one. A `max` below ten
+minutes therefore produces a policy that admits placements and can never mint
+for them.
+
+### `allowDarkTargeting`
+
+Whether a caller under this policy may ask for a `DARK` cell with `--dark`. Off
+by default. A dark cell is reachable **only** through a policy that permits it,
+which is what makes running QA smoke tests against a dark cell safe.
+
+## Cell state, which is not policy
+
+A cell's `spec.state` is set by an operator and applies to every policy:
+
+| State | Receives new placements | Serves production traffic |
+|---|---|---|
+| `LIVE` | yes | yes |
+| `DARK` | only when explicitly requested | no |
+| `DRAINING` | no | yes |
+
+`DRAINING` is the upgrade-window state: existing workloads keep serving and new
+deploys route elsewhere, without anyone editing a pipeline. It is why there are
+three states rather than two.
+
+## Seeing what a policy does
+
+Before relying on a policy, ask what it does:
+
+```console
+$ cellcast place --workload checkout-api --dry-run --explain
+would place checkout-api on prod-euw1 (policy app-prod, LeastLoaded, confidence high)
+
+CELL        ADMITTED  STAGE       REASON                                        UTILISATION
+prod-euw1   yes                                                                 0.42
+prod-euw2   yes                                                                 0.77
+dev-euw1    no        permission  cell is not permitted by this caller's policy  0.01
+```
+
+The `STAGE` column says where a cell dropped out:
+
+| Stage | Meaning |
+|---|---|
+| `permission` | The policy's `permittedCells` does not select it |
+| `state` | It is `DRAINING`, or `DARK` without a dark-targeting request |
+| `capacity` | Its capacity is stale or missing, so it cannot be ranked |
+
+A cell excluded at `capacity` is a monitoring problem, not a policy problem.
+
+## Policy readiness
+
+The hub reports whether a policy currently selects anything:
+
+```console
+$ kubectl -n cellcast-system get placementpolicy
+NAME       STRATEGY      READY   CELLS
+app-prod   LeastLoaded   True    selector "env=prod" matches 2 registered cell(s)
+qa-dark    LeastLoaded   False   selector "env=qa" matches no registered cell
+```
+
+`READY: False` means a policy that will refuse every caller it matches. It is
+usually a label typo, and it is much cheaper to see here than in a build log.
