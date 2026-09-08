@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
 // theToken is a sentinel so a leak into any output is unmistakable.
@@ -48,7 +50,9 @@ func successBody(cell string) map[string]any {
 			"token":                    theToken,
 			"expiresAt":                time.Now().Add(10 * time.Minute).Format(time.RFC3339),
 		},
-		"ttl": map[string]any{"granted": "10m0s", "default": "10m0s", "max": "15m0s"},
+		"ttl":        map[string]any{"granted": "10m0s", "default": "10m0s", "max": "15m0s"},
+		"confidence": "high",
+		"decidedFor": "repo:acme/checkout:ref:refs/heads/main",
 	}
 }
 
@@ -57,6 +61,11 @@ func run(t *testing.T, hub string, args ...string) (string, error) {
 	t.Helper()
 
 	t.Setenv(tokenEnv, "caller-token")
+	if os.Getenv(cacheDirEnv) == "" {
+		// Never the developer's own cache. A test that placed successfully
+		// would otherwise leave an entry in it that a later run could read.
+		t.Setenv(cacheDirEnv, t.TempDir())
+	}
 
 	cmd := NewRootCmd()
 	var out bytes.Buffer
@@ -231,31 +240,15 @@ func TestRefusalsSurfaceTheReason(t *testing.T) {
 		t.Fatal("place = nil, want a refusal")
 	}
 
-	var refusal *Refusal
-	if !errors.As(err, &refusal) {
+	var ref *Refusal
+	if !errors.As(err, &ref) {
 		t.Fatalf("error = %T, want *Refusal", err)
 	}
-	if refusal.Reason != "NoPolicy" {
-		t.Errorf("reason = %q, want NoPolicy", refusal.Reason)
+	if ref.Reason != refusal.NoPolicy {
+		t.Errorf("reason = %q, want NoPolicy", ref.Reason)
 	}
-	if refusal.Retryable() {
-		t.Error("an authorization refusal is reported as retryable")
-	}
-}
-
-func TestRetryableRefusal(t *testing.T) {
-	srv := hubStub(t, http.StatusServiceUnavailable, map[string]string{
-		"reason": "CapacityUnknown",
-		"error":  "no permitted cell has usable capacity",
-	})
-
-	_, err := run(t, srv.URL, "--workload", "checkout-api")
-	var refusal *Refusal
-	if !errors.As(err, &refusal) {
-		t.Fatalf("error = %v, want *Refusal", err)
-	}
-	if !refusal.Retryable() {
-		t.Error("a capacity blackout is reported as permanent")
+	if ref.Status != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", ref.Status)
 	}
 }
 
@@ -306,4 +299,284 @@ func TestTokenSources(t *testing.T) {
 			t.Errorf("error = %q, want it to name the path", err)
 		}
 	})
+}
+
+// mutableHub serves whatever the test sets, so one server can answer normally,
+// then refuse, then be closed underneath the client.
+type mutableHub struct {
+	*httptest.Server
+	status int
+	body   any
+}
+
+func newMutableHub(t *testing.T) *mutableHub {
+	t.Helper()
+	h := &mutableHub{status: http.StatusOK, body: successBody("prod-euw1")}
+	h.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(h.status)
+		if err := json.NewEncoder(w).Encode(h.body); err != nil {
+			t.Errorf("encoding stub response: %v", err)
+		}
+	}))
+	t.Cleanup(h.Close)
+	return h
+}
+
+func (h *mutableHub) refuse(status int, reason refusal.Reason, msg string) {
+	h.status, h.body = status, map[string]string{"reason": string(reason), "error": msg}
+}
+
+// warmCache points the client at a private cache directory and places once
+// against a live hub, so a later call has something to fall back to.
+func warmCache(t *testing.T, hub string, args ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv(cacheDirEnv, dir)
+
+	if _, err := run(t, hub, append([]string{"--workload", "checkout-api", "--dry-run"}, args...)...); err != nil {
+		t.Fatalf("warming the cache: %v", err)
+	}
+	return dir
+}
+
+func TestSuccessfulPlacementIsCached(t *testing.T) {
+	h := newMutableHub(t)
+	dir := warmCache(t, h.URL)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading the cache directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("the cache holds %d entries, want 1", len(entries))
+	}
+}
+
+// TestFallbackFailIsTheDefault pins the stance a caller gets without asking.
+// Anything else would be an implicit fallback, which is how a deploy silently
+// lands in the wrong cluster.
+func TestFallbackFailIsTheDefault(t *testing.T) {
+	h := newMutableHub(t)
+	warmCache(t, h.URL)
+	h.Close()
+
+	out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run")
+	if err == nil {
+		t.Fatalf("place = nil with a dead hub and no declared stance:\n%s", out)
+	}
+	if strings.Contains(out, "prod-euw1") {
+		t.Errorf("a cell was named without a stance permitting it:\n%s", out)
+	}
+}
+
+func TestFallbackLastKnown(t *testing.T) {
+	h := newMutableHub(t)
+	warmCache(t, h.URL)
+	h.Close()
+
+	out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--on-unavailable", "last-known")
+	if err != nil {
+		t.Fatalf("place = %v, want the pipeline to keep moving:\n%s", err, out)
+	}
+
+	for _, want := range []string{"prod-euw1", "last known", "no credential was minted"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output = %q, want it to mention %q", out, want)
+		}
+	}
+	// Whose decision was inherited is the first thing anyone asks.
+	if !strings.Contains(out, "repo:acme/checkout") {
+		t.Errorf("output does not say who the cached decision was made for:\n%s", out)
+	}
+}
+
+func TestFallbackPinnedCell(t *testing.T) {
+	h := newMutableHub(t)
+	warmCache(t, h.URL)
+	h.Close()
+
+	// The cache holds prod-euw1. A pinned cell is a declaration, so it wins.
+	out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--on-unavailable", "prod-euw3")
+	if err != nil {
+		t.Fatalf("place = %v, want the declared cell:\n%s", err, out)
+	}
+	if !strings.Contains(out, "prod-euw3") || strings.Contains(out, "prod-euw1") {
+		t.Errorf("output = %q, want the declared cell rather than the cached one", out)
+	}
+}
+
+func TestFallbackLastKnownWithNothingCached(t *testing.T) {
+	h := newMutableHub(t)
+	h.Close()
+	t.Setenv(cacheDirEnv, t.TempDir())
+
+	out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--on-unavailable", "last-known")
+	if err == nil {
+		t.Fatalf("place = nil with an empty cache:\n%s", out)
+	}
+	// Both halves. Either alone sends the reader to the wrong place.
+	for _, want := range []string{"hub", "checkout-api"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to mention %q", err, want)
+		}
+	}
+}
+
+// TestAuthorizationRefusalIsNeverAnsweredFromAFallback is the control this
+// whole feature turns on. If a stance could answer a refusal, the placement
+// policy would be advice and `--on-unavailable` would be the way around it.
+func TestAuthorizationRefusalIsNeverAnsweredFromAFallback(t *testing.T) {
+	refusals := []struct {
+		name   string
+		status int
+		reason refusal.Reason
+	}{
+		{"no policy matches", http.StatusForbidden, refusal.NoPolicy},
+		{"dark targeting refused", http.StatusForbidden, refusal.DarkNotPermitted},
+		{"the policy permits no cell", http.StatusConflict, refusal.NoPermittedCells},
+		{"minting failed", http.StatusServiceUnavailable, refusal.MintFailed},
+		{"the broker is gone", http.StatusServiceUnavailable, refusal.MintUnavailable},
+	}
+	stances := []string{"last-known", "prod-euw3"}
+
+	for _, r := range refusals {
+		for _, stance := range stances {
+			t.Run(r.name+" with "+stance, func(t *testing.T) {
+				h := newMutableHub(t)
+				warmCache(t, h.URL)
+				h.refuse(r.status, r.reason, "refused")
+
+				out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--on-unavailable", stance)
+				if err == nil {
+					t.Fatalf("%s was answered by --on-unavailable=%s:\n%s", r.reason, stance, out)
+				}
+				if !strings.Contains(err.Error(), "--on-unavailable") {
+					t.Errorf("error = %q, want it to say why the stance did not apply", err)
+				}
+			})
+		}
+	}
+}
+
+// TestOptimisationFailureIsAnsweredFromTheCache is the other half. Failing
+// closed on everything would make the feature pointless.
+func TestOptimisationFailureIsAnsweredFromTheCache(t *testing.T) {
+	for _, reason := range []refusal.Reason{refusal.CapacityUnknown, refusal.NoEligibleCells, refusal.PlacementUnavailable} {
+		t.Run(string(reason), func(t *testing.T) {
+			h := newMutableHub(t)
+			warmCache(t, h.URL)
+			h.refuse(http.StatusServiceUnavailable, reason, "the hub cannot choose")
+
+			out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--on-unavailable", "last-known")
+			if err != nil {
+				t.Fatalf("place = %v, want the cached decision:\n%s", err, out)
+			}
+			if !strings.Contains(out, "prod-euw1") {
+				t.Errorf("output = %q, want the cached cell", out)
+			}
+		})
+	}
+}
+
+// TestFallbackRemovesAStaleKubeconfig is the wrong-cluster hazard. An earlier
+// run's credential left next to a fallback decision would be picked up by the
+// next step and the deploy would land wherever that run chose.
+func TestFallbackRemovesAStaleKubeconfig(t *testing.T) {
+	h := newMutableHub(t)
+	t.Setenv(cacheDirEnv, t.TempDir())
+	kubeconfig := filepath.Join(t.TempDir(), "cellcast.kubeconfig")
+
+	if _, err := run(t, h.URL, "--workload", "checkout-api", "--kubeconfig", kubeconfig); err != nil {
+		t.Fatalf("the first placement failed: %v", err)
+	}
+	if _, err := os.Stat(kubeconfig); err != nil {
+		t.Fatalf("the first placement wrote no kubeconfig: %v", err)
+	}
+
+	h.Close()
+	out, err := run(t, h.URL, "--workload", "checkout-api", "--kubeconfig", kubeconfig, "--on-unavailable", "last-known")
+	if err != nil {
+		t.Fatalf("place = %v, want the cached decision:\n%s", err, out)
+	}
+
+	if _, err := os.Stat(kubeconfig); !os.IsNotExist(err) {
+		t.Errorf("stat(%s) = %v; a fallback left the previous run's credential in place", kubeconfig, err)
+	}
+}
+
+// TestFallbackDoesNotRefreshTheCache keeps an entry from renewing its own
+// lifetime. Written on every fallback, a decision would survive an outage of
+// any length without the hub ever confirming it again.
+func TestFallbackDoesNotRefreshTheCache(t *testing.T) {
+	h := newMutableHub(t)
+	dir := warmCache(t, h.URL)
+	h.Close()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("ReadDir(%s) = %v, %v; want one cache entry", dir, entries, err)
+	}
+	path := filepath.Join(dir, entries[0].Name())
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the entry: %v", err)
+	}
+
+	if _, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--on-unavailable", "last-known"); err != nil {
+		t.Fatalf("place = %v, want the cached decision", err)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the entry after a fallback: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a fallback rewrote the cache entry:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// TestJSONResultNamesItsSource is what a pipeline branches on. Without it the
+// only difference between a fresh decision and a replayed one is the absence of
+// a credential, which is found at the kubectl call rather than here.
+func TestJSONResultNamesItsSource(t *testing.T) {
+	h := newMutableHub(t)
+	warmCache(t, h.URL)
+
+	decode := func(t *testing.T, out string) map[string]any {
+		t.Helper()
+		var body map[string]any
+		if err := json.Unmarshal([]byte(out), &body); err != nil {
+			t.Fatalf("decoding %q: %v", out, err)
+		}
+		return body
+	}
+
+	out, err := run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("place = %v", err)
+	}
+	fresh := decode(t, out)
+	if fresh["source"] != SourceHub || fresh["confidence"] != "high" {
+		t.Errorf("a fresh decision reports source %v confidence %v, want hub/high", fresh["source"], fresh["confidence"])
+	}
+	if _, ok := fresh["unavailable"]; ok {
+		t.Error("a fresh decision carries an unavailable field")
+	}
+
+	h.Close()
+	out, err = run(t, h.URL, "--workload", "checkout-api", "--dry-run", "--json", "--on-unavailable", "last-known")
+	if err != nil {
+		t.Fatalf("place = %v", err)
+	}
+	cached := decode(t, out)
+	if cached["source"] != SourceCache || cached["confidence"] != ConfidenceStale {
+		t.Errorf("a cached decision reports source %v confidence %v, want cache/stale", cached["source"], cached["confidence"])
+	}
+	if cached["unavailable"] == nil {
+		t.Error("a cached decision does not say why the hub was not used")
+	}
+	if cached["credential"] != nil {
+		t.Error("a cached decision carries a credential")
+	}
 }

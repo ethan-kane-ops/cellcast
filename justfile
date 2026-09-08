@@ -138,7 +138,7 @@ verify-mint:
     kubectl -n apps create rolebinding deployer --role=deployer --serviceaccount=apps:deployer
     CELLCAST_LIVE=1 go test ./internal/hub/broker/ -run TestLiveMint -v -count=1
 
-# Place a workload end to end and use the credential that comes back
+# Place a workload end to end, then kill the hub and check every fallback stance
 verify-e2e:
     #!/usr/bin/env bash
     # The whole product against one cluster: a caller identity, a policy, a
@@ -146,6 +146,11 @@ verify-e2e:
     # to talk to the cell it names. The assertion that matters is that the least
     # loaded cell in the fleet is deliberately one the caller may not reach, so
     # a scoring pass that ran before the permission filter would return it.
+    #
+    # The second test is ENG-175's done-when: the same fixture, with the hub
+    # stopped mid-pipeline, then restarted. It checks each declared
+    # --on-unavailable stance and that no stance answers an authorization
+    # refusal (docs/architecture.md ADR-006).
     #
     # Not part of `check`: it needs docker and takes about a minute.
     set -euo pipefail
@@ -165,7 +170,7 @@ verify-e2e:
     kubectl -n apps create role deployer --verb=list,get,watch --resource=pods
     kubectl -n apps create rolebinding deployer --role=deployer --serviceaccount=apps:deployer
     just build
-    CELLCAST_LIVE=1 go test ./internal/hub/ -run TestLiveEndToEnd -v -count=1
+    CELLCAST_LIVE=1 go test ./internal/hub/ -run 'TestLiveEndToEnd|TestLiveFallback' -v -count=1
 
 # Run three real cells with real agents and watch one drop out of scoring
 verify-agent:

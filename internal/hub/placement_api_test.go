@@ -17,6 +17,7 @@ import (
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
+	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
 // mintedToken is a sentinel so a leak into any response is unmistakable.
@@ -247,13 +248,13 @@ func TestPlacementRefusals(t *testing.T) {
 		name       string
 		err        error
 		wantStatus int
-		wantReason string
+		wantReason refusal.Reason
 	}{
-		{"no policy matches", placement.ErrNoPolicy, http.StatusForbidden, ReasonNoPolicy},
-		{"dark targeting refused", placement.ErrDarkNotPermitted, http.StatusForbidden, ReasonDarkNotPermitted},
-		{"policy permits nothing", placement.ErrNoPermittedCells, http.StatusConflict, ReasonNoPermittedCells},
-		{"everything is draining", placement.ErrNoEligibleCells, http.StatusServiceUnavailable, ReasonNoEligibleCells},
-		{"capacity is unknown", placement.ErrCapacityUnknown, http.StatusServiceUnavailable, ReasonCapacityUnknown},
+		{"no policy matches", placement.ErrNoPolicy, http.StatusForbidden, refusal.NoPolicy},
+		{"dark targeting refused", placement.ErrDarkNotPermitted, http.StatusForbidden, refusal.DarkNotPermitted},
+		{"policy permits nothing", placement.ErrNoPermittedCells, http.StatusConflict, refusal.NoPermittedCells},
+		{"everything is draining", placement.ErrNoEligibleCells, http.StatusServiceUnavailable, refusal.NoEligibleCells},
+		{"capacity is unknown", placement.ErrCapacityUnknown, http.StatusServiceUnavailable, refusal.CapacityUnknown},
 	}
 
 	for _, tt := range tests {
@@ -269,7 +270,7 @@ func TestPlacementRefusals(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decoding refusal: %v", err)
 			}
-			if body["reason"] != tt.wantReason {
+			if refusal.Reason(body["reason"]) != tt.wantReason {
 				t.Errorf("reason = %q, want %q", body["reason"], tt.wantReason)
 			}
 		})
@@ -390,5 +391,132 @@ func TestPlacementRequiresAuthentication(t *testing.T) {
 	rec := post(t, srv.apiHandler(), `{"workload":"checkout-api"}`)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401 under the default deny-all authenticator", rec.Code)
+	}
+}
+
+// TestPlacementStatesItsConfidence covers the advisory half of ADR-006. A
+// recommendation that does not say how much of the fleet it could see is being
+// read as a command.
+func TestPlacementStatesItsConfidence(t *testing.T) {
+	tests := []struct {
+		name       string
+		candidates []placement.Candidate
+		want       string
+	}{
+		{
+			name: "every permitted cell was ranked",
+			candidates: []placement.Candidate{
+				{Cell: "dev-euw1", Stage: placement.StagePermission, Reason: "not permitted"},
+				{Cell: "prod-euw1", Admitted: true, Utilisation: 0.42},
+				{Cell: "prod-euw2", Admitted: true, Utilisation: 0.77},
+			},
+			want: "high",
+		},
+		{
+			name: "a permitted cell stopped reporting",
+			candidates: []placement.Candidate{
+				{Cell: "prod-euw1", Admitted: true, Utilisation: 0.42},
+				{Cell: "prod-euw2", Stage: placement.StageCapacity, Reason: "capacity is stale"},
+			},
+			want: "degraded",
+		},
+		{
+			// A drained cell is an operator's decision, not a gap in the hub's
+			// view. Reporting it as degraded would make the signal meaningless
+			// during any planned maintenance.
+			name: "a permitted cell is draining",
+			candidates: []placement.Candidate{
+				{Cell: "prod-euw1", Admitted: true, Utilisation: 0.42},
+				{Cell: "prod-euw2", Stage: placement.StageState, Reason: "cell is DRAINING"},
+			},
+			want: "high",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := testDecision()
+			d.Candidates = tt.candidates
+			h := placementServer(t, &stubPlacer{decision: d}, &stubMinter{}, registeredCell("prod-euw1"))
+
+			rec := post(t, h, `{"workload":"checkout-api"}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("POST = %d (%s), want 200", rec.Code, rec.Body)
+			}
+
+			var body placementResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding response: %v", err)
+			}
+			if body.Confidence != tt.want {
+				t.Errorf("confidence = %q, want %q", body.Confidence, tt.want)
+			}
+		})
+	}
+}
+
+// TestPlacementNamesTheSubjectItDecidedFor keeps a cached decision honest about
+// whose decision it was, and answers the question every failing pipeline asks
+// first: who did the hub think I was.
+func TestPlacementNamesTheSubjectItDecidedFor(t *testing.T) {
+	h := placementServer(t, &stubPlacer{decision: testDecision()}, &stubMinter{}, registeredCell("prod-euw1"))
+
+	rec := post(t, h, `{"workload":"checkout-api"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST = %d (%s), want 200", rec.Code, rec.Body)
+	}
+
+	var body placementResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if want := "repo:acme/app:ref:refs/heads/main"; body.DecidedFor != want {
+		t.Errorf("decidedFor = %q, want %q", body.DecidedFor, want)
+	}
+}
+
+// TestUnavailableReasonsAreNotInterchangeable pins a split ENG-175 needs and
+// ENG-114 did not make. Both of these are 503s and they call for opposite
+// client behaviour: a hub that cannot decide may be answered by a declared
+// fallback, and a hub that cannot mint may never be.
+func TestUnavailableReasonsAreNotInterchangeable(t *testing.T) {
+	tests := []struct {
+		name   string
+		placer Placer
+		minter Minter
+		want   refusal.Reason
+	}{
+		{
+			name:   "no placer wired",
+			minter: &stubMinter{},
+			want:   refusal.PlacementUnavailable,
+		},
+		{
+			name:   "no minter wired",
+			placer: &stubPlacer{decision: testDecision()},
+			want:   refusal.MintUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := placementServer(t, tt.placer, tt.minter, registeredCell("prod-euw1"))
+
+			rec := post(t, h, `{"workload":"checkout-api"}`)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("POST = %d (%s), want 503", rec.Code, rec.Body)
+			}
+
+			var body map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding refusal: %v", err)
+			}
+			if got := refusal.Reason(body["reason"]); got != tt.want {
+				t.Errorf("reason = %q, want %q", got, tt.want)
+			}
+			if refusal.Optimisation(tt.want) != (tt.want == refusal.PlacementUnavailable) {
+				t.Errorf("%q is classified wrongly for a client fallback", tt.want)
+			}
+		})
 	}
 }

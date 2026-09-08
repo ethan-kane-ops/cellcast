@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
 // ErrNoToken means no caller identity token was supplied.
@@ -54,9 +56,15 @@ type TTL struct {
 
 // Placement is a decision, and the credential when one was minted.
 type Placement struct {
-	Cell         string      `json:"cell"`
-	Policy       string      `json:"policy"`
-	Strategy     string      `json:"strategy"`
+	Cell     string `json:"cell"`
+	Policy   string `json:"policy"`
+	Strategy string `json:"strategy"`
+	// Confidence is how much of the permitted fleet the hub could see. A
+	// decision that did not come from the hub carries its own value here; see
+	// the confidence constants.
+	Confidence string `json:"confidence,omitempty"`
+	// DecidedFor is the subject the hub resolved the caller to.
+	DecidedFor   string      `json:"decidedFor,omitempty"`
 	TargetedDark bool        `json:"targetedDark"`
 	DryRun       bool        `json:"dryRun"`
 	Credential   *Credential `json:"credential"`
@@ -68,21 +76,12 @@ type Placement struct {
 type Refusal struct {
 	Status int
 	// Reason is the machine-readable code. Match on this, never on Message.
-	Reason  string `json:"reason"`
-	Message string `json:"error"`
+	Reason  refusal.Reason `json:"reason"`
+	Message string         `json:"error"`
 }
 
 func (r *Refusal) Error() string {
 	return fmt.Sprintf("%s: %s", r.Reason, r.Message)
-}
-
-// Retryable reports whether waiting could change the answer.
-//
-// An authorization refusal never becomes a yes, so a pipeline that retries one
-// is burning minutes to be told no again. A fleet with no eligible cell may
-// recover on its own. ENG-175 builds the fallback stance on this distinction.
-func (r *Refusal) Retryable() bool {
-	return r.Status >= 500
 }
 
 // placeRequest is the body sent to the hub.
@@ -131,6 +130,11 @@ func NewClient(hub, tokenFile string, timeout time.Duration) (*Client, error) {
 	}, nil
 }
 
+// Hub is the normalised hub address this client talks to. The decision cache
+// keys on it, so it has to be the value after normalisation rather than the
+// flag as typed.
+func (c *Client) Hub() string { return c.hub }
+
 // Place asks the hub where to deploy, and for a credential unless dryRun.
 func (c *Client) Place(ctx context.Context, req placeRequest) (*Placement, error) {
 	body, err := json.Marshal(req)
@@ -155,12 +159,15 @@ func (c *Client) Place(ctx context.Context, req placeRequest) (*Placement, error
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		refusal := &Refusal{Status: resp.StatusCode}
-		if err := json.NewDecoder(resp.Body).Decode(refusal); err != nil || refusal.Reason == "" {
-			refusal.Reason = "Unknown"
-			refusal.Message = fmt.Sprintf("hub returned %s", resp.Status)
+		ref := &Refusal{Status: resp.StatusCode}
+		if err := json.NewDecoder(resp.Body).Decode(ref); err != nil || ref.Reason == "" {
+			// A proxy in front of the hub answers in HTML, and a hub that fell
+			// over answers not at all. Both land here, and neither is a
+			// classifiable refusal.
+			ref.Reason = refusal.Unknown
+			ref.Message = fmt.Sprintf("hub returned %s", resp.Status)
 		}
-		return nil, refusal
+		return nil, ref
 	}
 
 	var out Placement

@@ -112,6 +112,39 @@ type Decision struct {
 	Candidates []Candidate
 }
 
+// Confidence levels a decision can carry.
+//
+// A placement is a recommendation, not a command (docs/architecture.md
+// ADR-006), and a recommendation that does not say how much of the fleet it
+// could see is not one a pipeline can reason about.
+type Confidence string
+
+const (
+	// ConfidenceHigh means every permitted, eligible cell reported fresh
+	// capacity and was ranked.
+	ConfidenceHigh Confidence = "high"
+
+	// ConfidenceDegraded means at least one permitted, eligible cell was
+	// excluded because its capacity was stale or had never arrived. The chosen
+	// cell is the best of what the hub could see, which is not the same claim
+	// as the best there is.
+	ConfidenceDegraded Confidence = "degraded"
+)
+
+// Confidence reports how much of the permitted fleet the decision could see.
+//
+// Only capacity exclusions count. A draining or dark cell was excluded by a
+// deliberate operator action and its absence is not a gap in the hub's view;
+// a cell whose agent stopped reporting is exactly that gap.
+func (d *Decision) Confidence() Confidence {
+	for _, c := range d.Candidates {
+		if c.Stage == StageCapacity {
+			return ConfidenceDegraded
+		}
+	}
+	return ConfidenceHigh
+}
+
 // Admitted returns the candidates that survived the filter, best first.
 func (d *Decision) Admitted() []Candidate {
 	var out []Candidate

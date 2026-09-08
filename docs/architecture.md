@@ -340,6 +340,42 @@ with someone else's production traffic.
 **Token minting never falls back.** A cached placement is a cached decision, never a cached
 credential. The client re-mints or fails.
 
+**What that costs, said plainly.** Minting runs through the hub, so a hub that cannot be reached
+cannot issue a credential either. A fallback therefore returns a cell and nothing else. It is worth
+having for two kinds of pipeline: one that only needs the cell name (`--dry-run`, to pick a values
+file or a target it already holds access to), and one that keeps a break-glass credential for
+exactly this. A pipeline with neither cannot deploy through a hub outage, and `--on-unavailable`
+will not change that. Claiming otherwise would be selling the cache as something it is not.
+
+**Which failures a stance may answer.** The classification lives in `internal/refusal`, imported by
+both the hub and the client so the two cannot drift apart:
+
+| Refusal | Status | May a stance answer it |
+| --- | --- | --- |
+| `NoPolicy`, `DarkNotPermitted`, `NoPermittedCells` | 403, 409 | No. Authorization. A flag must not be a way around policy |
+| `InvalidRequest` | 400 | No. A fallback would hide the typo and deploy anyway |
+| `NoEligibleCells`, `CapacityUnknown` | 503 | Yes. The caller is permitted and the hub cannot rank |
+| `PlacementUnavailable` | 503 | Yes. The hub is up and cannot decide |
+| `MintUnavailable`, `MintFailed` | 503 | No. Minting never falls back |
+| No response, or a gateway's 502/503/504 | any | Yes. Nothing was decided, so nothing was refused |
+
+`PlacementUnavailable` and `MintUnavailable` were one code until this was implemented. They look
+identical on the wire and call for opposite behaviour, which is the sort of thing that only shows up
+when something downstream has to act on it.
+
+**Stated confidence.** Every decision says where it came from and how much was known when it was
+made. `source` is `hub`, `cache` or `pinned`. `confidence` is `high` when every permitted, eligible
+cell reported fresh capacity and was ranked; `degraded` when at least one was excluded because its
+capacity was stale or had never arrived; `stale` for a replayed decision; `none` for a pinned cell.
+A drained or dark cell does not degrade a decision: it was excluded by an operator on purpose, and
+counting it would make the signal meaningless during any planned maintenance.
+
+**Two details that are not obvious and matter more than the rest of the feature.** A fallback
+deletes the kubeconfig at the target path, because a credential left by an earlier run is a live
+credential for whichever cell *that* run chose, and the next step would use it without anyone having
+selected where the deploy landed. And a fallback never writes the cache, or an entry would keep
+renewing its own lifetime and a decision could outlive its TTL for as long as the outage lasted.
+
 ---
 
 ### ADR-007: three binaries, not one
@@ -449,7 +485,10 @@ Capacity is deliberately not a resource. It lives in memory per ADR-002.
 
 | Failure | Behaviour |
 | --- | --- |
-| Hub unreachable | Client applies its declared `--on-unavailable` stance (ADR-006) |
+| Hub unreachable | Client applies its declared `--on-unavailable` stance, and the default stance is to fail (ADR-006) |
+| Hub reachable but refusing on authorization | No stance applies. A fallback is never a way past a refusal (ADR-006) |
+| Hub reachable but unable to rank | A stance may answer it, because the caller was already found to be permitted |
+| A stance answered | A cell and no credential. The stale kubeconfig at the target path is removed |
 | Agent stopped reporting | Cell goes `Unknown` after the staleness window and drops out of scoring |
 | Agent cannot reach the hub | Retries with jittered backoff, buffering nothing; the cell goes `Unknown` rather than being scored on stale numbers |
 | Cell names no reporter | No capacity is accepted for it, so it stays `Unknown` and is never scored (ADR-009) |
