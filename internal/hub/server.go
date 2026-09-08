@@ -15,6 +15,7 @@ import (
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/metrics"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
 
@@ -53,6 +54,11 @@ type Server struct {
 	// the cell each record concerns. Nil means the JSON trail is the only view,
 	// which is the case wherever the hub has no manager behind it.
 	events events.EventRecorder
+
+	// metrics counts the same records for Prometheus. Nil is safe: every method
+	// on it tolerates a nil receiver, so a hub with no metrics endpoint needs no
+	// guard at each call site.
+	metrics *metrics.Metrics
 
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
@@ -109,6 +115,14 @@ func WithEventRecorder(rec events.EventRecorder) Option {
 	return func(s *Server) { s.events = rec }
 }
 
+// WithMetrics attaches the Prometheus view of the audit trail.
+//
+// Without it the hub still decides and still mints; it just is not measured,
+// which is the correct behaviour when no metrics endpoint is bound.
+func WithMetrics(m *metrics.Metrics) Option {
+	return func(s *Server) { s.metrics = m }
+}
+
 // WithAuditor replaces the audit sink.
 //
 // The default writes JSON to stdout, which is what a deployed hub wants and
@@ -129,7 +143,10 @@ func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 		opt(s)
 	}
 	if s.audit == nil {
-		s.audit = audit.New(NewAuditLogger(cfg), s.clusterNotifier())
+		// Both views are optional and both see every record. Deciding which
+		// records deserve an Event or a counter belongs to each view, not to
+		// the auditor.
+		s.audit = audit.New(NewAuditLogger(cfg), s.clusterNotifier(), s.metrics)
 	}
 	return s, nil
 }
@@ -177,7 +194,7 @@ func (s *Server) apiHandler() http.Handler {
 		requestID,
 		recoverPanic(s.log),
 		logging(s.log),
-		authenticate(s.authn, s.log),
+		authenticate(s.authn, s.log, s.metrics),
 	)
 }
 

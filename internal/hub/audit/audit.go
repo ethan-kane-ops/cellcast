@@ -127,6 +127,14 @@ type Record struct {
 	// double the volume of the trail and say nothing new.
 	Candidates []Candidate
 
+	// Provider is the trust mechanism the credential was issued through, taken
+	// from the chosen cell's spec. Present on a mint record whenever the cell
+	// was readable, including one that then failed to mint.
+	Provider string
+	// Env is the chosen cell's env label. It is on the record because it is not
+	// decoration: the label selects the built-in TTL bounds, so it is part of
+	// why the lifetime below is the lifetime it is.
+	Env string
 	// Namespace and ServiceAccount are the scope the credential was issued
 	// against, which is the blast radius of the token this record describes.
 	Namespace      string
@@ -167,25 +175,32 @@ type Notifier interface {
 
 // Auditor writes audit records.
 type Auditor struct {
-	log      *slog.Logger
-	notifier Notifier
+	log       *slog.Logger
+	notifiers []Notifier
 }
 
 // New builds an auditor writing through log.
 //
-// notifier may be nil, in which case records are written to the log only. The
-// log is not optional and there is no constructor that omits it: an auditor
-// that writes nowhere would let the hub run with the appearance of an audit
-// trail and none of the substance.
-func New(log *slog.Logger, notifier Notifier) *Auditor {
-	return &Auditor{log: log, notifier: notifier}
+// Any number of notifiers may be attached, including none, and a nil one is
+// skipped. The log is not optional and there is no constructor that omits it:
+// an auditor that writes nowhere would let the hub run with the appearance of
+// an audit trail and none of the substance.
+func New(log *slog.Logger, notifiers ...Notifier) *Auditor {
+	return &Auditor{log: log, notifiers: notifiers}
 }
 
 // Record writes one record.
+//
+// The log is written first and unconditionally. A notifier that panics or
+// blocks must not be able to cost the trail a record, which is why it is the
+// notifier contract that forbids both rather than a recover here: swallowing a
+// panic would hide a broken view indefinitely.
 func (a *Auditor) Record(ctx context.Context, rec Record) {
 	a.log.LogAttrs(ctx, slog.LevelInfo, Msg, rec.attrs()...)
-	if a.notifier != nil {
-		a.notifier.Notify(ctx, rec)
+	for _, n := range a.notifiers {
+		if n != nil {
+			n.Notify(ctx, rec)
+		}
 	}
 }
 
@@ -226,6 +241,8 @@ func (r Record) attrs() []slog.Attr {
 		attrs = append(attrs, slog.Any("candidates", r.Candidates))
 	}
 	attrs = appendNonEmpty(attrs,
+		"provider", r.Provider,
+		"env", r.Env,
 		"namespace", r.Namespace,
 		"service_account", r.ServiceAccount,
 	)

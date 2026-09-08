@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/ethan-kane-ops/cellcast/internal/hub/metrics"
 )
 
 // middleware wraps a handler.
@@ -102,17 +105,43 @@ func recoverPanic(log *slog.Logger) middleware {
 	}
 }
 
+// authRejection is implemented by an authenticator error that can name itself
+// in one word.
+//
+// Declared here rather than imported so that the hub keeps exactly one seam to
+// the authenticator and does not link a particular implementation in order to
+// count its refusals. An error that does not implement it is counted as
+// Unclassified, which is a visible bucket rather than a silent omission.
+type authRejection interface {
+	RejectionReason() string
+}
+
+// rejectionReason classifies an authentication failure for the metric label.
+//
+// The error string is deliberately not used: it is unbounded and would make the
+// label cardinality a function of what an issuer put in a message.
+func rejectionReason(err error) string {
+	var reason authRejection
+	if errors.As(err, &reason) {
+		return reason.RejectionReason()
+	}
+	return "Unclassified"
+}
+
 // authenticate resolves the caller and attaches the identity to the request
 // context. A request that cannot be authenticated is rejected here and never
 // reaches a handler.
-func authenticate(a Authenticator, log *slog.Logger) middleware {
+func authenticate(a Authenticator, log *slog.Logger, m *metrics.Metrics) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, err := a.Authenticate(r.Context(), r)
 			if err != nil {
+				reason := rejectionReason(err)
+				m.AuthRejected(reason)
 				log.WarnContext(r.Context(), "authentication rejected",
 					slog.String("request_id", requestIDFrom(r.Context())),
 					slog.String("path", r.URL.Path),
+					slog.String("rejection", reason),
 					slog.String("reason", err.Error()),
 				)
 				writeError(w, http.StatusUnauthorized, "unauthenticated")

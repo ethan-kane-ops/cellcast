@@ -116,7 +116,7 @@ func TestIdentityRoundTripsThroughContext(t *testing.T) {
 	})
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	authenticate(stubAuthenticator{id: want}, log)(handler).
+	authenticate(stubAuthenticator{id: want}, log, nil)(handler).
 		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if !ok {

@@ -372,6 +372,7 @@ Listed so nobody has to discover them by reading code.
 | Risk | Why accepted | Revisit |
 | --- | --- | --- |
 | A caller JWT replayed inside its validity window mints twice | Bounded by the issuer's short token lifetime; capture requires runner access, which already permits requesting a fresh token | If an adopter's issuer uses long-lived tokens |
+| The metrics endpoint is unauthenticated | It exposes cell names, policy names, per-cell utilisation and refusal counts, all of which an authenticated caller can already read through `GET /api/v1/clusters`. Reaching the port is a network decision rather than an identity one | ENG-180 ships the NetworkPolicy and ServiceMonitor; revisit if a caller exists that is not operator-controlled |
 | The audit trail is only as durable as the log pipeline collecting it | cellcast writes to stdout and owns no sink, so retention and immutability are the adopter's existing decisions rather than a second set of ours to get wrong | If an adopter needs a tamper-evident trail, which is a shipping problem rather than a cellcast one |
 | Single hub replica | Mitigated by advisory mode rather than by availability | ENG-179, v0.2 |
 | Unsigned artifacts | Repo is private and pre-release; nothing is distributed yet | ENG-182, before the ENG-188 public flip |

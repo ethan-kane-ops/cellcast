@@ -27,8 +27,21 @@ type Authenticator interface {
 type denyAll struct{}
 
 func (denyAll) Authenticate(context.Context, *http.Request) (*identity.Identity, error) {
-	return nil, identity.ErrUnauthenticated
+	return nil, noAuthenticator{}
 }
+
+// noAuthenticator is the refusal a hub with no configured authenticator
+// produces.
+//
+// It names itself so that "nobody configured OIDC" is its own bucket in the
+// rejection metric. Counted as Unclassified alongside malformed tokens, the one
+// misconfiguration that stops every deploy in the estate would look like a
+// pipeline problem.
+type noAuthenticator struct{}
+
+func (noAuthenticator) Error() string           { return identity.ErrUnauthenticated.Error() }
+func (noAuthenticator) RejectionReason() string { return "NoAuthenticator" }
+func (noAuthenticator) Unwrap() error           { return identity.ErrUnauthenticated }
 
 type identityContextKey struct{}
 
