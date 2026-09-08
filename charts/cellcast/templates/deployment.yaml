@@ -1,0 +1,151 @@
+{{- include "cellcast.validateShutdown" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cellcast.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cellcast.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cellcast.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cellcast.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      # Long enough for the drain delay and the shutdown timeout in sequence.
+      # The chart refuses to render if it is not.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        - {{- if .matchLabelKeys }}
+          matchLabelKeys:
+            {{- toYaml .matchLabelKeys | nindent 12 }}
+          {{- end }}
+          maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "cellcast.selectorLabels" $ | nindent 14 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: hub
+          image: {{ include "cellcast.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --addr=:{{ .Values.ports.api }}
+            - --probe-addr=:{{ .Values.ports.probe }}
+            - --metrics-addr={{ if gt (int .Values.ports.metrics) 0 }}:{{ .Values.ports.metrics }}{{ else }}0{{ end }}
+            - --namespace={{ include "cellcast.registryNamespace" . }}
+            - --log-level={{ .Values.hub.logLevel }}
+            - --log-format={{ .Values.hub.logFormat }}
+            - --token-max-ttl={{ .Values.hub.tokenMaxTTL }}
+            - --capacity-staleness={{ .Values.hub.capacity.staleness }}
+            - --capacity-retention={{ .Values.hub.capacity.retention }}
+            - --capacity-max-cells={{ .Values.hub.capacity.maxCells }}
+            - --warmup-timeout={{ .Values.hub.warmupTimeout }}
+            - --drain-delay={{ .Values.hub.drainDelay }}
+            - --shutdown-timeout={{ .Values.hub.shutdownTimeout }}
+            - --read-header-timeout={{ .Values.hub.readHeaderTimeout }}
+            - --leader-election={{ .Values.hub.leaderElection.enabled }}
+            - --leader-election-namespace={{ include "cellcast.leaderElectionNamespace" . }}
+            - --oidc-audience={{ .Values.hub.oidc.audience }}
+            - --oidc-clock-skew={{ .Values.hub.oidc.clockSkew }}
+            - --oidc-refresh-interval={{ .Values.hub.oidc.refreshInterval }}
+            - --oidc-http-timeout={{ .Values.hub.oidc.httpTimeout }}
+            {{- range .Values.hub.oidc.issuers }}
+            {{- if or (not .url) (not .provider) }}
+            {{- fail "each hub.oidc.issuers entry needs both a url and a provider" }}
+            {{- end }}
+            - --oidc-issuer={{ .url }}={{ .provider }}
+            {{- end }}
+            {{- with .Values.hub.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.ports.api }}
+              protocol: TCP
+            - name: probes
+              containerPort: {{ .Values.ports.probe }}
+              protocol: TCP
+            {{- if gt (int .Values.ports.metrics) 0 }}
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+          # Readiness means this replica can answer, which includes having heard
+          # capacity for the fleet. failureThreshold is generous because a
+          # replica that has not warmed up yet is starting, not broken, and a
+          # restart would only make it start again.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            periodSeconds: 5
+            failureThreshold: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

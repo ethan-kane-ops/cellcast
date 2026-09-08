@@ -1,0 +1,79 @@
+{{- if .Values.rbac.create }}
+# The whole of what the agent is granted in the cell it runs in. It is
+# deliberately short enough to read in full before installing it.
+#
+# What the agent CANNOT do matters more than what it can:
+#   * It cannot read Secrets, ConfigMaps, or any workload spec beyond resource
+#     requests. It reports arithmetic over nodes and pods, nothing else.
+#   * It cannot create, update or delete anything except the one Lease below.
+#   * It holds no credential for the hub or for any other cell. Its only
+#     identity is the projected ServiceAccount token in the Deployment, which
+#     this cluster issues and rotates, and which the hub accepts only for the
+#     cell whose registration names it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cellcast-agent.fullname" . }}
+  labels:
+    {{- include "cellcast-agent.labels" . | nindent 4 }}
+# Cluster-scoped because capacity is a cluster-level fact: the agent has to see
+# every node and every pod to compute it. Read-only, and `get` is deliberately
+# absent because the agent only ever lists and watches.
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cellcast-agent.fullname" . }}
+  labels:
+    {{- include "cellcast-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cellcast-agent.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cellcast-agent.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.agent.leaderElection }}
+---
+# Leader election. Namespaced rather than cluster-scoped, and named so the agent
+# can write exactly one Lease and no others: a Role granting update on leases
+# across the namespace would let a compromised agent break every other
+# controller's election in it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cellcast-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cellcast-agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["cellcast-agent"]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cellcast-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cellcast-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cellcast-agent.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cellcast-agent.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

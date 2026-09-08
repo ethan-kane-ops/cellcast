@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "cellcast agent values",
+  "description": "A bad value here fails at install rather than at the first heartbeat the hub rejected.",
+  "type": "object",
+  "required": ["cellName", "hub"],
+  "definitions": {
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+(ms|s|m|h)$",
+      "description": "An integer with an ms, s, m or h suffix."
+    }
+  },
+  "properties": {
+    "cellName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must match the Cluster resource in the hub's registry. The hub accepts capacity for a cell only from the identity that registration names."
+    },
+    "hub": {
+      "type": "object",
+      "required": ["endpoint", "audience"],
+      "properties": {
+        "endpoint": { "type": "string", "pattern": "^https?://", "minLength": 1 },
+        "audience": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Must match the hub's --oidc-audience, and must not be the API server's audience."
+        },
+        "tokenExpirationSeconds": { "type": "integer", "minimum": 600 },
+        "caConfigMap": { "type": "string" },
+        "caConfigMapKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "imagePullSecrets": { "type": "array", "items": { "type": "object" } },
+    "image": {
+      "type": "object",
+      "properties": {
+        "registry": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      },
+      "required": ["registry", "repository"]
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "heartbeatInterval": { "$ref": "#/definitions/duration" },
+        "requestTimeout": { "$ref": "#/definitions/duration" },
+        "maxBackoff": { "$ref": "#/definitions/duration" },
+        "leaderElection": { "type": "boolean" },
+        "logLevel": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+        "logFormat": { "type": "string", "enum": ["json", "text"] },
+        "extraArgs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ports": {
+      "type": "object",
+      "properties": {
+        "probe": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "properties": { "create": { "type": "boolean" } }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxUnavailable": { "type": ["integer", "string"] },
+        "minAvailable": { "type": ["integer", "string"] }
+      }
+    },
+    "resources": { "type": "object" },
+    "topologySpreadConstraints": { "type": "array" },
+    "affinity": { "type": "object" },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "priorityClassName": { "type": "string" },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "extraEnv": { "type": "array" },
+    "extraVolumes": { "type": "array" },
+    "extraVolumeMounts": { "type": "array" }
+  }
+}

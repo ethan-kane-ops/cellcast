@@ -1,0 +1,241 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: clusters.cellcast.io
+spec:
+  group: cellcast.io
+  names:
+    kind: Cluster
+    listKind: ClusterList
+    plural: clusters
+    shortNames:
+    - cc
+    singular: cluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.provider
+      name: Provider
+      type: string
+    - jsonPath: .spec.state
+      name: State
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="AcceptingPlacements")].status
+      name: Accepting
+      type: string
+    - jsonPath: .spec.endpoint
+      name: Endpoint
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Cluster is a registered cell in the fleet.
+
+          Creating a Cluster is a privileged action. Whoever can create one can point
+          cellcast at an endpoint they control and attract real deploys to it. See
+          docs/threat-model.md T-04.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ClusterSpec is the durable registry entry for one cell.
+            properties:
+              caBundle:
+                description: |-
+                  CABundle is the PEM-encoded certificate authority bundle used to verify
+                  the endpoint. Omitted when the endpoint presents a publicly trusted
+                  certificate.
+                format: byte
+                type: string
+              endpoint:
+                description: Endpoint is the Kubernetes API server URL for this cell.
+                minLength: 1
+                pattern: ^https://
+                type: string
+              provider:
+                description: Provider identifies the platform hosting this cell.
+                enum:
+                - eks
+                - gke
+                - aks
+                - generic
+                type: string
+              reporter:
+                description: |-
+                  Reporter is the identity allowed to publish capacity for this cell.
+
+                  Optional, and unset means nobody may report, not anybody may. A cell with
+                  no declared reporter accepts no heartbeats, so it stays Unknown and is
+                  excluded from scoring rather than being scored on numbers from a caller
+                  who was never entitled to send them. Reading an unset field as a wildcard
+                  is what left T-07 open.
+                properties:
+                  issuer:
+                    description: |-
+                      Issuer is the exact `iss` claim of the agent's ServiceAccount token,
+                      which is the spoke's service account issuer URL. Compared literally.
+                    minLength: 1
+                    pattern: ^https://
+                    type: string
+                  subject:
+                    description: |-
+                      Subject is the exact `sub` claim, of the form
+                      `system:serviceaccount:<namespace>:<name>`.
+                    minLength: 1
+                    type: string
+                required:
+                - issuer
+                - subject
+                type: object
+              state:
+                default: LIVE
+                description: |-
+                  State is the operator-declared placement state. Defaults to LIVE.
+
+                  This is spec rather than status because an operator sets it: `kubectl
+                  patch` is a supported interface and every transition lands in the API
+                  server audit log.
+                enum:
+                - LIVE
+                - DARK
+                - DRAINING
+                type: string
+              trustConfigRef:
+                description: |-
+                  TrustConfigRef references the trust configuration used to mint
+                  credentials for this cell.
+                properties:
+                  name:
+                    description: Name of the trust configuration object in the hub
+                      namespace.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - endpoint
+            - provider
+            - trustConfigRef
+            type: object
+          status:
+            description: |-
+              ClusterStatus is the observed state of a cell.
+
+              Deliberately absent: anything that changes on every agent heartbeat.
+              Capacity is high-write data with no durability requirement and lives in
+              memory in the hub process (docs/architecture.md ADR-002). Writing heartbeat
+              timestamps here would put a write against etcd on every heartbeat from every
+              cell in the estate, which is exactly what ADR-002 exists to avoid.
+            properties:
+              conditions:
+                description: Conditions describe the cell's current condition.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the .metadata.generation this status
+                  reflects.
+                format: int64
+                type: integer
+              observedState:
+                description: ObservedState is the state the hub is currently acting
+                  on.
+                enum:
+                - LIVE
+                - DARK
+                - DRAINING
+                type: string
+              stateSince:
+                description: |-
+                  StateSince is when the hub last observed the state change.
+
+                  Not derivable from the AcceptingPlacements condition: DARK and DRAINING
+                  both leave that condition False, so a cell moved from DARK straight to
+                  DRAINING has no condition transition to read. During an upgrade window
+                  "how long has this cell been draining" is the question being asked.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

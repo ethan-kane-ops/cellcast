@@ -1,4 +1,8 @@
 [tools]
+# Both charts are part of the deliverable, so the tools that lint and document
+# them are pinned with the rest of the toolchain rather than assumed.
+helm = "latest"
+helm-docs = "latest"
 go = "1.26"
 golangci-lint = "latest"
 just = "latest"

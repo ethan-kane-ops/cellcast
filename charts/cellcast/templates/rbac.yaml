@@ -1,0 +1,90 @@
+{{- if .Values.rbac.create }}
+{{- $registryNS := include "cellcast.registryNamespace" . }}
+{{- $leaseNS := include "cellcast.leaderElectionNamespace" . }}
+# The whole of what the hub is granted. Namespaced rather than cluster-scoped
+# because Cluster and PlacementPolicy are namespaced types, so one hub cluster
+# can host more than one cellcast installation without either seeing the other's
+# fleet.
+#
+# What the hub CANNOT do here matters as much as what it can. It holds no
+# permission in any registered cell: reaching a cell goes through that cell's own
+# TrustConfig, and compromising this Role grants nothing in any of them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cellcast.fullname" . }}
+  namespace: {{ $registryNS }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["cellcast.io"]
+    resources: ["clusters", "placementpolicies", "trustconfigs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["cellcast.io"]
+    resources: ["clusters/status", "placementpolicies/status", "trustconfigs/status"]
+    verbs: ["get", "update", "patch"]
+  # Read-only, and only in the registry namespace. This is how the hub reads the
+  # credential a TrustConfig references. It is fetched at the moment it is used
+  # and never cached, which is why there is no watch here.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  # The Kubernetes Events view of the audit trail. The trail itself is written to
+  # stdout and does not depend on this.
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cellcast.fullname" . }}
+  namespace: {{ $registryNS }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cellcast.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cellcast.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.hub.leaderElection.enabled }}
+---
+# Leader election. Named so the hub can write exactly one Lease and no others:
+# a Role granting update on leases across the namespace would let a compromised
+# hub break every other controller's election in it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cellcast.fullname" . }}-leader-election
+  namespace: {{ $leaseNS }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["cellcast-hub.cellcast.io"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cellcast.fullname" . }}-leader-election
+  namespace: {{ $leaseNS }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cellcast.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cellcast.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

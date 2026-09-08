@@ -27,7 +27,9 @@ Pre-v0.1. Design is settled and recorded; implementation is in progress. Not usa
 | [Architecture](docs/architecture.md) | System shape, the placement path, and ten decision records with the alternatives that were rejected |
 | [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted for v0.1 |
 | [Audit trail](docs/audit.md) | What is recorded for every placement and mint, and worked queries over it |
-| [Metrics](docs/metrics.md) | The Prometheus surface, the dashboard, and the four alerts that matter |
+| [Metrics](docs/metrics.md) | The Prometheus surface, the dashboard, and the five alerts that matter |
+| [Hub chart](charts/cellcast/README.md) | Installing the hub, and every value it takes |
+| [Agent chart](charts/cellcast-agent/README.md) | Installing the reporter in a cell, and the identity that has to match |
 
 ## Components
 
@@ -77,6 +79,31 @@ has heard capacity for the fleet, and on shutdown it reports unready and keeps s
 Kubernetes takes it out of the Service, so a rolling update of cellcast does not fail the deploys
 running through it. The details, including the deadlock that bounds the warmup wait, are
 [ADR-011](docs/architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect).
+
+## Installing it
+
+One command per cluster. In the hub cluster:
+
+```bash
+helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
+  --namespace cellcast-system --create-namespace \
+  --set hub.oidc.issuers[0].url=https://token.actions.githubusercontent.com \
+  --set hub.oidc.issuers[0].provider=github
+```
+
+Then in each cell, once it has been registered as a `Cluster`:
+
+```bash
+helm install cellcast-agent oci://ghcr.io/ethan-kane-ops/charts/cellcast-agent \
+  --namespace cellcast-system --create-namespace \
+  --set cellName=prod-euw1 \
+  --set hub.endpoint=https://cellcast.example.com
+```
+
+The issuer is not optional in practice. A hub with none authenticates nobody and
+refuses every request, which is the correct state for a broker that cannot tell
+who is asking, and is not a working install. Both charts document every value
+they take: [hub](charts/cellcast/README.md), [agent](charts/cellcast-agent/README.md).
 
 ## Requirements
 
