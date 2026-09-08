@@ -39,23 +39,43 @@ Falling back there would make the flag a way around the policy engine.
 
 ## Verifying what you install
 
-The image you are about to run will hold your clusters' trust configuration, so pin it by digest
-rather than by tag. A tag can be moved; a digest names the same bytes tomorrow. Both charts take
-one, and it wins over `image.tag`:
+Images and charts are signed with [cosign](https://docs.sigstore.dev/) keyless signing. There is
+no long-lived key: the signer authenticates over OIDC, gets a certificate valid for minutes, and
+the signature and that certificate are recorded in a public transparency log. So the useful
+question is not whether an artifact is signed, it is **who signed it**, and the only answer this
+project will accept is its own release workflow:
 
 ```bash
-helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
-  --namespace cellcast-system --create-namespace \
-  --set image.digest=sha256:...
+cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.3.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-Every image is reproducible from its tag. The base images are pinned by digest, the build runs
-with `-trimpath`, and the timestamps come from the commit rather than the build clock, so
-rebuilding a tag yourself produces the same bytes. [How to check that](docs/releasing.md#reproducible-builds).
+The same command covers the agent image, the client image and both charts
+(`ghcr.io/ethan-kane-ops/charts/cellcast:0.3.0`). For the client archives, verify the checksum
+file and then check the archive against it:
 
-Signatures and an SBOM are not published yet. Until they are, the honest answer is that you are
-trusting the registry and the digest, and this section will say something stronger when that
-stops being true. See [SECURITY.md](./SECURITY.md).
+```bash
+cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.3.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+shasum -a 256 --ignore-missing -c checksums.txt
+```
+
+Every image also carries an SBOM and SLSA build provenance, recorded by the builder from what it
+actually compiled rather than guessed afterwards by scanning a stripped static binary:
+
+```bash
+docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 --format '{{ json .SBOM }}'
+```
+
+Pin by digest in production regardless. A tag can be moved; a digest names the same bytes
+tomorrow, and both charts accept `image.digest`, which wins over `image.tag`.
+
+Nothing is published yet, so those commands describe the first tagged release rather than
+something you can run today. They are not aspirational: `just release` runs them itself against
+what it has just published, and fails if the signing identity is not the one above. See
+[SECURITY.md](./SECURITY.md).
 
 > **Read the [threat model](docs/threat-model.md) before deploying this.** It mints cluster
 > credentials. The security argument, its limits, and the risks explicitly accepted are written down

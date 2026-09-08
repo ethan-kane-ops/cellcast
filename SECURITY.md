@@ -82,14 +82,24 @@ Pre-1.0, the API and the CRD schema may change between minor versions.
 
 ## Release integrity
 
-Images are reproducible from their tag. The base images are pinned by digest, the
-build runs with `-trimpath`, and the timestamps come from the commit rather than
-the build clock, so rebuilding a tag from source produces the same bytes. That is
-a claim you can check rather than one you have to accept; see
-[Releasing](docs/releasing.md#reproducible-builds).
+Every published image and chart is signed with cosign keyless signing, and every
+image carries an SBOM and SLSA build provenance as attestations. The exact
+`cosign verify` command, including the identity and issuer to expect, is in the
+README under **Verifying what you install**.
 
-Signatures and an SBOM are not published yet. Pin by digest until they are: a tag
-can be moved, a digest cannot.
+Keyless means the signature is tied to an identity rather than to a key, so a
+signature on its own proves nothing: verification has to name the expected
+signer. The release runs that same verification against what it just published
+and fails if the identity does not match, which is the difference between a
+signature and a decoration.
+
+Images are also reproducible from their tag. The base images are pinned by
+digest, the build runs with `-trimpath`, and the timestamps come from the commit
+rather than the build clock, so rebuilding a tag from source produces the same
+bytes. See [Releasing](docs/releasing.md#reproducible-builds).
+
+Nothing is published yet. Until the first tag there is nothing to verify, and
+pinning by digest is the only assurance available.
 
 Checking what you are about to run matters more here than on most projects: that
 image is the one that will hold your clusters' trust configuration.

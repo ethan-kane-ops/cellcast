@@ -46,6 +46,18 @@ chart_names := "cellcast cellcast-agent"
 # Architectures every image is published for.
 platforms := "linux/amd64,linux/arm64"
 
+# Who is expected to have signed a release, and who vouched for that identity.
+#
+# Keyless signing puts the signer's identity in a short-lived certificate rather
+# than in a key, so "is it signed" is not a useful question: the question is
+# whether it was signed by the identity adopters were told to expect. These two
+# values are that expectation. `just verify` checks against them, the release
+# fails if the check fails, and a contract test holds the documented command to
+# the same pair, because a verify command that has drifted from the signer is
+# worse than no signature at all.
+sign_workflow := "https://github.com/" + owner + "/cellcast/.github/workflows/release.yml"
+sign_issuer := "https://token.actions.githubusercontent.com"
+
 # buildx needs a container-driver builder to emit a multi-platform manifest. The
 # default `docker` driver cannot, and says so only at the end of a long build.
 builder := "cellcast"
@@ -259,11 +271,16 @@ images-push tag: _builder
     set -euo pipefail
     for b in {{image_binaries}}; do
         echo "==> pushing {{registry}}/{{owner}}/$b:{{tag}}"
+        # BuildKit records the SBOM and the provenance during the build, from
+        # what it actually compiled. An SBOM produced afterwards by scanning the
+        # finished image is a guess at the same question, and a worse one:
+        # a stripped static binary tells a scanner very little.
         docker buildx build --builder {{builder}} --platform {{platforms}} \
             --build-arg BINARY="$b" \
             --build-arg VERSION={{tag}} \
             --build-arg COMMIT={{commit}} \
             --build-arg DATE={{date}} \
+            --sbom=true --provenance=mode=max \
             --tag {{registry}}/{{owner}}/$b:{{tag}} \
             --push .
     done
@@ -340,11 +357,97 @@ release-check: check
     # registry and no GitHub release.
     set -euo pipefail
     goreleaser check
-    goreleaser release --snapshot --clean --skip=publish
+    # Signing is skipped, and only here. Snapshot mode does not skip it by
+    # itself, and a keyless signature needs an OIDC flow that a rehearsal has no
+    # business starting: it would either open a browser or fail. What the
+    # rehearsal does check is that the sign configuration parses, which
+    # `goreleaser check` above does.
+    goreleaser release --snapshot --clean --skip=publish,sign
     just images-check
     just chart-package
     echo
     echo "release-check passed. Nothing was published."
+
+# Sign every published image and chart with a keyless certificate
+sign tag:
+    #!/usr/bin/env bash
+    # No key anywhere: the signer authenticates to Fulcio over OIDC, gets a
+    # certificate valid for minutes, and the signature plus that certificate go
+    # to Rekor and to the registry beside the artifact. There is nothing to
+    # rotate and nothing to steal.
+    #
+    # --recursive so the per-architecture manifests are signed too, not just the
+    # index. Somebody who pulls by platform digest is verifying a child.
+    set -euo pipefail
+    for b in {{image_binaries}}; do
+        echo "==> signing {{registry}}/{{owner}}/$b:{{tag}}"
+        cosign sign --yes --recursive "{{registry}}/{{owner}}/$b:{{tag}}"
+    done
+    bare="{{tag}}"
+    bare="${bare#v}"
+    for c in {{chart_names}}; do
+        echo "==> signing {{registry}}/{{owner}}/charts/$c:$bare"
+        cosign sign --yes "{{registry}}/{{owner}}/charts/$c:$bare"
+    done
+
+# Check every published artifact against the identity the docs tell adopters to expect
+verify tag:
+    #!/usr/bin/env bash
+    # The same commands the README gives an adopter, run against the release
+    # that was just published. If this fails, the artifacts are signed by
+    # somebody other than the identity the documentation names, which is the
+    # case where a signature is actively misleading rather than merely absent.
+    set -euo pipefail
+    identity="{{sign_workflow}}@refs/tags/{{tag}}"
+    for b in {{image_binaries}}; do
+        echo "==> verifying {{registry}}/{{owner}}/$b:{{tag}}"
+        cosign verify "{{registry}}/{{owner}}/$b:{{tag}}" \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer {{sign_issuer}} > /dev/null
+    done
+    bare="{{tag}}"
+    bare="${bare#v}"
+    for c in {{chart_names}}; do
+        echo "==> verifying {{registry}}/{{owner}}/charts/$c:$bare"
+        cosign verify "{{registry}}/{{owner}}/charts/$c:$bare" \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer {{sign_issuer}} > /dev/null
+    done
+    echo "every published artifact is signed by $identity"
+
+# Build one image and show the attestations it carries
+verify-attestations name="cellcast-hub": _builder
+    #!/usr/bin/env bash
+    # The claim that every image ships an SBOM and build provenance, checked
+    # rather than asserted. Built to an OCI layout instead of a registry so it
+    # needs no credentials, and the predicates are read straight out of it.
+    #
+    # Not part of `check`: it needs docker.
+    set -euo pipefail
+    out=$(mktemp -d)
+    trap 'rm -rf "$out"' EXIT
+    docker buildx build --builder {{builder}} --platform linux/amd64 \
+        --build-arg BINARY={{name}} \
+        --sbom=true --provenance=mode=max \
+        --output "type=oci,dest=$out/image.tar" .
+    tar -xf "$out/image.tar" -C "$out"
+    blob() { echo "$out/blobs/sha256/${1#sha256:}"; }
+    index=$(jq -r '.manifests[0].digest' "$out/index.json")
+    att=$(jq -r '.manifests[]|select(.annotations["vnd.docker.reference.type"]=="attestation-manifest")|.digest' "$(blob "$index")")
+    if [ -z "$att" ]; then
+        echo "{{name}} carries no attestation manifest" >&2
+        exit 1
+    fi
+    found=$(jq -r '.layers[].annotations["in-toto.io/predicate-type"]' "$(blob "$att")" | sort)
+    echo "$found"
+    for want in https://slsa.dev/provenance/v1 https://spdx.dev/Document; do
+        if ! grep -qx "$want" <<<"$found"; then
+            echo "{{name}} carries no $want attestation" >&2
+            exit 1
+        fi
+    done
+    sbom=$(jq -r '.layers[]|select(.annotations["in-toto.io/predicate-type"]=="https://spdx.dev/Document")|.digest' "$(blob "$att")")
+    echo "SBOM lists $(jq -r '.predicate.packages|length' "$(blob "$sbom")") packages"
 
 # Cut a release: verify everything, then publish images, charts and the release
 release tag: (_release-guard tag)
@@ -357,6 +460,7 @@ release tag: (_release-guard tag)
     # Then publish, least reversible last.
     just images-push "{{tag}}"
     just chart-push
+    just sign "{{tag}}"
     # The notes go outside dist/. `goreleaser --clean` empties that directory
     # before it reads --release-notes, so a file written there is gone by the
     # time the release pipe wants it.
@@ -364,6 +468,11 @@ release tag: (_release-guard tag)
     trap 'rm -f "$notes"' EXIT
     just release-notes "{{tag}}" > "$notes"
     goreleaser release --clean --release-notes "$notes"
+    # Last, and it can fail the release after everything is published, which is
+    # deliberate. A release whose signatures do not match the documented
+    # identity is one an adopter must not be told to trust, and finding that out
+    # from this command is better than finding it out from an adopter.
+    just verify "{{tag}}"
     echo "released {{tag}}"
 
 # Refuse to release from a tree that is not exactly the tag

@@ -149,11 +149,16 @@ just release-check    # every release step, publishing nothing
 just image cellcast-hub   # one image, this machine's architecture, loaded locally
 just images-check     # every image, every architecture, output discarded
 just chart-package    # both charts into dist/charts
+just verify-attestations   # build one image and read back its SBOM and provenance
 ```
 
 `just release-check` is worth running after any change to the `Dockerfile`, the charts'
 `Chart.yaml`, or `.goreleaser.yaml`. It is the only thing that compiles for the
 architecture you do not run on. The full procedure is in [Releasing](releasing.md).
+
+`just release-check` deliberately skips signing. A keyless signature needs an OIDC flow,
+and a rehearsal that opened a browser would not be one. `just sign` and `just verify` run
+only from `just release`, and `just verify` is what decides whether a release succeeded.
 
 ## CI
 
