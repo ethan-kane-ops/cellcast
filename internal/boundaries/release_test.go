@@ -1,6 +1,7 @@
 package boundaries_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -141,6 +142,31 @@ func sha256File(t *testing.T, path string) string {
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func TestTheBinaryDoesNotCarryTheBuildersFilesystem(t *testing.T) {
+	// The half of the reproducibility claim that can actually fail. Byte
+	// equality between two builds on one machine holds with or without
+	// -trimpath, so on its own it proves very little; a binary that names the
+	// directory it was compiled in cannot be reproduced by anybody who does not
+	// have that directory, and it leaks the builder's home path to whoever runs
+	// `strings` on a public release.
+	dir := t.TempDir()
+	out := filepath.Join(dir, "cellcast")
+
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", justVar(t, "ldflags"), "-o", out, "./cmd/cellcast")
+	cmd.Dir = repoRoot(t)
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building the client: %v\n%s", err, combined)
+	}
+
+	binary, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("reading the build output: %v", err)
+	}
+	if bytes.Contains(binary, []byte(repoRoot(t))) {
+		t.Errorf("the binary embeds %s; the build is not running with -trimpath", repoRoot(t))
+	}
 }
 
 // chartImage is the part of a chart's values that decides what gets pulled.
