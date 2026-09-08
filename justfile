@@ -15,6 +15,11 @@ envtest_k8s := "1.37.x"
 # where the suite actually is so that a drop is a signal rather than noise.
 coverage_min := "70"
 
+# How long each fuzz target runs under `just fuzz`. Short enough to sit in a
+# coffee break across every target, long enough to be worth running. A real
+# campaign passes a longer value: `just fuzz 10m`.
+fuzz_time := "30s"
+
 version := `git describe --tags --always --dirty 2>/dev/null || echo dev`
 commit := `git rev-parse --short HEAD 2>/dev/null || echo none`
 date := `date -u +%Y-%m-%dT%H:%M:%SZ`
@@ -52,6 +57,40 @@ test:
 # Run tests with the race detector (the capacity index is concurrent by construction)
 test-race:
     go test -race ./...
+
+# Fuzz every target for {{fuzz_time}} each (`just fuzz 10m` for a real campaign)
+fuzz duration=fuzz_time:
+    #!/usr/bin/env bash
+    # Go fuzzes exactly one target per invocation and refuses a -fuzz regex that
+    # matches more than one, so the targets are enumerated and run in turn
+    # rather than handed over as a pattern.
+    #
+    # Not part of `check`: the seeds already run there as ordinary unit tests,
+    # every time. This is the campaign, and it is unbounded work by design.
+    #
+    # A crasher is written to the package's testdata/fuzz/<Target>/ and is then
+    # a permanent regression test. Commit it.
+    set -euo pipefail
+    failed=0
+    for pkg in $(go list ./...); do
+        targets=$(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz' || true)
+        for target in $targets; do
+            echo "==> $target ($pkg)"
+            go test "$pkg" -run "^${target}$" -fuzz "^${target}$" -fuzztime={{duration}} || failed=1
+        done
+    done
+    if [ "$failed" -ne 0 ]; then
+        echo "fuzzing found a crasher; the input is in the package's testdata/fuzz/ and should be committed" >&2
+        exit 1
+    fi
+
+# List every fuzz target without running a campaign
+fuzz-list:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for pkg in $(go list ./...); do
+        go test -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz' | sed "s|^|${pkg#github.com/ethan-kane-ops/cellcast/}  |" || true
+    done
 
 # Test with coverage and fail below the gate
 cover: envtest-assets
