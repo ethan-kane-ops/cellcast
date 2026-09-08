@@ -48,10 +48,15 @@ func render(t *testing.T, chart string, args ...string) string {
 }
 
 // binaryFlags returns the flags a command accepts, read off its own help.
-func binaryFlags(t *testing.T, cmd string) []string {
+//
+// sub names a subcommand to descend into. A cobra root command lists only its
+// own flags, so asking `cellcast --help` about `--workload` answers no, which is
+// true of the root and false of the tool.
+func binaryFlags(t *testing.T, cmd string, sub ...string) []string {
 	t.Helper()
 
-	out, err := exec.Command("go", "run", filepath.Join(repoRoot(t), "cmd", cmd), "--help").CombinedOutput()
+	args := append([]string{"run", filepath.Join(repoRoot(t), "cmd", cmd)}, sub...)
+	out, err := exec.Command("go", append(args, "--help")...).CombinedOutput()
 	if err != nil {
 		t.Skipf("building %s: %v\n%s", cmd, err, out)
 	}
@@ -64,6 +69,18 @@ func binaryFlags(t *testing.T, cmd string) []string {
 	}
 	if len(flags) == 0 {
 		t.Fatalf("no flags found in %s --help:\n%s", cmd, out)
+	}
+	return flags
+}
+
+// clientFlags is every flag the client accepts, root and subcommands together.
+func clientFlags(t *testing.T) []string {
+	t.Helper()
+	flags := binaryFlags(t, "cellcast")
+	for _, flag := range binaryFlags(t, "cellcast", "place") {
+		if !slices.Contains(flags, flag) {
+			flags = append(flags, flag)
+		}
 	}
 	return flags
 }
