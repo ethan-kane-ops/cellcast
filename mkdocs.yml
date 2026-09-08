@@ -1,0 +1,79 @@
+site_name: cellcast
+site_description: Multi-cluster deployment placement oracle and short-lived credential broker
+site_author: Ethan Kane
+site_url: https://ethan-kane-ops.github.io/cellcast/
+
+repo_name: ethan-kane-ops/cellcast
+repo_url: https://github.com/ethan-kane-ops/cellcast
+edit_uri: edit/main/docs/
+
+copyright: Apache License 2.0
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Concepts:
+      - Architecture: architecture.md
+      - Placement Policy: placement-policy.md
+      - Token Brokering: token-brokering.md
+  - Operating:
+      - High Availability: high-availability.md
+      - Observability: observability.md
+      - Audit Trail: audit.md
+      - Metrics Reference: metrics.md
+      - Troubleshooting: troubleshooting.md
+  - Security:
+      - Threat Model: threat-model.md
+  - Pipeline Integration: pipeline-integration.md
+  - Development: development.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search

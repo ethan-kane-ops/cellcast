@@ -1,0 +1,69 @@
+name: Bug report
+description: Something does not behave as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Not for security problems.** If this is a way to obtain access you should
+        not have, report it privately through a
+        [Security Advisory](https://github.com/ethan-kane-ops/cellcast/security/advisories/new).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - hub
+        - agent
+        - client CLI
+        - chart
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: audit
+    attributes:
+      label: Audit record
+      description: |
+        The hub writes one JSON line per placement and per mint. Find the one for
+        this request and paste it. It carries the policy that matched and every
+        cell that was considered, which is usually the whole answer.
+
+        It never contains token material by construction, so it is safe to paste
+        as-is. See docs/audit.md for how to find it.
+      render: json
+
+  - type: textarea
+    id: manifests
+    attributes:
+      label: Cluster and PlacementPolicy
+      description: |
+        The resources that were in play, as YAML.
+
+        **Redact before pasting.** `kubectl get -o yaml` of anything else in the
+        namespace can contain credential material.
+      render: yaml
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`cellcast version`, or the chart version and image tag."
+    validations:
+      required: true
+
+  - type: input
+    id: kubernetes
+    attributes:
+      label: Kubernetes version and provider
+      placeholder: "1.31, EKS"

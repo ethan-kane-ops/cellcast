@@ -140,12 +140,28 @@ manifests:
 verify-generate: generate manifests
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! git diff --quiet -- api/ config/crd/ charts/; then
+    # The chart paths are the copies `manifests` writes, not the whole chart:
+    # widening this to charts/ would report an edited template as stale
+    # generated output and send the reader to a command that changes nothing.
+    generated="api/ config/crd/ charts/cellcast/crd-bases/ charts/cellcast/files/"
+    if ! git diff --quiet -- $generated; then
         echo "generated output is stale; run 'just generate manifests' and commit the result" >&2
-        git diff --stat -- api/ config/crd/ charts/ >&2
+        git diff --stat -- $generated >&2
         exit 1
     fi
     echo "generated output is up to date"
+
+# Serve the docs site locally with live reload
+docs-serve:
+    uv run --with-requirements docs/requirements.txt mkdocs serve
+
+# Build the static docs site into ./site
+docs-build:
+    uv run --with-requirements docs/requirements.txt mkdocs build --strict
+
+# Regenerate CHANGELOG.md from Conventional Commits
+changelog:
+    git cliff -o CHANGELOG.md
 
 # Lint both charts and render them with every optional block turned on
 chart-lint:

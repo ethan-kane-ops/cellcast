@@ -1,31 +1,81 @@
 # cellcast
 
-Multi-cluster deployment placement oracle and short-lived credential broker.
+**Multi-cluster deployment placement oracle and short-lived credential broker.**
 
 Your pipeline asks two questions on every deploy: **where does this go**, and **what credential lets
 me deploy it there**. cellcast answers both, and then forgets the answer. It slots into the CI/CD you
 already run instead of replacing it.
+
+```console
+$ cellcast place --workload checkout-api --ttl 15m
+placed checkout-api on prod-euw1 (policy app-prod, LeastLoaded, confidence high)
+credential valid for 15m
+kubeconfig written to cellcast.kubeconfig (0600, as apps/deployer)
+
+$ kubectl --kubeconfig cellcast.kubeconfig -n apps apply -f deploy.yaml
+```
+
+No secret was configured and none was stored. The pipeline authenticated with the OIDC token its CI
+platform already issues, and the credential it received expires before the build log finishes
+uploading.
+
+## When cellcast is down
+
+The first question worth an answer for anything in the deploy critical path, so it is answered here
+rather than discovered.
+
+A placement is a recommendation, not a command. The pipeline declares up front what happens when
+there is no answer, and the default is to fail:
+
+| `--on-unavailable` | Behaviour |
+| --- | --- |
+| `fail` (the default) | Exit non-zero. For a pipeline that must not guess |
+| `last-known` | Reuse the last cell chosen for this workload, if it is still inside `--cache-ttl` |
+| `<cell>` | Use a cell pinned in advance |
+
+Nothing falls back implicitly, and **a fallback returns a cell but never a credential**. A refusal is
+not an outage: if the hub says the caller is not permitted, no stance applies and the command fails.
+Falling back there would make the flag a way around the policy engine.
+
+## Verifying what you install
+
+The image you are about to run will hold your clusters' trust configuration, so this is worth the
+two minutes:
+
+```bash
+cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.2.0 \
+  --certificate-identity-regexp 'https://github.com/ethan-kane-ops/cellcast/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Keyless signing, no long-lived keys. See [SECURITY.md](./SECURITY.md).
+
+> **Read the [threat model](docs/threat-model.md) before deploying this.** It mints cluster
+> credentials. The security argument, its limits, and the risks explicitly accepted are written down
+> rather than implied.
+
+## Status
+
+v0.2. The placement path, the broker, the audit trail, metrics, multi-replica HA and the charts are
+built. Images and charts are not published yet, so installing means building from source.
+
+## What it is not
 
 - **Not a propagation engine.** No GitOps loop to adopt, no manifests to hand over. Open Cluster
   Management, Karmada and Rancher Fleet all answer the placement question only after you adopt their
   control plane. cellcast is a queryable oracle you bolt onto the pipeline you have.
 - **Not a credential store.** It holds trust configuration and mints on demand. There is no
   long-lived downstream credential anywhere in the system to steal.
-
-> **Read the [threat model](docs/threat-model.md) first.** This is a tool that mints cluster
-> credentials. The security argument, its limits, and the risks accepted for v0.1 are written down
-> rather than implied.
-
-## Status
-
-Pre-v0.1. Design is settled and recorded; implementation is in progress. Not usable yet.
+- **Not authoritative.** It answers where and hands back a credential. It does not template, apply,
+  roll back, or watch.
 
 ## Documentation
 
 | | |
 | --- | --- |
-| [Architecture](docs/architecture.md) | System shape, the placement path, and ten decision records with the alternatives that were rejected |
-| [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted for v0.1 |
+| [Docs site](https://ethan-kane-ops.github.io/cellcast/) | Getting started, concepts, operations, troubleshooting |
+| [Architecture](docs/architecture.md) | System shape, the placement path, and eleven decision records with the alternatives that were rejected |
+| [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted |
 | [Audit trail](docs/audit.md) | What is recorded for every placement and mint, and worked queries over it |
 | [Metrics](docs/metrics.md) | The Prometheus surface, the dashboard, and the five alerts that matter |
 | [Hub chart](charts/cellcast/README.md) | Installing the hub, and every value it takes |
@@ -42,31 +92,13 @@ agent runs in every registered cell and does not contain the minting code.
 | `cellcast-agent` | every registered cell | reports capacity on a heartbeat, under its own projected ServiceAccount token |
 | `cellcast` | the pipeline runner | client CLI |
 
-## What happens when cellcast is down
-
-cellcast sits in the deploy critical path, so this is the first question worth an answer. A
-placement is a recommendation, not a command, and the pipeline declares up front what should happen
-when there is no answer to be had:
-
-| `--on-unavailable` | Behaviour |
-| --- | --- |
-| `fail` (the default) | Exit non-zero. For a pipeline that must not guess |
-| `last-known` | Reuse the last cell the hub chose for this workload, if it is still inside `--cache-ttl` (default one hour) |
-| `<cell>` | Use a cell pinned in advance |
-
-Nothing falls back implicitly. An implicit fallback is how a deploy silently lands in the wrong
-cluster.
+## Fallback behaviour in detail
 
 **A fallback returns a cell and never a credential.** Minting runs through the hub, so a hub that
 cannot be reached cannot issue one either. `last-known` is worth having for a pipeline that needs
 only the cell name (`--dry-run`, to pick a values file or a target it already holds access to), or
 one that keeps a break-glass credential for exactly this situation. A pipeline with neither cannot
 deploy through a hub outage, and no flag will change that.
-
-**A refusal is not an outage.** If the hub answers that the caller is not permitted, no stance
-applies and the command fails. Falling back there would make `--on-unavailable` the way around the
-policy engine. If the hub answers that it cannot work out which of the caller's permitted cells is
-least loaded, a stance may answer it: the cost is a suboptimal cell, never an unauthorised one.
 
 Every result names its `source` (`hub`, `cache` or `pinned`) and its `confidence`, in both output
 modes, so a pipeline branches on `cellcast place --json | jq -r .source` rather than on whether a
@@ -105,13 +137,11 @@ refuses every request, which is the correct state for a broker that cannot tell
 who is asking, and is not a working install. Both charts document every value
 they take: [hub](charts/cellcast/README.md), [agent](charts/cellcast-agent/README.md).
 
-## Requirements
+## Building from source
 
 - Go 1.26+
 - [mise](https://mise.jdx.dev/) - runtime manager (`brew install mise`)
 - [just](https://just.systems/) - task runner (managed by mise)
-
-## Getting started
 
 ```bash
 mise install        # install pinned Go + tools
@@ -119,10 +149,13 @@ just build          # compile all three binaries into bin/
 ./bin/cellcast --help
 ```
 
+Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md). Support: [SUPPORT.md](./SUPPORT.md).
+What is planned and what has been decided against: [ROADMAP.md](./ROADMAP.md).
+
 ## Development
 
 ```bash
-just check          # tidy + verify-generate + lint + test (run before every commit)
+just check          # tidy + verify-generate + lint + chart-lint + test (run before every commit)
 just check-all      # the above, plus the race detector and the real API server
 just envtest        # the CRD and controller layer against a real kube-apiserver
 just cover          # statement coverage, failing below the 70% gate
@@ -167,3 +200,7 @@ just verify-agent   # three cells, three agents, and one dropping out of scoring
 
 Continuous integration is deliberately dormant until this repository is public.
 `just check` and the pre-commit hooks are the verification layer in the meantime.
+
+## License
+
+Apache License 2.0. See [LICENSE](./LICENSE).
