@@ -3,6 +3,9 @@
 # them are pinned with the rest of the toolchain rather than assumed.
 helm = "latest"
 helm-docs = "latest"
+# The release attaches an SBOM to every artifact, so the tool that produces one
+# is part of the toolchain rather than something a release host might have.
+syft = "latest"
 go = "1.26"
 golangci-lint = "latest"
 just = "latest"

@@ -117,19 +117,60 @@ $ cellcast version
 v0.3.0 (commit 4f2a1c9, built 2026-09-08T16:57:05+01:00, go1.26.8, darwin/arm64)
 ```
 
-## Verifying what you install
+## What the release signs, and what that proves
 
-Pin by digest in production. A tag can be moved; a digest names the same bytes
-tomorrow. Both charts accept `image.digest`, which wins over `image.tag`:
+Every image and both charts are signed with cosign keyless signing, and goreleaser signs
+`checksums.txt`, which covers every archive and every archive SBOM. One signature, whole
+release.
+
+Keyless means there is no key. The signer authenticates over OIDC, Fulcio issues a certificate
+valid for a few minutes, and the signature plus that certificate go into Rekor, a public
+transparency log. Nothing to rotate, nothing to steal, and nothing to lose.
+
+The consequence people miss is that "it is signed" stops being a useful statement. Anyone can
+sign anything with a valid identity. Verification has to name the identity you expect:
+
+```bash
+cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.3.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Those two values live in the justfile as `sign_workflow` and `sign_issuer`. `just verify <tag>`
+runs the command above against every published artifact, `just release` runs `just verify` as its
+last step, and a contract test holds the documented command to the same pair. A verify command
+that has drifted from the signer is worse than no signature: it teaches people that a failure is
+normal.
+
+### SBOM and provenance
+
+Each image carries two attestations, produced by BuildKit during the build:
+
+| Predicate | What it is |
+| --- | --- |
+| `https://spdx.dev/Document` | the SBOM, the packages actually compiled in |
+| `https://slsa.dev/provenance/v1` | build provenance: source, build arguments, base images |
+
+Generating them during the build rather than by scanning the finished image matters here. These
+images hold one stripped static binary and nothing else, so a scanner looking at the result has
+almost nothing to go on, while the builder knows every module it linked.
+
+```bash
+just verify-attestations cellcast-hub   # build one and read the predicates back
+docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 --format '{{ json .SBOM }}'
+```
+
+The archives get their own SBOM from syft, one per archive, published beside it.
+
+### Verifying what you install
+
+Pin by digest in production. A tag can be moved; a digest names the same bytes tomorrow. Both
+charts accept `image.digest`, which wins over `image.tag`:
 
 ```bash
 helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
   --set image.digest=sha256:...
 ```
-
-Signatures and an SBOM are not part of this yet. They land with keyless cosign
-signing, and until then the honest answer is that you are trusting the registry and the
-digest.
 
 ## Why there is no workflow
 
@@ -138,3 +179,13 @@ inside a workflow file, the pipeline is these recipes: `just release-check` rehe
 it and `just release` performs it, both from a laptop. When the workflow lands it calls
 the same two recipes, which means the pipeline was rehearsable long before there was
 anywhere to run it.
+
+One part genuinely cannot be done from a laptop, and it is deliberate that it fails
+rather than degrades. The identity in `sign_workflow` is the release workflow's, so a
+release cut by hand signs with whoever ran it and then fails its own `just verify`. That
+is the correct outcome. Signing with a maintainer's personal identity would produce
+artifacts that verify against a different command from the one the README gives, and the
+first release must not be the one that teaches people to ignore a verification failure.
+
+In practice that means the first tag waits for the workflow, which waits for the
+repository to be public.
