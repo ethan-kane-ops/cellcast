@@ -6,6 +6,15 @@
 
 binaries := "cellcast cellcast-hub cellcast-agent"
 
+# The control plane envtest runs. Kept in step with the k8s.io/* modules in
+# go.mod: a CRD schema is validated by the API server that reads it, so testing
+# against a different minor than the one the hub links proves less than it looks.
+envtest_k8s := "1.37.x"
+
+# Statement coverage floor. 80 is the stretch target (ENG-177); the gate is set
+# where the suite actually is so that a drop is a signal rather than noise.
+coverage_min := "70"
+
 version := `git describe --tags --always --dirty 2>/dev/null || echo dev`
 commit := `git rev-parse --short HEAD 2>/dev/null || echo none`
 date := `date -u +%Y-%m-%dT%H:%M:%SZ`
@@ -44,10 +53,23 @@ test:
 test-race:
     go test -race ./...
 
-# Test with coverage report
-cover:
-    go test -coverprofile=coverage.out ./...
-    go tool cover -func=coverage.out | tail -1
+# Test with coverage and fail below the gate
+cover: envtest-assets
+    #!/usr/bin/env bash
+    # -coverpkg=./... rather than per-package coverage: the envtest suite in
+    # internal/apitest holds no statements of its own and exercises the api/ and
+    # controller code in other packages, which default coverage would not count.
+    set -euo pipefail
+    export KUBEBUILDER_ASSETS="$(go tool setup-envtest use {{envtest_k8s}} --bin-dir "$PWD/bin/envtest" -p path)"
+    go test -coverpkg=./... -coverprofile=coverage.out ./...
+    total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+    echo "total statement coverage: ${total}% (gate {{coverage_min}}%, stretch 80%)"
+    awk -v got="$total" -v min={{coverage_min}} 'BEGIN {
+        if (got + 0 < min + 0) {
+            printf "coverage %.1f%% is below the %d%% gate\n", got, min > "/dev/stderr"
+            exit 1
+        }
+    }'
 
 # Run linters
 lint:
@@ -80,33 +102,24 @@ verify-generate: generate manifests
 # Full local gate. Run before every commit.
 check: tidy verify-generate lint test
 
-# Prove the generated CRDs actually install into a real API server
-verify-crds:
+# Download the etcd and kube-apiserver binaries envtest runs against
+envtest-assets:
     #!/usr/bin/env bash
-    # kubeconform cannot do this: its schema store has no CustomResourceDefinition
-    # schema, so every invocation fails with "could not find schema" regardless of
-    # the -kubernetes-version or -schema-location given. The only validation that
-    # means anything is an API server accepting them, so this spins up a throwaway
-    # kind cluster, applies the CRDs, waits for Established, and tears it down.
-    #
-    # Not part of `check`: it needs docker and takes about a minute. ENG-177
-    # supersedes it with envtest, which does the same thing without the cluster.
     set -euo pipefail
-    cluster=cellcast-crd-verify
-    previous=$(kubectl config current-context 2>/dev/null || true)
-    restore() {
-        kind delete cluster --name "$cluster" >/dev/null 2>&1 || true
-        if [ -n "$previous" ]; then
-            kubectl config use-context "$previous" >/dev/null 2>&1 || true
-        fi
-    }
-    trap restore EXIT
-    kind create cluster --name "$cluster" --wait 90s
-    kubectl --context "kind-$cluster" apply -f config/crd/bases/
-    kubectl --context "kind-$cluster" wait --for=condition=Established \
-        --timeout=60s crd/clusters.cellcast.io crd/placementpolicies.cellcast.io \
-        crd/trustconfigs.cellcast.io
-    echo "CRDs install and reach Established"
+    echo "envtest assets: $(go tool setup-envtest use {{envtest_k8s}} --bin-dir "$PWD/bin/envtest" -p path)"
+
+# Run the CRD and controller layer against a real API server
+envtest: envtest-assets
+    #!/usr/bin/env bash
+    # Supersedes the throwaway kind cluster the old `verify-crds` recipe used.
+    # envtest runs the same kube-apiserver and etcd binaries without the rest of
+    # a cluster, so establishing the CRDs takes about a second instead of a
+    # minute, and the suite can then assert what the schema actually enforces:
+    # the validation markers, the defaults, both CEL rules on TrustConfig, and
+    # the status subresource. A fake client accepts all of it regardless.
+    set -euo pipefail
+    export KUBEBUILDER_ASSETS="$(go tool setup-envtest use {{envtest_k8s}} --bin-dir "$PWD/bin/envtest" -p path)"
+    go test ./internal/apitest/ -count=1 -v
 
 # Mint a real credential against a throwaway cluster and check what it can do
 verify-mint:
@@ -272,8 +285,8 @@ verify-agent:
     CELLCAST_LIVE=1 CELLCAST_FLEET="$work/fleet.json" \
         go test ./internal/hub/ -run TestLiveAgentFleet -v -count=1 -timeout 15m
 
-# Everything check does, plus the race detector (CRDs: see `just verify-crds`)
-check-all: check test-race
+# Everything check does, plus the race detector and the real API server
+check-all: check test-race envtest
 
 # Install pre-commit hooks into .git/hooks
 hooks:

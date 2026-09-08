@@ -87,17 +87,29 @@ just build          # compile all three binaries into bin/
 
 ```bash
 just check          # tidy + verify-generate + lint + test (run before every commit)
-just check-all      # the above, plus the race detector
+just check-all      # the above, plus the race detector and the real API server
+just envtest        # the CRD and controller layer against a real kube-apiserver
+just cover          # statement coverage, failing below the 70% gate
 just generate       # regenerate deepcopy from api/
 just manifests      # regenerate CRD manifests from api/
 just hooks          # install the pre-commit hooks
 ```
 
-Four recipes verify against real clusters instead of fakes. They need docker and
+`just envtest` runs `internal/apitest` against a real kube-apiserver and etcd,
+downloaded on first use into `bin/envtest`. It is where the CRD schema is
+actually tested: the fake client the unit tests use accepts objects the API
+server refuses, so the validation markers, the defaults, the two CEL rules on
+`TrustConfig` and the status subresource are only checked here. The same suite
+also runs the hub's real controllers under a manager, which is what proves the
+watches fire at all.
+
+Without the downloaded assets the suite skips rather than fails, so a fresh
+clone can still run `just check`.
+
+Three recipes verify against real clusters instead of fakes. They need docker and
 take a few minutes each, so they sit outside `just check`:
 
 ```bash
-just verify-crds    # the generated CRDs install and reach Established
 just verify-mint    # a real credential is minted and is bounded by its RBAC
 just verify-e2e     # a placement end to end, then the hub dies and every fallback stance is checked
 just verify-agent   # three cells, three agents, and one dropping out of scoring
