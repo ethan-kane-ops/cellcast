@@ -92,10 +92,21 @@ just check          # tidy + verify-generate + lint + test (run before every com
 just check-all      # the above, plus the race detector and the real API server
 just envtest        # the CRD and controller layer against a real kube-apiserver
 just cover          # statement coverage, failing below the 70% gate
+just fuzz           # fuzz every target in turn (just fuzz 10m for a campaign)
 just generate       # regenerate deepcopy from api/
 just manifests      # regenerate CRD manifests from api/
 just hooks          # install the pre-commit hooks
 ```
+
+`just fuzz` runs ten targets over the code that reads bytes somebody else
+chose: the JWT parsing that happens before anything is verified, the placement
+and registration request bodies, the label selector a policy is written in, and
+the capacity arithmetic a spoke's agent drives. They assert more than "it does
+not crash": claim extraction may never emit a claim the provider does not
+declare or flatten a JSON object into something a policy could match on, a
+refusal may only carry a reason the client contract defines, a registration
+carrying credential material may never be stored, and a report the index accepts
+may never score as NaN. Seeds run as ordinary unit tests on every `just check`.
 
 `just envtest` runs `internal/apitest` against a real kube-apiserver and etcd,
 downloaded on first use into `bin/envtest`. It is where the CRD schema is

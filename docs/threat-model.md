@@ -117,9 +117,16 @@ is the primary remote attack and the JWT parser is the most exposed code in the 
 | JWKS cached, with key rotation handled by refetch on an unknown key id | ENG-172 | Implemented |
 | JWKS unavailability never degrades to accepting unverified tokens | ENG-172 | Implemented |
 | Token size bounded before any decoding | ENG-172 | Implemented |
-| Fuzz target over claim extraction, per provider | ENG-184 | Planned (v0.2) |
+| Fuzz targets over every pre-verification parse | ENG-184 | Implemented: `peekIssuer`, `bearerToken`, `standardClaims` and claim extraction per provider, in `internal/hub/oidc/fuzz_test.go` |
 | Structured rejection reasons, logged | ENG-172 | Implemented |
 | Rejection reasons metered | ENG-178 | Planned (v0.2) |
+
+**What the fuzz targets assert, which is more than "it does not crash".** Claim extraction must
+never emit a claim the provider does not declare, and must never flatten a JSON object or array into
+a string a `PlacementPolicy` could then match on. `peekIssuer` must never return a usable issuer or
+algorithm alongside an error, because both select what happens next. `bearerToken` must never accept
+past the size bound, which is what stops an oversized header being used to make the decoder work.
+Run them with `just fuzz`.
 
 **What is read before verification, and why.** Selecting a key set requires knowing which issuer
 signed the token, and that can only come from the token itself. The pre-verification step is
@@ -275,6 +282,7 @@ every deploy in the estate, which is a worse outage than the problem cellcast so
 | Agent heartbeats jittered to avoid a synchronised herd | ENG-174 | Planned |
 | Capacity index bounded, and reports for unregistered cells refused | ENG-111 | Implemented |
 | Capacity report payloads size-bounded before decoding | ENG-111 | Implemented |
+| Fuzz targets over the placement and registration request bodies | ENG-184 | Implemented: both handlers, asserting the status set, that every response is JSON, and that a refusal carries a reason the client contract defines |
 
 **Fallback never extends to credentials.** A cached placement is a cached decision. The client
 re-mints or fails. A cached credential would reintroduce exactly the long-lived secret this project
@@ -300,6 +308,7 @@ therefore attract or repel deploys.
 | A malformed or negative report is refused, never clamped into a plausible value | ENG-111 | Implemented |
 | A refused report leaves the previous good one in place | ENG-111 | Implemented |
 | Staleness measured by the hub's clock, never the agent's | ENG-111 | Implemented |
+| Fuzz target over the capacity arithmetic an agent drives | ENG-184 | Implemented: whatever `Validate` accepts scores as a real number in range, so a crafted report can never produce a NaN that makes every comparison in the scorer false and hands the placement to whichever cell was first |
 
 **How the binding works.** `Cluster.spec.reporter` names an `issuer` and a `subject`, both compared
 literally against the authenticated caller. The agent presents a projected ServiceAccount token with
