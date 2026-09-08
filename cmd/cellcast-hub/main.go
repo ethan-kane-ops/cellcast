@@ -14,10 +14,12 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/metrics"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
@@ -33,9 +35,13 @@ func main() {
 func newRootCmd() *cobra.Command {
 	cfg := hub.DefaultConfig()
 	mgrOpts := hub.ManagerOptions{
-		// Metrics are off until ENG-178 owns what is exposed. Binding a third
-		// port by default in a credential broker is not a free choice.
-		MetricsAddr: "0",
+		// On by default, on the port after the probes. A service in the deploy
+		// critical path that cannot be scraped will not be adopted, and the
+		// endpoint exposes cell names, policy names and refusal counts rather
+		// than anything an authenticated caller could not already list through
+		// the API. It is unauthenticated, so reaching it should be a
+		// NetworkPolicy decision: see docs/metrics.md. "0" disables it.
+		MetricsAddr: ":8082",
 	}
 	authCfg := oidc.DefaultConfig()
 	var issuerFlags []string
@@ -61,6 +67,9 @@ what a compromise of this process does and does not grant.`,
 				}
 				authCfg.Issuers = append(authCfg.Issuers, issuer)
 			}
+			if err := mgrOpts.ValidateAgainst(cfg); err != nil {
+				return err
+			}
 			return run(cmd.Context(), cfg, mgrOpts, authCfg)
 		},
 	}
@@ -77,7 +86,7 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&cfg.CapacityRetention, "capacity-retention", cfg.CapacityRetention, "how long a stale capacity entry is kept before it is dropped entirely")
 	f.IntVar(&cfg.CapacityMaxCells, "capacity-max-cells", cfg.CapacityMaxCells, "maximum number of cells held in the in-memory capacity index")
 	f.DurationVar(&cfg.TokenTTLCeiling, "token-max-ttl", cfg.TokenTTLCeiling, "absolute ceiling on minted credential lifetime; no policy or request may exceed it")
-	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for controller metrics (0 disables)")
+	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for the Prometheus metrics endpoint (0 disables)")
 	f.BoolVar(&mgrOpts.LeaderElection, "leader-election", mgrOpts.LeaderElection, "elect a leader for the reconciler path")
 	f.StringVar(&mgrOpts.LeaderElectionNamespace, "leader-election-namespace", mgrOpts.LeaderElectionNamespace, "namespace holding the leader election lease (defaults to --namespace)")
 	f.StringArrayVar(&issuerFlags, "oidc-issuer", nil, "trusted OIDC issuer as url=provider (repeatable), for example https://token.actions.githubusercontent.com=github")
@@ -156,6 +165,21 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 
 	engine := placement.NewEngine(mgr.GetClient(), index, cfg.Namespace, log)
 
+	// Registered with controller-runtime's registry, which is what the
+	// manager's metrics endpoint already serves. A second listener would mean a
+	// fourth port on a process that is deliberately parsimonious with them.
+	hubMetrics, err := metrics.New(ctrlmetrics.Registry)
+	if err != nil {
+		return fmt.Errorf("registering metrics: %w", err)
+	}
+	if err := ctrlmetrics.Registry.Register(metrics.NewCapacityCollector(index)); err != nil {
+		return fmt.Errorf("registering the capacity collector: %w", err)
+	}
+	if err := ctrlmetrics.Registry.Register(
+		metrics.NewClusterStateCollector(mgr.GetClient(), cfg.Namespace, log)); err != nil {
+		return fmt.Errorf("registering the cluster state collector: %w", err)
+	}
+
 	serverOpts := []hub.Option{
 		hub.WithClusterClient(mgr.GetClient()),
 		hub.WithCapacityRegistry(index),
@@ -166,6 +190,7 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		// also hangs them on the Cluster they concern, so `kubectl describe
 		// cluster` answers "who has been deploying here".
 		hub.WithEventRecorder(mgr.GetEventRecorder("cellcast-hub")),
+		hub.WithMetrics(hubMetrics),
 	}
 
 	authn, err := buildAuthenticator(ctx, authCfg, log)

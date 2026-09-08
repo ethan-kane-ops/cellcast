@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,22 +13,41 @@ import (
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
+// rejection is one authentication failure.
+//
+// It carries a one-word label alongside the prose because a metric counting
+// refusals cannot be labelled by an error string: that string is unbounded and
+// partly written by whatever the issuer returned, so the label cardinality
+// would be a function of somebody else's error messages.
+//
+// The hub asserts a RejectionReason() interface rather than importing this
+// package, which keeps the seam between the two exactly one interface wide.
+type rejection struct {
+	reason string
+	msg    string
+}
+
+func (r *rejection) Error() string           { return r.msg }
+func (r *rejection) RejectionReason() string { return r.reason }
+
+func newRejection(reason, msg string) error { return &rejection{reason: reason, msg: msg} }
+
 // Rejection reasons. They are a closed set so that a failing pipeline can be
 // diagnosed from a log line or a metric label without a debug build, and so
 // that the reason returned to the caller stays coarse while the reason recorded
 // stays precise.
 var (
-	ErrNoToken          = errors.New("no bearer token presented")
-	ErrMalformedToken   = errors.New("token is not a well-formed JWT")
-	ErrTokenTooLarge    = errors.New("token exceeds the maximum accepted size")
-	ErrIssuerNotAllowed = errors.New("token issuer is not allowlisted")
-	ErrAlgNotAllowed    = errors.New("token signing algorithm is not allowlisted")
-	ErrSignature        = errors.New("token signature could not be verified")
-	ErrAudience         = errors.New("token audience does not match this instance")
-	ErrExpired          = errors.New("token has expired")
-	ErrNotYetValid      = errors.New("token is not valid yet")
-	ErrIssuedInFuture   = errors.New("token was issued in the future")
-	ErrNoSubject        = errors.New("token carries no subject claim")
+	ErrNoToken          = newRejection("NoToken", "no bearer token presented")
+	ErrMalformedToken   = newRejection("MalformedToken", "token is not a well-formed JWT")
+	ErrTokenTooLarge    = newRejection("TokenTooLarge", "token exceeds the maximum accepted size")
+	ErrIssuerNotAllowed = newRejection("IssuerNotAllowed", "token issuer is not allowlisted")
+	ErrAlgNotAllowed    = newRejection("AlgNotAllowed", "token signing algorithm is not allowlisted")
+	ErrSignature        = newRejection("Signature", "token signature could not be verified")
+	ErrAudience         = newRejection("Audience", "token audience does not match this instance")
+	ErrExpired          = newRejection("Expired", "token has expired")
+	ErrNotYetValid      = newRejection("NotYetValid", "token is not valid yet")
+	ErrIssuedInFuture   = newRejection("IssuedInFuture", "token was issued in the future")
+	ErrNoSubject        = newRejection("NoSubject", "token carries no subject claim")
 )
 
 // Authenticator verifies a caller's workload identity token.

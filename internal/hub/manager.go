@@ -33,12 +33,16 @@ type ManagerOptions struct {
 	// resources, so watching the whole cluster would ask for RBAC it does not
 	// need and cache objects it never reads.
 	Namespace string
-	// MetricsAddr is the listen address for the controller metrics endpoint.
-	// "0" disables it.
+	// MetricsAddr is the listen address for the Prometheus endpoint. "0"
+	// disables it.
 	//
 	// Empty is not the same as disabled: controller-runtime then falls back to
-	// its own default of :8080, which is the hub's API port. ENG-178 owns what
-	// this endpoint should expose.
+	// its own default of :8080, which is the hub's API port. The hub binary
+	// therefore always sets this explicitly.
+	//
+	// The endpoint serves controller-runtime's own collectors alongside the
+	// hub's, because both are registered with the same global registry. It is
+	// unauthenticated; see docs/metrics.md for what that discloses.
 	MetricsAddr string
 	// LeaderElection enables leader election for the reconciler path.
 	//
@@ -47,6 +51,26 @@ type ManagerOptions struct {
 	LeaderElection bool
 	// LeaderElectionNamespace is where the lease lives.
 	LeaderElectionNamespace string
+}
+
+// ValidateAgainst reports whether the manager's listeners collide with the
+// server's.
+//
+// The three addresses are configured in two structs and bound by two different
+// pieces of machinery, so nothing else is in a position to compare them. Without
+// this a hub whose metrics and probe ports match starts, binds one, and fails
+// the other with "address already in use" from inside a library, several seconds
+// after it looked like it was coming up.
+func (o ManagerOptions) ValidateAgainst(cfg Config) error {
+	if o.MetricsAddr == "" || o.MetricsAddr == "0" {
+		return nil
+	}
+	for name, addr := range map[string]string{"--addr": cfg.Addr, "--probe-addr": cfg.ProbeAddr} {
+		if o.MetricsAddr == addr {
+			return fmt.Errorf("--metrics-addr %s is already used by %s", o.MetricsAddr, name)
+		}
+	}
+	return nil
 }
 
 // NewManager builds the controller-runtime manager that owns the Cluster and

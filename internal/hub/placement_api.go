@@ -14,6 +14,7 @@ import (
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
@@ -105,6 +106,13 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	// handler, so that whichever exit is taken has already gathered everything
 	// known at that point.
 	rec := audit.Record{Event: audit.EventPlacement, RequestID: requestIDFrom(ctx)}
+
+	// Latency is measured over the whole handler, mint included, because that
+	// is the number added to a deploy. Labelled from rec at return time, so a
+	// request refused in three milliseconds is not averaged in with one that
+	// waited on a spoke.
+	start := time.Now()
+	defer func() { s.metrics.ObservePlacement(string(rec.Outcome), time.Since(start)) }()
 
 	// refuse audits the refusal and then writes it. Every early return below
 	// goes through it, which is what makes "no refusal leaves the hub
@@ -243,6 +251,11 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusInternalServerError, refusal.MintFailed, "internal error", err)
 		return
 	}
+
+	// Recorded before the mint is attempted so that a failure is still audited
+	// and counted against the provider that could not issue.
+	rec.Provider = string(cluster.Spec.Provider)
+	rec.Env = cluster.Labels[broker.EnvLabel]
 
 	cred, ttl, err := s.minter.Mint(ctx, cluster, decision.TokenTTL, requested, id.Subject)
 	if err != nil {

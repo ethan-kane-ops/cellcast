@@ -27,6 +27,7 @@ Pre-v0.1. Design is settled and recorded; implementation is in progress. Not usa
 | [Architecture](docs/architecture.md) | System shape, the placement path, and ten decision records with the alternatives that were rejected |
 | [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted for v0.1 |
 | [Audit trail](docs/audit.md) | What is recorded for every placement and mint, and worked queries over it |
+| [Metrics](docs/metrics.md) | The Prometheus surface, the dashboard, and the four alerts that matter |
 
 ## Components
 

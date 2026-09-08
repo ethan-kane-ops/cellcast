@@ -162,6 +162,8 @@ func TestRecordHasNoFieldThatCouldHoldAToken(t *testing.T) {
 		"Strategy":       "a scoring strategy name",
 		"Confidence":     "a confidence level",
 		"Candidates":     "cell names, filter stages and utilisation",
+		"Provider":       "the trust provider named in the cell's spec",
+		"Env":            "the cell's env label, which selects the TTL bounds",
 		"Namespace":      "the scope the credential was issued against",
 		"ServiceAccount": "the identity the credential acts as",
 		"GrantedTTL":     "a duration",

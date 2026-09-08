@@ -505,6 +505,11 @@ hub will have some collapsed or dropped. Making that view complete would mean an
 deploy across the estate, in the critical path. The JSON trail is authoritative; the Events exist so
 an operator already looking at a cell can see who has been deploying to it.
 
+**The Prometheus counters ride the same record.** Every fact a placement or mint metric needs is
+already on an audit.Record, so the metrics view is a second `Notifier` rather than a second pass over
+the placement handler. One instrumentation point cannot disagree with itself, and a refusal that is
+audited is therefore counted by construction (docs/metrics.md).
+
 **Rejected.** A database or any bespoke sink, for the reasons above. Also rejected: auditing only
 successes, which produces a log that cannot answer the question a refused pipeline is actually
 asking; and emitting one combined record per request, which conflates a decision with a credential.
@@ -548,4 +553,5 @@ Capacity is deliberately not a resource. It lives in memory per ADR-002.
 
 Every decision here has an implementing ticket: ENG-193 (foundation), ENG-110 (registry), ENG-111
 (capacity), ENG-112 (state), ENG-113 (broker), ENG-114 (placement API and client), ENG-172 (OIDC),
-ENG-173 (policy), ENG-174 (agent), ENG-175 (advisory mode), ENG-176 (audit trail), ENG-177 (test harness).
+ENG-173 (policy), ENG-174 (agent), ENG-175 (advisory mode), ENG-176 (audit trail), ENG-177 (test harness), ENG-178
+(metrics).
