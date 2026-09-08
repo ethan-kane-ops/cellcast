@@ -38,7 +38,8 @@ const (
 	CapacityUnknown Reason = "CapacityUnknown"
 
 	// PlacementUnavailable means the hub is running but cannot decide: its
-	// placement engine is not wired up or its registry has not synced.
+	// placement engine is not wired up, its registry has not synced, or the
+	// replica that answered has not yet heard from the fleet it would score.
 	PlacementUnavailable Reason = "PlacementUnavailable"
 
 	// MintUnavailable means the credential broker is not available.

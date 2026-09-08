@@ -273,6 +273,43 @@
       "type": "state-timeline"
     },
     {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "A replica is warm once its capacity index covers the fleet; a cold one refuses placements with PlacementUnavailable. The gap between the two lines is the share of deploys being turned away, which an average across replicas hides.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "warm" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "table", "calcs": ["min"], "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "count(cellcast_hub_warm{namespace=~\"$namespace\"})",
+          "legendFormat": "replicas",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sum(cellcast_hub_warm{namespace=~\"$namespace\"})",
+          "legendFormat": "warm",
+          "refId": "B"
+        }
+      ],
+      "title": "Replicas able to place",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
       "id": 102,

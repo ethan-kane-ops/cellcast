@@ -42,6 +42,11 @@ func newRootCmd() *cobra.Command {
 		// the API. It is unauthenticated, so reaching it should be a
 		// NetworkPolicy decision: see docs/metrics.md. "0" disables it.
 		MetricsAddr: ":8082",
+		// On by default. The chart runs more than one replica, and a fleet
+		// where three hubs each write Cluster status and each emit the same
+		// Event is worse than one where a single replica does. Turning it off
+		// is a single-replica development choice, not a production one.
+		LeaderElection: true,
 	}
 	authCfg := oidc.DefaultConfig()
 	var issuerFlags []string
@@ -79,6 +84,8 @@ what a compromise of this process does and does not grant.`,
 	f.StringVar(&cfg.ProbeAddr, "probe-addr", cfg.ProbeAddr, "listen address for health and readiness probes")
 	f.DurationVar(&cfg.ReadHeaderTimeout, "read-header-timeout", cfg.ReadHeaderTimeout, "maximum time to read request headers")
 	f.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", cfg.ShutdownTimeout, "maximum time to drain in-flight requests on shutdown")
+	f.DurationVar(&cfg.DrainDelay, "drain-delay", cfg.DrainDelay, "how long to keep serving while reporting unready, so endpoint removal can propagate before the listener closes")
+	f.DurationVar(&cfg.WarmupTimeout, "warmup-timeout", cfg.WarmupTimeout, "how long a starting replica waits for the fleet to report capacity before reporting itself ready anyway")
 	f.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level (debug, info, warn, error)")
 	f.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format (json, text)")
 	f.StringVar(&cfg.Namespace, "namespace", cfg.Namespace, "namespace holding the cellcast registry")
@@ -186,6 +193,11 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		hub.WithPlacer(engine),
 		hub.WithMinter(minter),
 		hub.WithCacheSync(mgr.GetCache().WaitForCacheSync),
+		// Readiness waits for the fleet, not just for the cache. A replica
+		// whose cache has synced still knows nothing about how loaded anything
+		// is, and taking traffic in that state means refusing every placement
+		// for as long as it takes the agents to notice.
+		hub.WithWarmupCheck(hub.FleetCoverage(mgr.GetClient(), index, cfg.Namespace)),
 		// The audit trail's second view. Records go to stdout regardless; this
 		// also hangs them on the Cluster they concern, so `kubectl describe
 		// cluster` answers "who has been deploying here".

@@ -17,8 +17,33 @@ type Config struct {
 	ProbeAddr string
 	// ReadHeaderTimeout bounds how long a client may take to send headers.
 	ReadHeaderTimeout time.Duration
-	// ShutdownTimeout bounds the graceful drain on SIGTERM.
+	// ShutdownTimeout bounds the graceful drain on SIGTERM, measured from the
+	// end of DrainDelay.
 	ShutdownTimeout time.Duration
+	// DrainDelay is how long the hub keeps serving, already reporting itself
+	// unready, before it closes its listeners.
+	//
+	// Kubernetes removes a pod from Service endpoints asynchronously, and it
+	// sends SIGTERM at the same moment it starts. Closing the listener on the
+	// signal therefore refuses the requests still being routed here while that
+	// removal propagates through every kube-proxy and every client's connection
+	// pool, which is a deploy failing because cellcast was being upgraded.
+	//
+	// DrainDelay plus ShutdownTimeout must fit inside the pod's
+	// terminationGracePeriodSeconds, or the kubelet's SIGKILL arrives mid-drain
+	// and undoes both.
+	DrainDelay time.Duration
+	// WarmupTimeout bounds how long a starting replica waits for capacity
+	// before it reports itself ready anyway.
+	//
+	// Capacity is in-memory per replica and arrives only from agent heartbeats
+	// (docs/architecture.md ADR-002), so a replica that has just started knows
+	// nothing about the fleet and would refuse every placement it was given.
+	// Readiness therefore waits for the fleet to check in. The wait has to be
+	// bounded, because agents heartbeat through the Service and a Service
+	// routes only to ready pods: without a deadline, a fleet whose hub replicas
+	// all restarted at once would wait for heartbeats that nothing can deliver.
+	WarmupTimeout time.Duration
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 	// LogFormat is one of json, text.
@@ -58,7 +83,20 @@ func DefaultConfig() Config {
 		Addr:              ":8080",
 		ProbeAddr:         ":8081",
 		ReadHeaderTimeout: 10 * time.Second,
-		ShutdownTimeout:   30 * time.Second,
+		// Sized so that DrainDelay plus this one fits inside Kubernetes'
+		// default terminationGracePeriodSeconds of 30, with headroom. A drain
+		// the kubelet interrupts with SIGKILL is not a drain.
+		ShutdownTimeout: 20 * time.Second,
+		// Endpoint propagation is usually well under a second and is
+		// occasionally much worse, so this is sized for the bad case rather
+		// than the common one. It costs a rolling update five seconds per pod
+		// and buys the property the rollout exists to preserve.
+		DrainDelay: 5 * time.Second,
+		// One staleness window. An agent heartbeating on the default interval
+		// checks in three times inside it, so a replica that is still cold at
+		// the deadline is not waiting on timing, it is waiting on something
+		// that is broken.
+		WarmupTimeout: capacity.DefaultStaleness,
 		LogLevel:          "info",
 		LogFormat:         "json",
 		CapacityStaleness: capacity.DefaultStaleness,
@@ -85,6 +123,12 @@ func (c Config) Validate() error {
 	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("shutdown-timeout must be positive, got %s", c.ShutdownTimeout)
+	}
+	if c.DrainDelay < 0 {
+		return fmt.Errorf("drain-delay must not be negative, got %s", c.DrainDelay)
+	}
+	if c.WarmupTimeout < 0 {
+		return fmt.Errorf("warmup-timeout must not be negative, got %s", c.WarmupTimeout)
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":

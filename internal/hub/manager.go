@@ -27,6 +27,10 @@ func NewScheme() (*runtime.Scheme, error) {
 	return s, nil
 }
 
+// leaderElectionID names the Lease the reconcilers contend for. Changing it
+// splits an upgrading fleet into two leaders, one per version.
+const leaderElectionID = "cellcast-hub.cellcast.io"
+
 // ManagerOptions configures the controller-runtime manager.
 type ManagerOptions struct {
 	// Namespace scopes the informer cache. The hub only ever reads its own
@@ -47,7 +51,14 @@ type ManagerOptions struct {
 	// LeaderElection enables leader election for the reconciler path.
 	//
 	// The API path is stateless and every replica can answer any request, so
-	// only the controllers elect. See docs/architecture.md ADR-006 and ENG-179.
+	// only the controllers elect. Placement reads the informer cache, which
+	// every replica keeps synced whether or not it holds the lease, so a
+	// follower answers placements exactly as well as the leader does.
+	//
+	// What the lease protects is the writes: Cluster status, and the Kubernetes
+	// Events view of the audit trail. Three replicas reconciling the same
+	// Cluster would fight over its status and emit every event three times.
+	// See docs/architecture.md ADR-011.
 	LeaderElection bool
 	// LeaderElectionNamespace is where the lease lives.
 	LeaderElectionNamespace string
@@ -100,16 +111,31 @@ func NewManager(opts ManagerOptions, log *slog.Logger) (manager.Manager, error) 
 		return nil, fmt.Errorf("loading kubernetes client config: %w", err)
 	}
 
-	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
-		Scheme:                  scheme,
-		Metrics:                 metricsserver.Options{BindAddress: opts.MetricsAddr},
-		Cache:                   cache.Options{DefaultNamespaces: map[string]cache.Config{opts.Namespace: {}}},
-		LeaderElection:          opts.LeaderElection,
-		LeaderElectionID:        "cellcast-hub.cellcast.io",
-		LeaderElectionNamespace: opts.LeaderElectionNamespace,
-	})
+	mgr, err := ctrl.NewManager(restCfg, opts.controllerOptions(scheme))
 	if err != nil {
 		return nil, fmt.Errorf("building manager: %w", err)
 	}
 	return mgr, nil
+}
+
+// controllerOptions is the manager configuration, separated from the call that
+// consumes it so a test can read it without a cluster.
+func (o ManagerOptions) controllerOptions(scheme *runtime.Scheme) ctrl.Options {
+	return ctrl.Options{
+		Scheme:                  scheme,
+		Metrics:                 metricsserver.Options{BindAddress: o.MetricsAddr},
+		Cache:                   cache.Options{DefaultNamespaces: map[string]cache.Config{o.Namespace: {}}},
+		LeaderElection:          o.LeaderElection,
+		LeaderElectionID:        leaderElectionID,
+		LeaderElectionNamespace: o.LeaderElectionNamespace,
+		// Hand the lease back on a clean shutdown instead of making the next
+		// leader wait out the full lease duration. A rolling update otherwise
+		// leaves the fleet with no reconciler for fifteen seconds per pod, for
+		// no reason other than that nobody said goodbye.
+		//
+		// This is only safe because the process really does end when the
+		// manager returns, and because the code that outlives it by the drain
+		// delay is the API path, which holds no lease and needs none.
+		LeaderElectionReleaseOnCancel: true,
+	}
 }

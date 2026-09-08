@@ -111,6 +111,7 @@ stance on that split, and a client must never have to match on prose to find it.
 | [ADR-008](#adr-008-cluster-state-has-three-values-not-two) | Cluster state | `LIVE`, `DARK`, `DRAINING` | `LIVE` and `DARK` only |
 | [ADR-009](#adr-009-an-agent-may-only-report-for-the-cell-that-names-it) | Reporter identity | Each `Cluster` names the issuer and subject allowed to report for it | Trusting any authenticated caller, or matching on the subject alone |
 | [ADR-010](#adr-010-the-audit-trail-is-structured-stdout-and-cannot-be-levelled-off) | Audit trail | Structured JSON on stdout, unlevelled, plus a lossy Events view | A database, a bespoke sink, a retention policy of our own |
+| [ADR-011](#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) | High availability | Every replica answers placements; a lease covers only the reconcilers | Leader-only serving, an active-standby pair, sharing capacity between replicas |
 
 ---
 
@@ -516,6 +517,70 @@ asking; and emitting one combined record per request, which conflates a decision
 
 ---
 
+### ADR-011: the API path runs N replicas, and only the controllers elect
+
+**Status:** accepted (ENG-179)
+
+**Context.** cellcast is in the deploy critical path, so a single replica is a single point of
+failure for every deploy in the estate. But the hub is two programs in one process. The API answers
+placements and mints credentials; the controllers write `Cluster` status and emit Events. Running N
+of the first is the point of the exercise. Running N of the second means three replicas fighting
+over the same status subresource and emitting every event three times.
+
+**Decision.** Every replica serves the API. A lease covers the controllers only.
+
+This works because of ADR-002 and ADR-005 together: placement reads the informer cache, which every
+replica keeps synced whether or not it holds the lease, and the capacity index that ranks the
+survivors is per-replica and rebuilt from heartbeats. A follower therefore answers a placement
+exactly as well as the leader does. Nothing in the decision path writes.
+
+Three consequences follow, and each one needed code:
+
+**Replicas disagree about capacity, and that is acceptable.** Agents heartbeat through the Service,
+so each report lands on whichever replica the load balancer chose. Two replicas asked the same
+question in the same second can pick different cells. Placement is advisory (ADR-006), so a
+marginally worse cell is a worse cell, not a wrong one. What is *not* acceptable is a replica with
+no capacity at all, which is the next point.
+
+**A replica must be warm before it is ready.** A newly started replica has an empty capacity index.
+Every cell is `Unknown`, so it excludes the entire fleet and refuses every placement it is handed.
+Readiness therefore waits until the index holds a fresh report for every cell that is expected to
+report: every registered `Cluster` that names a reporter and is not `DRAINING`.
+
+That wait has to be bounded, and the reason is a cycle. Agents heartbeat through the Service; a
+Service routes only to ready pods; so a fleet whose hub replicas all restarted at once is waiting
+for reports that nothing can deliver. Past `--warmup-timeout` a replica goes ready anyway, says so
+in the log, and names the cells it never heard from. It keeps refusing placements until it is warm,
+with `PlacementUnavailable` rather than `CapacityUnknown`, because the two resolve differently: the
+first is a property of the replica the caller reached and clears itself.
+
+Warmth latches. Capacity going stale later is the placement engine's problem and it already has an
+answer. If warmth could fall back, readiness would follow it, and one bad minute across the fleet
+would pull every replica out of the Service at once.
+
+**Shutdown waits before it closes.** Kubernetes removes a pod from Service endpoints
+asynchronously, and it sends `SIGTERM` at the same moment it begins. A process that closes its
+listener on the signal refuses everything routed to it while that removal propagates. So the hub
+goes unready, keeps serving for `--drain-delay`, and only then drains in-flight requests within
+`--shutdown-timeout`. The two together are sized to fit inside the default
+`terminationGracePeriodSeconds`, because a drain the kubelet interrupts with `SIGKILL` is not a
+drain.
+
+**Rejected: leader-only serving.** One replica answering and the others idle is an active-standby
+pair with extra steps. It converts every lease handover into an API outage and wastes the property
+that makes this service easy to scale, which is that deciding does not write.
+
+**Rejected: sharing the capacity index between replicas.** Gossip or a shared cache would make
+replicas agree. It would also give the hub a distributed system to be wrong about, in exchange for
+agreement on a number that is advisory and stale by construction. ADR-002 already decided that
+capacity is not worth durability; it is not worth consensus either.
+
+**Consequence.** Losing the lease stops the process, and that is deliberate: whichever half fails
+takes the other down, so a partial failure surfaces as a restart. Under an API server partition
+only the leader exits; followers stay in their acquisition loop and keep serving from cache. The
+restarted replica cannot sync, so it stays unready and out of the Service until the partition
+clears.
+
 ## Data model
 
 Two custom resources, both `v1alpha1`, versioned from the start so a `v1beta1` is additive rather
@@ -548,10 +613,13 @@ Capacity is deliberately not a resource. It lives in memory per ADR-002.
 | JWKS endpoint unreachable | Serve from cache; never fall back to accepting unverified tokens |
 | No matching `PlacementPolicy` | Reject. There is no "any cell" fallback |
 | Mint fails | Reject. Placement without a credential is not a partial success |
+| Hub replica still warming up | Ready, so agents can reach it, but every placement is refused with `PlacementUnavailable` until it is warm (ADR-011) |
+| Hub replica being rolled | Reports unready, keeps serving for `--drain-delay`, then drains in-flight requests (ADR-011) |
+| Leader loses its lease | That replica exits and restarts; the others keep serving placements from cache (ADR-011) |
 
 ## Related tickets
 
 Every decision here has an implementing ticket: ENG-193 (foundation), ENG-110 (registry), ENG-111
 (capacity), ENG-112 (state), ENG-113 (broker), ENG-114 (placement API and client), ENG-172 (OIDC),
 ENG-173 (policy), ENG-174 (agent), ENG-175 (advisory mode), ENG-176 (audit trail), ENG-177 (test harness), ENG-178
-(metrics).
+(metrics), ENG-179 (multi-replica HA).

@@ -71,6 +71,13 @@ modes, so a pipeline branches on `cellcast place --json | jq -r .source` rather 
 file happened to appear. On a fallback the kubeconfig at the target path is removed, so a credential
 left by an earlier run cannot be picked up by the next step.
 
+**The hub itself runs more than one replica.** Every replica answers placements, because deciding
+reads and never writes; only the controllers take a lease. A replica reports itself unready until it
+has heard capacity for the fleet, and on shutdown it reports unready and keeps serving while
+Kubernetes takes it out of the Service, so a rolling update of cellcast does not fail the deploys
+running through it. The details, including the deadlock that bounds the warmup wait, are
+[ADR-011](docs/architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect).
+
 ## Requirements
 
 - Go 1.26+

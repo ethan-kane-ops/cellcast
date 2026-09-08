@@ -37,11 +37,12 @@ point cannot disagree with itself.
 | `cellcast_capacity_staleness_seconds` | gauge | `cell` | How long since each cell was last heard from |
 | `cellcast_capacity_staleness_window_seconds` | gauge | | The window this hub considers usable |
 | `cellcast_cluster_state` | gauge | `cell`, `state` | Which cells are LIVE, DARK or DRAINING |
+| `cellcast_hub_warm` | gauge | | Whether this replica has enough capacity to place at all |
 
 `outcome` is `granted`, `refused` or `dry-run`. `reason` on a placement is the refusal taxonomy the
 caller received, so an operator and a pipeline are reading the same word for the same event.
 
-### Three that are not what you would guess
+### Four that are not what you would guess
 
 **`cellcast_cluster_capacity_ratio` disappears when a cell goes stale.** It is not held at its last
 value and it is not zeroed. A stale ratio is a number a dashboard reads as current and the placement
@@ -55,6 +56,13 @@ rather than leaving an old series to be read as still true.
 **`cellcast_capacity_staleness_window_seconds` exists so an alert never hardcodes a threshold.** The
 window is `--capacity-staleness`, which an operator can change. A rule written against this metric
 retunes itself; one written against `180` does not, and nobody remembers to.
+
+**`cellcast_hub_warm` only ever goes up.** It flips to `1` the first time a replica's capacity index
+covers the fleet and stays there. Capacity going stale afterwards is the placement engine's problem
+and it already has an answer: the affected cells become Unknown and are excluded. If warmth fell
+back to `0`, readiness would follow it, and one bad minute across the fleet would pull every replica
+out of the Service at once. Aggregate it with `min`, never `avg`: one cold replica in three refuses
+a third of the estate's deploys.
 
 Fleet gauges are all collected at scrape time from the live capacity index and the informer cache
 rather than written when something changes. A gauge set on write keeps reporting a decommissioned
@@ -89,6 +97,7 @@ Prometheus Operator CRDs; ENG-180 templates it into the chart.
 | `CellcastCapacityStale` | warning | A cell has been quiet for more than twice this hub's staleness window |
 | `CellcastCellNeverReported` | warning | A registered LIVE cell has never reported capacity at all |
 | `CellcastAuthRejectionRatioHigh` | warning | More than half of all attempts are failing authentication |
+| `CellcastReplicaCannotPlace` | warning | A replica is in the Service and still has no capacity for the fleet |
 | `CellcastNoAuthenticator` | critical | The hub is refusing everything because no OIDC issuer is configured |
 
 The first two are the same failure at different stages, and they need separate rules because a cell

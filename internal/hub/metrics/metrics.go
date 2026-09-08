@@ -35,6 +35,7 @@ type Metrics struct {
 	mintFailures      *prometheus.CounterVec
 	tokenTTL          prometheus.Histogram
 	authRejections    *prometheus.CounterVec
+	warm              prometheus.Gauge
 }
 
 // New builds the hub's collectors and registers them with reg.
@@ -81,11 +82,16 @@ func New(reg prometheus.Registerer) (*Metrics, error) {
 			Name: "cellcast_auth_rejections_total",
 			Help: "Requests rejected before reaching a handler, by why the token was refused.",
 		}, []string{"reason"}),
+
+		warm: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "cellcast_hub_warm",
+			Help: "1 when this replica's capacity index covers the fleet, 0 while it is still cold and refusing placements.",
+		}),
 	}
 
 	for _, c := range []prometheus.Collector{
 		m.placementRequests, m.placementDuration, m.tokensMinted,
-		m.mintFailures, m.tokenTTL, m.authRejections,
+		m.mintFailures, m.tokenTTL, m.authRejections, m.warm,
 	} {
 		if err := reg.Register(c); err != nil {
 			return nil, err
@@ -128,6 +134,22 @@ func (m *Metrics) ObservePlacement(outcome string, d time.Duration) {
 		return
 	}
 	m.placementDuration.WithLabelValues(outcome).Observe(d.Seconds())
+}
+
+// SetWarm records whether this replica can score a placement.
+//
+// Per replica and deliberately not aggregated: the number that matters is the
+// minimum across the Deployment, because one cold replica in a Service of three
+// refuses a third of the estate's deploys while the average still looks fine.
+func (m *Metrics) SetWarm(warm bool) {
+	if m == nil {
+		return
+	}
+	if warm {
+		m.warm.Set(1)
+		return
+	}
+	m.warm.Set(0)
 }
 
 // AuthRejected records a request refused by the authentication middleware.
