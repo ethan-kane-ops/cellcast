@@ -217,11 +217,27 @@ func TestTheHubChartCanLeaveTheCRDsAlone(t *testing.T) {
 	}
 }
 
+// alertNames returns every alert name in a rules document.
+var alertPattern = regexp.MustCompile(`alert: (\w+)`)
+
+func alertNames(in string) []string {
+	var names []string
+	for _, m := range alertPattern.FindAllStringSubmatch(in, -1) {
+		names = append(names, m[1])
+	}
+	slices.Sort(names)
+	return names
+}
+
 func TestTheHubChartShipsTheSameAlertsAsTheRepo(t *testing.T) {
 	// The alert expressions are tied to the metrics the code emits by a
 	// contract test over config/prometheus. A second copy maintained by hand
 	// would quietly stop agreeing with it, and the first sign would be an alert
 	// that never fires.
+	//
+	// Compared as whole names in both directions. Asking whether each expected
+	// name appears somewhere in the rendered text passes on a renamed alert,
+	// because the old name is a prefix of the new one.
 	root := repoRoot(t)
 
 	shipped, err := os.ReadFile(filepath.Join(root, "config", "prometheus", "prometheusrule.yaml"))
@@ -229,16 +245,13 @@ func TestTheHubChartShipsTheSameAlertsAsTheRepo(t *testing.T) {
 		t.Fatalf("reading the shipped rules: %v", err)
 	}
 
-	manifests := render(t, "cellcast", "--set", "metrics.prometheusRule.enabled=true")
-
-	alerts := regexp.MustCompile(`alert: (\w+)`)
-	want := alerts.FindAllStringSubmatch(string(shipped), -1)
+	want := alertNames(string(shipped))
 	if len(want) == 0 {
 		t.Fatal("no alerts in config/prometheus/prometheusrule.yaml")
 	}
-	for _, m := range want {
-		if !strings.Contains(manifests, "alert: "+m[1]) {
-			t.Errorf("the chart does not ship %s; run `just manifests`", m[1])
-		}
+
+	got := alertNames(render(t, "cellcast", "--set", "metrics.prometheusRule.enabled=true"))
+	if !slices.Equal(got, want) {
+		t.Errorf("the chart ships %v, want %v; run `just manifests`", got, want)
 	}
 }
