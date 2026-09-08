@@ -316,7 +316,18 @@ release-version tag:
 
 # Print the release notes for one tag
 release-notes tag=version:
-    @git cliff --tag {{tag}} --unreleased --strip all
+    #!/usr/bin/env bash
+    # Which git-cliff mode is right depends on whether the tag exists yet.
+    # Before it does, the commits are unreleased and have to be labelled with
+    # the tag they are about to be given. After it does, they are not unreleased
+    # any more and --unreleased renders nothing, which is how a release gets
+    # published with an empty body.
+    set -euo pipefail
+    if git rev-parse -q --verify "refs/tags/{{tag}}" > /dev/null; then
+        git cliff --current --strip all
+    else
+        git cliff --tag "{{tag}}" --unreleased --strip all
+    fi
 
 # Every release step, publishing nothing
 release-check: check
@@ -342,9 +353,13 @@ release tag: (_release-guard tag)
     # Then publish, least reversible last.
     just images-push "{{tag}}"
     just chart-push
-    mkdir -p dist
-    just release-notes "{{tag}}" > dist/release-notes.md
-    goreleaser release --clean --release-notes dist/release-notes.md
+    # The notes go outside dist/. `goreleaser --clean` empties that directory
+    # before it reads --release-notes, so a file written there is gone by the
+    # time the release pipe wants it.
+    notes=$(mktemp)
+    trap 'rm -f "$notes"' EXIT
+    just release-notes "{{tag}}" > "$notes"
+    goreleaser release --clean --release-notes "$notes"
     echo "released {{tag}}"
 
 # Refuse to release from a tree that is not exactly the tag

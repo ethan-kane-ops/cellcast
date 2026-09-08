@@ -53,6 +53,26 @@ func justVar(t *testing.T, name string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// containsOutsideComments reports whether needle appears on a line that is not
+// a comment.
+//
+// All three build files comment with #, and each of them discusses the flags it
+// passes in prose right beside the line that passes them. A substring search
+// over the whole file therefore passes on a Dockerfile whose only remaining
+// mention of -trimpath is the comment explaining why it matters, which is
+// exactly the case a break test found.
+func containsOutsideComments(text, needle string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if strings.Contains(line, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // versionVars are every variable internal/version expects the linker to stamp.
 // A binary that cannot say which commit it came from is not auditable, and the
 // audit trail is the product.
@@ -82,11 +102,11 @@ func TestEveryWayOfBuildingStampsTheSameVersionVariables(t *testing.T) {
 		t.Run(w.name, func(t *testing.T) {
 			for _, v := range versionVars {
 				stamp := "internal/version." + v + "="
-				if !strings.Contains(w.stamps, stamp) {
+				if !containsOutsideComments(w.stamps, stamp) {
 					t.Errorf("%s does not stamp %s; the artifact it builds would report the package default", w.name, stamp)
 				}
 			}
-			if !strings.Contains(w.flags, "-trimpath") {
+			if !containsOutsideComments(w.flags, "-trimpath") {
 				t.Errorf("%s does not build with -trimpath; the binary embeds the absolute path of whoever built it, and two builds of one commit differ", w.name)
 			}
 		})
