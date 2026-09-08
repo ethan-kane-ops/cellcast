@@ -55,7 +55,9 @@ nav:
   - Security:
       - Threat Model: threat-model.md
   - Pipeline Integration: pipeline-integration.md
-  - Development: development.md
+  - Development:
+      - Working on cellcast: development.md
+      - Releasing: releasing.md
 
 markdown_extensions:
   - admonition

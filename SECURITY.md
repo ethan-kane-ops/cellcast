@@ -80,12 +80,16 @@ Only the latest minor release line receives security updates.
 
 Pre-1.0, the API and the CRD schema may change between minor versions.
 
-## Signed releases
+## Release integrity
 
-Published images and OCI charts are signed with [cosign](https://docs.sigstore.dev/)
-keyless signing, with no long-lived keys. The verification command lives in the
-README under **Verifying what you install**.
+Images are reproducible from their tag. The base images are pinned by digest, the
+build runs with `-trimpath`, and the timestamps come from the commit rather than
+the build clock, so rebuilding a tag from source produces the same bytes. That is
+a claim you can check rather than one you have to accept; see
+[Releasing](docs/releasing.md#reproducible-builds).
 
-Verifying is worth the two minutes here more than on most projects: the image
-you are about to run is the one that will hold your clusters' trust
-configuration.
+Signatures and an SBOM are not published yet. Pin by digest until they are: a tag
+can be moved, a digest cannot.
+
+Checking what you are about to run matters more here than on most projects: that
+image is the one that will hold your clusters' trust configuration.

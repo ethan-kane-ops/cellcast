@@ -39,16 +39,23 @@ Falling back there would make the flag a way around the policy engine.
 
 ## Verifying what you install
 
-The image you are about to run will hold your clusters' trust configuration, so this is worth the
-two minutes:
+The image you are about to run will hold your clusters' trust configuration, so pin it by digest
+rather than by tag. A tag can be moved; a digest names the same bytes tomorrow. Both charts take
+one, and it wins over `image.tag`:
 
 ```bash
-cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.2.0 \
-  --certificate-identity-regexp 'https://github.com/ethan-kane-ops/cellcast/.*' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
+  --namespace cellcast-system --create-namespace \
+  --set image.digest=sha256:...
 ```
 
-Keyless signing, no long-lived keys. See [SECURITY.md](./SECURITY.md).
+Every image is reproducible from its tag. The base images are pinned by digest, the build runs
+with `-trimpath`, and the timestamps come from the commit rather than the build clock, so
+rebuilding a tag yourself produces the same bytes. [How to check that](docs/releasing.md#reproducible-builds).
+
+Signatures and an SBOM are not published yet. Until they are, the honest answer is that you are
+trusting the registry and the digest, and this section will say something stronger when that
+stops being true. See [SECURITY.md](./SECURITY.md).
 
 > **Read the [threat model](docs/threat-model.md) before deploying this.** It mints cluster
 > credentials. The security argument, its limits, and the risks explicitly accepted are written down
@@ -56,8 +63,11 @@ Keyless signing, no long-lived keys. See [SECURITY.md](./SECURITY.md).
 
 ## Status
 
-v0.2. The placement path, the broker, the audit trail, metrics, multi-replica HA and the charts are
-built. Images and charts are not published yet, so installing means building from source.
+v0.2. The placement path, the broker, the audit trail, metrics, multi-replica HA, the charts and
+the release pipeline are built. Nothing is published to a registry yet, so the install commands
+above describe where the artifacts will be rather than where they are; until the first tag,
+installing means [building from source](#building-from-source) and `just release-check` is what
+proves the pipeline that will put them there.
 
 ## What it is not
 
