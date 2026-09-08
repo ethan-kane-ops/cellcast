@@ -228,7 +228,7 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 	// than downgraded. A smoke test that silently lands on a live cell is worse
 	// than one that fails.
 	if req.TargetDark && !policy.Spec.AllowDarkTargeting {
-		return nil, fmt.Errorf("%w: %s", ErrDarkNotPermitted, policy.Name)
+		return nil, &RefusedError{Err: ErrDarkNotPermitted, Policy: policy.Name}
 	}
 
 	selector, err := metav1.LabelSelectorAsSelector(&policy.Spec.PermittedCells)
@@ -256,7 +256,14 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 
 	admitted := decision.Admitted()
 	if len(admitted) == 0 {
-		return nil, refusalFor(decision.Candidates)
+		// The candidate table goes with the refusal rather than being discarded
+		// with the decision. It is the only record of which cells were looked
+		// at and what stopped each one, and it is what the audit trail reports.
+		return nil, &RefusedError{
+			Err:        refusalFor(decision.Candidates),
+			Policy:     policy.Name,
+			Candidates: decision.Candidates,
+		}
 	}
 
 	decision.Cell = e.score(policy, decision.Strategy, admitted)

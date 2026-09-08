@@ -178,7 +178,7 @@ func TestLiveFallback(t *testing.T) {
 func startHub(t *testing.T, cfg *rest.Config, k8s client.Client, index *capacity.Registry, addr string) func() {
 	t.Helper()
 
-	srv := liveServer(t, cfg, k8s, index, addr)
+	srv, _ := liveServer(t, cfg, k8s, index, addr)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()

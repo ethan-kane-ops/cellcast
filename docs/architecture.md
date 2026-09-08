@@ -110,6 +110,7 @@ stance on that split, and a client must never have to match on prose to find it.
 | [ADR-007](#adr-007-three-binaries-not-one) | Packaging | Three binaries: hub, agent, client | One binary with subcommands |
 | [ADR-008](#adr-008-cluster-state-has-three-values-not-two) | Cluster state | `LIVE`, `DARK`, `DRAINING` | `LIVE` and `DARK` only |
 | [ADR-009](#adr-009-an-agent-may-only-report-for-the-cell-that-names-it) | Reporter identity | Each `Cluster` names the issuer and subject allowed to report for it | Trusting any authenticated caller, or matching on the subject alone |
+| [ADR-010](#adr-010-the-audit-trail-is-structured-stdout-and-cannot-be-levelled-off) | Audit trail | Structured JSON on stdout, unlevelled, plus a lossy Events view | A database, a bespoke sink, a retention policy of our own |
 
 ---
 
@@ -465,6 +466,51 @@ in every spoke to answer a question the cluster's own token service already answ
 
 ---
 
+### ADR-010: the audit trail is structured stdout, and cannot be levelled off
+
+**Context.** A credential broker with no audit trail is unadoptable. The first question in any
+security review is "show me every token this thing has ever minted, and who asked for it", and there
+has to be an answer that does not involve a debug build. The second question, which reviews ask less
+often and operators ask constantly, is why a deploy was refused.
+
+**Decision.** One structured JSON record per placement decision and per mint, written to stdout, and
+the same events published a second time as Kubernetes Events on the `Cluster` they concern.
+Refusals are recorded with the same fields as successes, including the candidate table naming every
+registered cell and the filter stage that rejected it. `docs/audit.md` holds the record shape and a
+worked example.
+
+**Stdout and nothing else.** Records land in whatever log pipeline the adopter already runs, so
+retention, access control and immutability stay where those decisions already live. A database would
+mean cellcast owning a retention policy, a schema migration and a second failure mode in the deploy
+critical path, in exchange for nothing an adopter's log pipeline does not already do better.
+
+**The trail is not levelled by `--log-level`.** It is written through its own handler that admits
+everything it is given, so `--log-level=error` still produces a complete trail. Sharing a handler
+with the ordinary log would make the audit trail switchable by a flag nobody thinks of as a security
+control, and a security log a verbosity flag can silence is not a security log.
+
+**No record can hold a token.** The record type has no field that could carry credential material.
+The closest is `token_sha256`, a digest of the whole token, which correlates a leaked token to the
+record that issued it and cannot reconstruct it. A prefix would correlate too and is forbidden: a
+JWT's leading bytes are its header and the segment boundaries move, so a prefix is not a fixed
+amount of the secret. The invariant is held by a test that classifies every field on the record and
+fails on any new one, rather than by a rule in this document (docs/threat-model.md T-05).
+
+**Placement and mint are separate records, tied by `request_id`.** Either happens without the other:
+a dry run places and never mints, and a mint fails against a cell that placement legitimately chose.
+Collapsing them would make "every token issued" a query over records that mostly are not tokens.
+
+**The Events view is deliberately lossy.** Kubernetes aggregates and spam-filters events, so a busy
+hub will have some collapsed or dropped. Making that view complete would mean an API server write per
+deploy across the estate, in the critical path. The JSON trail is authoritative; the Events exist so
+an operator already looking at a cell can see who has been deploying to it.
+
+**Rejected.** A database or any bespoke sink, for the reasons above. Also rejected: auditing only
+successes, which produces a log that cannot answer the question a refused pipeline is actually
+asking; and emitting one combined record per request, which conflates a decision with a credential.
+
+---
+
 ## Data model
 
 Two custom resources, both `v1alpha1`, versioned from the start so a `v1beta1` is additive rather
@@ -502,4 +548,4 @@ Capacity is deliberately not a resource. It lives in memory per ADR-002.
 
 Every decision here has an implementing ticket: ENG-193 (foundation), ENG-110 (registry), ENG-111
 (capacity), ENG-112 (state), ENG-113 (broker), ENG-114 (placement API and client), ENG-172 (OIDC),
-ENG-173 (policy), ENG-174 (agent), ENG-175 (advisory mode), ENG-177 (test harness).
+ENG-173 (policy), ENG-174 (agent), ENG-175 (advisory mode), ENG-176 (audit trail), ENG-177 (test harness).

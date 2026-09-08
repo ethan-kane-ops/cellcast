@@ -9,12 +9,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
 func testServer(t *testing.T, opts ...Option) *Server {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Prepended, so a test that wants to read the trail can override it. The
+	// default auditor writes to stdout, which is right for a deployed hub and
+	// wrong for a test suite.
+	opts = append([]Option{WithAuditor(audit.New(log, nil))}, opts...)
 	srv, err := NewServer(DefaultConfig(), log, opts...)
 	if err != nil {
 		t.Fatalf("NewServer() = %v, want nil", err)

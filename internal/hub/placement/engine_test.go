@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -667,5 +668,88 @@ func TestPinnedSubjectBeatsAnIssuerWidePolicy(t *testing.T) {
 	}
 	if got.Name != "just-deployer" {
 		t.Errorf("selectPolicy() = %s, want just-deployer", got.Name)
+	}
+}
+
+// TestARefusalCarriesItsReasoning pins the half of a refusal the engine used to
+// throw away.
+//
+// The candidate table is built before the engine knows it will refuse, and it
+// is the only record of which cells were considered and what stopped each one.
+// Discarding it made "why was my deploy refused" unanswerable from the audit
+// trail (ENG-176), and nothing else in this package would notice it going
+// missing again: every other test asserts on the error identity alone.
+func TestARefusalCarriesItsReasoning(t *testing.T) {
+	index := loaded(t, map[string]float64{"dev-euw1": 0.10})
+	engine := newEngine(t, index,
+		cell("prod-euw1", cellcastv1alpha1.ClusterStateDraining, map[string]string{"env": "prd"}),
+		cell("prod-euw2", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "prd"}),
+		cell("dev-euw1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("prod", []cellcastv1alpha1.SubjectSelector{
+			subject(map[string]string{"repository": "example/app"}),
+		}, map[string]string{"env": "prd"}),
+	)
+
+	// prod-euw1 is draining and prod-euw2 has never reported capacity, so the
+	// policy permits two cells and neither is usable.
+	_, err := engine.Place(t.Context(),
+		caller(map[string]string{"repository": "example/app"}),
+		Request{Workload: "api"})
+	if !errors.Is(err, ErrCapacityUnknown) {
+		t.Fatalf("Place() = %v, want ErrCapacityUnknown", err)
+	}
+
+	var refused *RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Place() = %T, want a *RefusedError carrying the reasoning", err)
+	}
+	if refused.Policy != "prod" {
+		t.Errorf("Policy = %q, want the policy that permitted nothing usable", refused.Policy)
+	}
+
+	// Every registered cell appears, including the one the caller may not
+	// reach: that is what answers "why not dev-euw1, it was idle".
+	want := map[string]string{
+		"dev-euw1":  StagePermission,
+		"prod-euw1": StageState,
+		"prod-euw2": StageCapacity,
+	}
+	if len(refused.Candidates) != len(want) {
+		t.Fatalf("Candidates = %+v, want all %d registered cells", refused.Candidates, len(want))
+	}
+	for _, c := range refused.Candidates {
+		if c.Stage != want[c.Cell] {
+			t.Errorf("%s refused at stage %q, want %q", c.Cell, c.Stage, want[c.Cell])
+		}
+		if c.Reason == "" {
+			t.Errorf("%s carries no reason, so the audit trail records a stage and no explanation", c.Cell)
+		}
+	}
+}
+
+// TestDarkRefusalNamesThePolicy covers the one refusal raised before the filter
+// runs, so it has a policy and no candidates.
+func TestDarkRefusalNamesThePolicy(t *testing.T) {
+	index := loaded(t, map[string]float64{"dark-euw1": 0.10})
+	engine := newEngine(t, index,
+		cell("dark-euw1", cellcastv1alpha1.ClusterStateDark, map[string]string{"env": "prd"}),
+		policy("prod", []cellcastv1alpha1.SubjectSelector{
+			subject(map[string]string{"repository": "example/app"}),
+		}, map[string]string{"env": "prd"}),
+	)
+
+	_, err := engine.Place(t.Context(),
+		caller(map[string]string{"repository": "example/app"}),
+		Request{Workload: "api", TargetDark: true})
+	if !errors.Is(err, ErrDarkNotPermitted) {
+		t.Fatalf("Place() = %v, want ErrDarkNotPermitted", err)
+	}
+
+	var refused *RefusedError
+	if !errors.As(err, &refused) || refused.Policy != "prod" {
+		t.Fatalf("Place() = %v, want a *RefusedError naming policy prod", err)
+	}
+	if !strings.Contains(err.Error(), "prod") {
+		t.Errorf("Error() = %q, want the policy named for an operator reading a log", err)
 	}
 }

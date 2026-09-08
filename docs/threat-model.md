@@ -86,13 +86,15 @@ size cellcast's per-spoke RBAC as tightly as their deploys allow, and should not
 | Hub-wide `--token-max-ttl` no policy can exceed | ENG-113 | Implemented |
 | Credential lifetime checked against the ceiling on the way back, not only on the way out | ENG-113 | Implemented |
 | Per-cell RBAC scoping documented and minimal by default | ENG-113, ENG-180 | Partial: the boundary is the service account named in the TrustConfig; the chart that sets it up is ENG-180 |
-| Audit record for every mint, so a compromise is reconstructable | ENG-176 | Planned (v0.2) |
+| Audit record for every mint, so a compromise is reconstructable | ENG-176 | Implemented: one record per mint carrying the caller, the cell, the scope and a digest of the token, and one per refusal (docs/audit.md) |
 | Distroless non-root image, read-only root filesystem, no shell | ENG-180 | Planned |
 | Signed images and SBOM so the running binary is the reviewed one | ENG-182 | Planned (v1.0) |
 
-**Residual risk.** Detection depends on the audit trail, which is v0.2. For v0.1 a hub compromise is
-reconstructable only from the spoke clusters' own API server audit logs. Stated as an accepted risk
-below.
+**Residual risk.** Detection depends on the audit trail reaching somewhere the hub cannot rewrite.
+The records are written to stdout and the adopter's log pipeline owns them from there, so a hub
+compromised before its output is shipped can still suppress or forge records about itself. The
+spoke clusters' own API server audit logs are the independent record, and they are what a
+reconstruction should be reconciled against.
 
 ---
 
@@ -236,13 +238,15 @@ and it happens by accident rather than by attack.
 | Token never appears in a process argument, where any user on the runner can read it | ENG-114 | Implemented: there is no `--token` flag, and a test asserts there never is one |
 | `--json` output carries the decision with the token stripped | ENG-114 | Implemented |
 | GitHub Actions integration registers the value as a mask before use | ENG-185 | Planned (v1.0) |
-| Audit records log a hash for correlation, never the token or any prefix of it | ENG-176 | Planned (v0.2) |
+| Audit records log a hash for correlation, never the token or any prefix of it | ENG-176 | Implemented: `audit.Record` has no field that can hold token material, and a test classifies every field so a new one fails until somebody has thought about it |
 | Short TTL resolved from policy limits the value of a leaked token | ENG-113 | Implemented |
 | The credential type redacts its own token under `%v`, `String()` and `slog` | ENG-113 | Implemented |
 
 **Note for reviewers.** The usual way this control fails is a debug log line added later by someone
 who did not read this document. A test asserting that no token material appears in any log output is
-worth more than the rule itself, and it is part of ENG-176's done-when.
+worth more than the rule itself, and ENG-176 added two: one at the HTTP boundary against a sentinel
+token, and one in `TestLiveEndToEnd` against a token a real API server issued, which is the stronger
+of the pair because a sentinel only proves the handler does not copy a string it was handed.
 
 ENG-113 takes the same view one step further and makes the mistake unavailable rather than
 forbidden. `broker.Credential` implements `String` and `slog.LogValue` so that printing one, wrapping
@@ -368,7 +372,7 @@ Listed so nobody has to discover them by reading code.
 | Risk | Why accepted | Revisit |
 | --- | --- | --- |
 | A caller JWT replayed inside its validity window mints twice | Bounded by the issuer's short token lifetime; capture requires runner access, which already permits requesting a fresh token | If an adopter's issuer uses long-lived tokens |
-| No audit trail | Deferred to ENG-176 in v0.2; spoke API server audit logs are the interim record | v0.2, before any production adoption |
+| The audit trail is only as durable as the log pipeline collecting it | cellcast writes to stdout and owns no sink, so retention and immutability are the adopter's existing decisions rather than a second set of ours to get wrong | If an adopter needs a tamper-evident trail, which is a shipping problem rather than a cellcast one |
 | Single hub replica | Mitigated by advisory mode rather than by availability | ENG-179, v0.2 |
 | Unsigned artifacts | Repo is private and pre-release; nothing is distributed yet | ENG-182, before the ENG-188 public flip |
 | A compromised agent can misreport its own capacity | Requires already owning a registered cluster | If capacity attestation becomes worth its complexity |
