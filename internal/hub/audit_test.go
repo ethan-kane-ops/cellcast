@@ -345,6 +345,10 @@ func TestClusterEventMapping(t *testing.T) {
 			name: "a refused placement names no cell to hang an event on",
 			rec:  audit.Record{Event: audit.EventPlacement, Outcome: audit.OutcomeRefused},
 		},
+		{
+			name: "a dry run changed nothing about the cell it named",
+			rec:  audit.Record{Event: audit.EventPlacement, Outcome: audit.OutcomeDryRun, Cell: "prod-euw1"},
+		},
 	}
 
 	for _, tt := range tests {

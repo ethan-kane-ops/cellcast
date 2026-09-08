@@ -35,14 +35,15 @@ type clusterEvents struct {
 	log       *slog.Logger
 }
 
-// Notify publishes one record, if it concerns a cell and actually happened.
+// Notify publishes one record, if it concerns a cell and deserves an event.
 func (c *clusterEvents) Notify(ctx context.Context, rec audit.Record) {
-	if rec.Cell == "" || rec.Outcome == audit.OutcomeDryRun {
-		// A refusal that never reached a cell has no object to hang an event
-		// on, and a dry run changed nothing about the cell it named.
+	if rec.Cell == "" {
+		// A refusal that never reached a cell has no object to hang an event on.
 		return
 	}
 
+	// Which records deserve an event is clusterEvent's decision and only its
+	// decision. A second filter here would be a place for the two to disagree.
 	eventType, reason, action, note, args := clusterEvent(rec)
 	if reason == "" {
 		return
@@ -95,6 +96,9 @@ func clusterEvent(rec audit.Record) (eventType, reason, action, note string, arg
 			[]any{rec.Subject, string(rec.Reason)}
 
 	default:
+		// A dry run lands here. It reached a decision and changed nothing about
+		// the cell it named, so recording it as activity on that cell would
+		// make "who deployed here" a list of who asked.
 		return "", "", "", "", nil
 	}
 }
