@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,6 +33,30 @@ func justRecipe(t *testing.T, name string) string {
 		t.Fatalf("just --show %s: %v", name, err)
 	}
 	return string(out)
+}
+
+// justDependencies returns the recipes one recipe depends on, read off its
+// header line.
+//
+// Parsed rather than searched for. A substring test over the recipe source is
+// answered by the comment above it: asking whether `check-all` mentions "vuln"
+// is satisfied by a comment saying "plus vulnerabilities", which is how the
+// first version of this check passed while the dependency was gone.
+func justDependencies(t *testing.T, name string) []string {
+	t.Helper()
+
+	for _, line := range strings.Split(justRecipe(t, name), "\n") {
+		if !strings.HasPrefix(line, name+":") && !strings.HasPrefix(line, name+" ") {
+			continue
+		}
+		_, deps, ok := strings.Cut(line, ":")
+		if !ok {
+			return nil
+		}
+		return strings.Fields(deps)
+	}
+	t.Fatalf("no header line found for recipe %s", name)
+	return nil
 }
 
 var (
@@ -94,6 +119,20 @@ func TestTheReleaseVerifiesTheSignaturesItMade(t *testing.T) {
 		t.Error("the release does not verify what it signed; a signature nobody checked is a signature nobody can rely on")
 	case verify < sign:
 		t.Error("the release verifies before it signs, which checks the previous release")
+	}
+}
+
+func TestNothingShipsWithoutAVulnerabilityScan(t *testing.T) {
+	// govulncheck is deliberately outside the fast gate, which means the only
+	// thing standing between a known reachable vulnerability and a published
+	// image is that `release` runs the heavy one. Moving the scan out of
+	// `check-all`, or the gate out of `release`, would leave both recipes
+	// looking correct and remove the property entirely.
+	if !slices.Contains(justDependencies(t, "check-all"), "vuln") {
+		t.Error("check-all does not scan for vulnerabilities")
+	}
+	if !containsOutsideComments(justRecipe(t, "release"), "just check-all") {
+		t.Error("the release does not run check-all, so nothing scans what it publishes")
 	}
 }
 

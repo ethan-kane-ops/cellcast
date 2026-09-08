@@ -80,6 +80,24 @@ Only the latest minor release line receives security updates.
 
 Pre-1.0, the API and the CRD schema may change between minor versions.
 
+## Scanning
+
+`govulncheck` runs over the source and over the built binaries. It reports only
+advisories reachable through the call graph rather than every advisory touching
+a dependency, so a non-empty result is a thing to act on rather than a list to
+triage. It runs in `just check-all`, which `just release` runs, so a release
+cannot ship a known reachable vulnerability.
+
+CodeQL and OSSF Scorecard are computed against a public repository and are not
+running yet. The repository-side properties they look at are in place and held
+by tests: base images pinned by digest rather than tag, no compiled artefact
+anywhere in the tree, a private reporting route in this file, a declared licence
+that matches the one the charts advertise, signed releases, and fuzz targets
+over every parser that reads bytes somebody else chose. What is left is
+repository settings and the workflows themselves, and the first workflow added
+will be checked for a scoped token and commit-pinned actions before it can pass
+`just check`.
+
 ## Release integrity
 
 Every published image and chart is signed with cosign keyless signing, and every

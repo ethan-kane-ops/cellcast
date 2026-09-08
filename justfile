@@ -721,8 +721,35 @@ verify-agent:
     CELLCAST_LIVE=1 CELLCAST_FLEET="$work/fleet.json" \
         go test ./internal/hub/ -run TestLiveAgentFleet -v -count=1 -timeout 15m
 
-# Everything check does, plus the race detector and the real API server
-check-all: check test-race envtest
+# Scan for known vulnerabilities in code that is actually reachable
+vuln:
+    #!/usr/bin/env bash
+    # Reachability, not a dependency list. govulncheck builds the call graph and
+    # reports only advisories on paths this code can actually execute, so the
+    # output is short enough that a non-empty one means something.
+    #
+    # Deliberately not in `check`. It fetches the advisory database, and a
+    # pre-commit gate that fails when vuln.go.dev is slow teaches people to pass
+    # --no-verify, which costs more than it saves. It is in `check-all`, which
+    # `release` runs, so nothing ships with a known reachable vulnerability.
+    set -euo pipefail
+    go tool govulncheck ./...
+
+# Scan the built binaries rather than the source
+vuln-binaries: build
+    #!/usr/bin/env bash
+    # The other question: not "can this module reach a vulnerability" but "does
+    # the artifact somebody downloaded contain one". Binary mode reads the
+    # module versions recorded in the binary itself, which is what an adopter
+    # can run against a release without having the source.
+    set -euo pipefail
+    for b in {{binaries}}; do
+        echo "==> bin/$b"
+        go tool govulncheck -mode=binary "bin/$b"
+    done
+
+# Everything check does, plus vulnerabilities, the race detector and a real API server
+check-all: check vuln test-race envtest
 
 # Install pre-commit hooks into .git/hooks
 hooks:

@@ -64,8 +64,15 @@ just test        # unit tests
 just cover       # statement coverage, fails below the gate
 just envtest     # CRD schema and controllers against a real kube-apiserver
 just fuzz        # every fuzz target, 30s each; `just fuzz 10m` for a real campaign
-just check-all   # check + race + envtest
+just vuln        # known vulnerabilities on paths this code can reach
+just vuln-binaries   # the same question asked of the built artefacts
+just check-all   # check + vulnerabilities + race + envtest
 ```
+
+`just vuln` is in `check-all` rather than in `check`. It fetches the advisory
+database, and a pre-commit gate that fails when vuln.go.dev is slow teaches people
+to reach for `--no-verify`, which costs more than it saves. `just release` runs
+`check-all`, so nothing ships with a known reachable vulnerability.
 
 ### Tests that are not behaviour tests
 
