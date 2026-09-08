@@ -97,6 +97,20 @@ func TestTheReleaseVerifiesTheSignaturesItMade(t *testing.T) {
 	}
 }
 
+func TestNothingShipsWithoutAVulnerabilityScan(t *testing.T) {
+	// govulncheck is deliberately outside the fast gate, which means the only
+	// thing standing between a known reachable vulnerability and a published
+	// image is that `release` runs the heavy one. Moving the scan out of
+	// `check-all`, or the gate out of `release`, would leave both recipes
+	// looking correct and remove the property entirely.
+	if !strings.Contains(justRecipe(t, "check-all"), "vuln") {
+		t.Error("check-all does not scan for vulnerabilities")
+	}
+	if !containsOutsideComments(justRecipe(t, "release"), "just check-all") {
+		t.Error("the release does not run check-all, so nothing scans what it publishes")
+	}
+}
+
 func TestEveryPublishedImageCarriesAnSBOMAndProvenance(t *testing.T) {
 	// The attestations are attached during the build, so they exist only if the
 	// publishing build asks for them. Dropping the flags produces images that
