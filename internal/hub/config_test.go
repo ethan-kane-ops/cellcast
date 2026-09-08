@@ -135,17 +135,14 @@ func TestManagerAddrsMustNotCollideWithTheServers(t *testing.T) {
 // make: it checks the value the binary actually starts with, not one repeated
 // in the test.
 func TestTheShippedDefaultsDoNotCollide(t *testing.T) {
-	out, err := exec.Command("go", "run", "../../cmd/cellcast-hub", "--help").CombinedOutput()
-	if err != nil {
-		t.Skipf("building the hub binary: %v", err)
-	}
-	if !strings.Contains(string(out), "--metrics-addr") {
+	out := hubHelp(t)
+	if !strings.Contains(out, "--metrics-addr") {
 		t.Fatalf("--metrics-addr is not a flag:\n%s", out)
 	}
 
 	defaults := regexp.MustCompile(`--(addr|probe-addr|metrics-addr) string\s+.*?\(default "([^"]+)"\)`)
 	seen := map[string]string{}
-	for _, m := range defaults.FindAllStringSubmatch(string(out), -1) {
+	for _, m := range defaults.FindAllStringSubmatch(out, -1) {
 		flag, addr := m[1], m[2]
 		if other, dup := seen[addr]; dup {
 			t.Errorf("--%s and --%s both default to %s", flag, other, addr)
@@ -155,6 +152,20 @@ func TestTheShippedDefaultsDoNotCollide(t *testing.T) {
 	if len(seen) != 3 {
 		t.Errorf("found %d listen address defaults, want 3: %v", len(seen), seen)
 	}
+}
+
+// hubHelp runs the hub binary's own --help.
+//
+// The point of going through the binary is that a flag's default lives in main
+// and a test that restated it would agree with itself rather than with what
+// ships.
+func hubHelp(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "run", "../../cmd/cellcast-hub", "--help").CombinedOutput()
+	if err != nil {
+		t.Skipf("building the hub binary: %v", err)
+	}
+	return string(out)
 }
 
 // kubeletDefaultGracePeriod is Kubernetes' terminationGracePeriodSeconds when a

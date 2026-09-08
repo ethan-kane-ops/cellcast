@@ -159,6 +159,7 @@ func TestNilMetricsIsSafe(t *testing.T) {
 	m.AuthRejected("Expired")
 	m.ObservePlacement("granted", time.Second)
 	m.Notify(t.Context(), audit.Record{Event: audit.EventMint, Outcome: audit.OutcomeGranted})
+	m.SetWarm(true)
 }
 
 func TestCapacityCollector(t *testing.T) {
@@ -301,5 +302,47 @@ func cell(name string, state cellcastv1alpha1.ClusterState) *cellcastv1alpha1.Cl
 			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "t1"},
 			State:          state,
 		},
+	}
+}
+
+func TestWarmTracksWhetherTheReplicaCanPlace(t *testing.T) {
+	// The gauge exists to be alerted on with `min`, so a value that does not
+	// follow the replica is worse than no gauge: a cold replica refusing every
+	// deploy would report itself able to place.
+	tests := []struct {
+		name string
+		warm bool
+		want string
+	}{
+		{
+			name: "cold",
+			warm: false,
+			want: `
+# HELP cellcast_hub_warm 1 when this replica's capacity index covers the fleet, 0 while it is still cold and refusing placements.
+# TYPE cellcast_hub_warm gauge
+cellcast_hub_warm 0
+`,
+		},
+		{
+			name: "warm",
+			warm: true,
+			want: `
+# HELP cellcast_hub_warm 1 when this replica's capacity index covers the fleet, 0 while it is still cold and refusing placements.
+# TYPE cellcast_hub_warm gauge
+cellcast_hub_warm 1
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, reg := newMetrics(t)
+
+			m.SetWarm(tt.warm)
+
+			if err := testutil.GatherAndCompare(reg, strings.NewReader(tt.want), "cellcast_hub_warm"); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 }
