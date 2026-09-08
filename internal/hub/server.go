@@ -63,6 +63,20 @@ type Server struct {
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
 	ready atomic.Bool
+
+	// warmupCheck reports whether the capacity index covers the fleet. Nil
+	// means there is nothing to warm up, which is the case for any hub built
+	// without a capacity index.
+	warmupCheck WarmupCheck
+
+	// warm gates the placement route. Readiness is bounded by a deadline and
+	// this is not, so a replica that went ready early still refuses to place
+	// until it can actually score.
+	warm atomic.Bool
+
+	// lastMissing holds the cells the most recent warmup check did not see, so
+	// a replica that goes ready cold can say what it was waiting for.
+	lastMissing atomic.Pointer[[]string]
 }
 
 // Option configures a Server.
@@ -123,6 +137,16 @@ func WithMetrics(m *metrics.Metrics) Option {
 	return func(s *Server) { s.metrics = m }
 }
 
+// WithWarmupCheck makes readiness wait for the fleet to check in.
+//
+// Without it a replica is warm from the first instant, which is what a test
+// with a hand-seeded index wants and what a deployed hub must not have: an
+// empty capacity index scores nothing, so a fresh replica taking traffic
+// refuses every placement it is given until the heartbeats arrive.
+func WithWarmupCheck(check WarmupCheck) Option {
+	return func(s *Server) { s.warmupCheck = check }
+}
+
 // WithAuditor replaces the audit sink.
 //
 // The default writes JSON to stdout, which is what a deployed hub wants and
@@ -142,6 +166,10 @@ func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
+	// Nothing to be cold about without a check, so latch warm at construction
+	// rather than making every call site guard on a nil check.
+	s.warm.Store(s.warmupCheck == nil)
+	s.metrics.SetWarm(s.warm.Load())
 	if s.audit == nil {
 		// Both views are optional and both see every record. Deciding which
 		// records deserve an Event or a counter belongs to each view, not to
@@ -237,27 +265,59 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: s.cfg.ReadHeaderTimeout,
 	}
 
+	if s.capacity != nil && s.warmupCheck == nil {
+		s.log.Warn("no warmup check configured; this replica will accept placements before any cell has reported")
+	}
+
 	errc := make(chan error, 2)
 	go func() { errc <- serve(probe, "probe", s.log) }()
 	go func() { errc <- serve(api, "api", s.log) }()
 
-	go s.markReadyWhenSynced(ctx)
+	go s.startup(ctx)
 
 	select {
 	case err := <-errc:
+		// A listener failed, so there is nothing to drain towards: the address
+		// is not serving and no traffic is being routed to it.
 		s.SetReady(false)
 		shutdown(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout, s.log, api, probe)
 		return err
 	case <-ctx.Done():
-		s.log.Info("shutdown signal received, draining")
-		s.SetReady(false)
-		shutdown(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout, s.log, api, probe)
+		s.drain(context.WithoutCancel(ctx), api, probe)
 		return nil
 	}
 }
 
-// markReadyWhenSynced flips the readiness probe once the registry is usable.
-func (s *Server) markReadyWhenSynced(ctx context.Context) {
+// drain takes the replica out of service and then closes it down.
+//
+// The order and the pause between the two halves are the whole point. Going
+// unready first is what makes the kubelet's next probe fail and the endpoint
+// controller remove this pod; the pause is what gives that removal time to
+// reach every kube-proxy before the listener stops answering. Closing on the
+// signal instead would refuse whatever was routed here in the meantime, which
+// is a deploy failing because cellcast was being upgraded.
+func (s *Server) drain(ctx context.Context, servers ...*http.Server) {
+	s.SetReady(false)
+	if s.cfg.DrainDelay > 0 {
+		s.log.Info("shutdown signal received, reporting unready",
+			slog.Duration("drain_delay", s.cfg.DrainDelay))
+		timer := time.NewTimer(s.cfg.DrainDelay)
+		defer timer.Stop()
+		<-timer.C
+	}
+	s.log.Info("draining in-flight requests",
+		slog.Duration("shutdown_timeout", s.cfg.ShutdownTimeout))
+	shutdown(ctx, s.cfg.ShutdownTimeout, s.log, servers...)
+}
+
+// startup holds readiness until this replica can answer usefully.
+//
+// Two waits, not one, because they fail differently. A cache that never syncs
+// means the replica cannot read the registry at all and must stay unready
+// indefinitely; a fleet that has not checked in yet is a wait with a deadline,
+// since agents heartbeat through the Service and cannot reach a hub that is
+// waiting for them.
+func (s *Server) startup(ctx context.Context) {
 	if s.waitForSync != nil {
 		if !s.waitForSync(ctx) {
 			// Either the process is shutting down or the cache never synced. In
@@ -267,6 +327,10 @@ func (s *Server) markReadyWhenSynced(ctx context.Context) {
 			return
 		}
 		s.log.Info("registry cache synced")
+	}
+	s.awaitWarmth(ctx)
+	if ctx.Err() != nil {
+		return
 	}
 	s.SetReady(true)
 }

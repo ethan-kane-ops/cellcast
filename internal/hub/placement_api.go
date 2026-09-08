@@ -146,6 +146,21 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.warm.Load() {
+		// Fail closed rather than score an empty index. Every cell would be
+		// Unknown, so the engine would refuse anyway; refusing here says why in
+		// terms an operator can act on, and keeps a replica that went ready on
+		// its warmup deadline from reporting the fleet as uniformly dead.
+		//
+		// PlacementUnavailable rather than CapacityUnknown because the two
+		// resolve differently: this one is a property of the hub replica the
+		// caller happened to reach and clears itself, so a retry is worth
+		// making (ADR-006).
+		refuse(http.StatusServiceUnavailable, refusal.PlacementUnavailable,
+			"hub is still warming up", nil)
+		return
+	}
+
 	var req placementRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPlacementBytes))
 	dec.DisallowUnknownFields()

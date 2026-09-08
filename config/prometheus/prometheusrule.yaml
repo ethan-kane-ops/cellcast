@@ -1,6 +1,6 @@
 # Alerting rules for cellcast-hub.
 #
-# Four rules, each for a failure that is silent without one. Everything else a
+# Five rules, each for a failure that is silent without one. Everything else a
 # dashboard shows is something an operator goes looking for; these are the ones
 # that have to come and find them.
 #
@@ -73,6 +73,31 @@ spec:
               reported capacity for it, so it can never be placed on. Either the
               agent was not deployed, or spec.reporter does not name the identity
               it presents.
+
+        # A replica that is in the Service and cannot place. Readiness waits
+        # for the fleet to report but the wait is bounded, because agents
+        # heartbeat through the Service and a Service routes only to ready
+        # pods; past the deadline the replica goes ready anyway and refuses
+        # placements until the heartbeats land.
+        #
+        # `min` rather than `avg` or `sum`: one cold replica out of three
+        # refuses a third of the estate's deploys while the average still looks
+        # healthy. Fifteen minutes is many times the default --warmup-timeout,
+        # so a replica still cold here is not warming up, it is not being
+        # reported to at all.
+        - alert: CellcastReplicaCannotPlace
+          expr: min(cellcast_hub_warm) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "a cellcast-hub replica is serving without capacity"
+            description: >-
+              At least one hub replica has never seen a capacity report covering
+              the fleet, so every placement it answers is refused with
+              PlacementUnavailable. Either the agents cannot reach the hub
+              Service, or a registered cell has no agent running. The hub log
+              names the cells it is waiting for.
 
         # Either a broken pipeline or somebody probing. Expressed as a share of
         # all attempts rather than an absolute rate, because the absolute number

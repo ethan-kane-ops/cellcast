@@ -44,6 +44,23 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "shutdown-timeout must be positive",
 		},
 		{
+			name:    "negative drain delay",
+			mutate:  func(c *Config) { c.DrainDelay = -1 * time.Second },
+			wantErr: "drain-delay must not be negative",
+		},
+		{
+			// Zero is disabled, not invalid. A single-replica development hub
+			// has no endpoint propagation to wait for and no reason to pay for
+			// it on every restart.
+			name:   "zero drain delay is allowed",
+			mutate: func(c *Config) { c.DrainDelay = 0 },
+		},
+		{
+			name:    "negative warmup timeout",
+			mutate:  func(c *Config) { c.WarmupTimeout = -1 * time.Second },
+			wantErr: "warmup-timeout must not be negative",
+		},
+		{
 			name:    "unknown log level",
 			mutate:  func(c *Config) { c.LogLevel = "trace" },
 			wantErr: "log-level must be one of",
@@ -137,5 +154,36 @@ func TestTheShippedDefaultsDoNotCollide(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Errorf("found %d listen address defaults, want 3: %v", len(seen), seen)
+	}
+}
+
+// kubeletDefaultGracePeriod is Kubernetes' terminationGracePeriodSeconds when a
+// pod spec does not set one.
+const kubeletDefaultGracePeriod = 30 * time.Second
+
+func TestTheShippedDrainFitsInsideTheDefaultGracePeriod(t *testing.T) {
+	// The two halves of shutdown run one after the other, so what the kubelet
+	// has to accommodate is their sum. Ship defaults that exceed it and the
+	// SIGKILL lands mid-drain, which turns the graceful shutdown into the
+	// ungraceful one it was added to replace, on a hub that never asked for a
+	// longer grace period because it did not know it needed one.
+	cfg := DefaultConfig()
+
+	total := cfg.DrainDelay + cfg.ShutdownTimeout
+	if total >= kubeletDefaultGracePeriod {
+		t.Errorf("drain-delay (%s) plus shutdown-timeout (%s) is %s, which does not fit inside the default terminationGracePeriodSeconds of %s",
+			cfg.DrainDelay, cfg.ShutdownTimeout, total, kubeletDefaultGracePeriod)
+	}
+}
+
+func TestTheShippedWarmupOutlastsAHeartbeat(t *testing.T) {
+	// A deadline shorter than the interval an agent reports on would expire
+	// before the first heartbeat could possibly arrive, so every replica would
+	// go ready cold every time and the wait would be decoration.
+	cfg := DefaultConfig()
+
+	if cfg.WarmupTimeout < cfg.CapacityStaleness {
+		t.Errorf("warmup-timeout (%s) is shorter than capacity-staleness (%s); a replica would give up before a heartbeat could land",
+			cfg.WarmupTimeout, cfg.CapacityStaleness)
 	}
 }
