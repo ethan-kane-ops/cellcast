@@ -311,6 +311,10 @@ release-version tag:
         rm -f "$f.bak"
         echo "$f -> version $bare, appVersion $tag"
     done
+    # The charts' READMEs carry the version in a badge, so they go stale on
+    # every release unless they are regenerated here. A contract test holds
+    # them to Chart.yaml, which is how that was found.
+    just chart-docs
     git cliff --tag "$tag" -o CHANGELOG.md
     echo "changelog regenerated; review it, commit, then tag $tag"
 

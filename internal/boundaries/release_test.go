@@ -314,6 +314,45 @@ func TestTheChartsDeclareTheTagTheyWillBePublishedUnder(t *testing.T) {
 	}
 }
 
+// Version badges as helm-docs writes them into each chart's README.
+var (
+	readmeVersion    = regexp.MustCompile(`\[Version: ([^\]]+)\]`)
+	readmeAppVersion = regexp.MustCompile(`\[AppVersion: ([^\]]+)\]`)
+)
+
+func TestTheChartReadmesShowTheVersionTheChartDeclares(t *testing.T) {
+	// helm-docs writes the version into a badge at the top of each chart's
+	// README, and that README is the page Artifact Hub renders. Nothing
+	// regenerates it when Chart.yaml changes, so the badge silently keeps
+	// advertising the previous release. Bumping appVersion for this pipeline
+	// left both charts claiming the old one.
+	for _, chart := range chartsInRepo {
+		t.Run(chart, func(t *testing.T) {
+			meta := chartYAML(t, chart)
+			readme := readRepoFile(t, filepath.Join("charts", chart, "README.md"))
+
+			for _, badge := range []struct {
+				name    string
+				pattern *regexp.Regexp
+				want    string
+			}{
+				{name: "Version", pattern: readmeVersion, want: meta.Version},
+				{name: "AppVersion", pattern: readmeAppVersion, want: meta.AppVersion},
+			} {
+				found := badge.pattern.FindStringSubmatch(readme)
+				if found == nil {
+					t.Errorf("the README shows no %s badge; run `just chart-docs`", badge.name)
+					continue
+				}
+				if found[1] != badge.want {
+					t.Errorf("the README advertises %s %s and Chart.yaml declares %s; run `just chart-docs`",
+						badge.name, found[1], badge.want)
+				}
+			}
+		})
+	}
+}
+
 func TestTheChartsDeclareTheLicenceTheRepositoryUses(t *testing.T) {
 	// Artifact Hub shows this annotation on the listing page, and a licence
 	// stated wrongly there is a licence statement a stranger relies on. Both
