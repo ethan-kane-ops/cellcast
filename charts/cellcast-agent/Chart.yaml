@@ -3,8 +3,9 @@ name: cellcast-agent
 description: In-cluster capacity reporter for a cellcast cell
 type: application
 
+# In lockstep with the git tag and with the hub chart. See charts/cellcast/Chart.yaml.
 version: 0.2.0
-appVersion: "0.2.0"
+appVersion: "v0.2.0"
 
 home: https://github.com/ethan-kane-ops/cellcast
 sources:
@@ -20,4 +21,4 @@ kubeVersion: ">=1.28.0-0"
 
 annotations:
   artifacthub.io/category: skip-prediction
-  artifacthub.io/license: MIT
+  artifacthub.io/license: Apache-2.0

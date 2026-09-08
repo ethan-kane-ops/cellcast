@@ -3,10 +3,16 @@ name: cellcast
 description: Multi-cluster deployment placement oracle and short-lived credential broker
 type: application
 
-# The chart version and the thing it installs move independently. appVersion is
-# the hub image tag; version is this chart's own.
+# Both move with the git tag, and appVersion is that tag verbatim.
+#
+# Helm allows the two to diverge, and for a chart packaged separately from what
+# it installs that indirection earns its keep. Here one tag cuts the images and
+# both charts from one commit, so a chart version that did not match would name
+# a release nothing else in the project has heard of. appVersion keeps the `v`
+# because it is also the default image tag, and the image is tagged with the git
+# tag; version drops it because Helm requires bare semver.
 version: 0.2.0
-appVersion: "0.2.0"
+appVersion: "v0.2.0"
 
 home: https://github.com/ethan-kane-ops/cellcast
 sources:
@@ -24,7 +30,7 @@ kubeVersion: ">=1.28.0-0"
 
 annotations:
   artifacthub.io/category: skip-prediction
-  artifacthub.io/license: MIT
+  artifacthub.io/license: Apache-2.0
   artifacthub.io/operator: "true"
   artifacthub.io/crds: |
     - kind: Cluster

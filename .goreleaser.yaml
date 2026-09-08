@@ -1,0 +1,99 @@
+# goreleaser builds one artifact: the client binary.
+#
+# The hub and the agent are deliberately absent. They are servers that run in a
+# cluster and ship as images built by the Dockerfile; a tarball of the hub
+# invites somebody to run the credential broker as a host process outside every
+# control the charts apply. The split is asserted by
+# internal/boundaries/release_test.go rather than left to this comment.
+version: 2
+
+project_name: cellcast
+
+# `just release` is the entry point, not this file. It holds the guards (clean
+# tree, tag points at HEAD, charts declare the tag) and runs the full gate plus
+# the end-to-end suite before anything is published. The gate is not repeated
+# here as a before hook: running it a second time inside goreleaser would add
+# minutes to every release and catch nothing the recipe has not already caught.
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: cellcast
+    main: ./cmd/cellcast
+    binary: cellcast
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # The same three variables the justfile and the Dockerfile stamp. All three
+    # writers are checked against each other by a contract test: a binary that
+    # cannot say which commit it came from is not auditable.
+    ldflags:
+      - -s -w
+      - -X github.com/ethan-kane-ops/cellcast/internal/version.version={{ .Version }}
+      - -X github.com/ethan-kane-ops/cellcast/internal/version.commit={{ .ShortCommit }}
+      - -X github.com/ethan-kane-ops/cellcast/internal/version.date={{ .CommitDate }}
+    # Timestamps come from the commit rather than the clock, so two builds of
+    # one tag produce identical bytes. Wall-clock timestamps are the usual
+    # reason a "reproducible" release is not.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: cellcast
+    ids:
+      - cellcast
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  # git-cliff owns the changelog (cliff.toml), and the release passes its output
+  # to --release-notes. Two generators reading the same history and disagreeing
+  # is worse than one.
+  disable: true
+
+release:
+  prerelease: auto
+  mode: replace
+
+homebrew_casks:
+  - name: cellcast
+    ids:
+      - cellcast
+    repository:
+      owner: ethan-kane-ops
+      name: homebrew-tap
+      branch: main
+    homepage: https://github.com/ethan-kane-ops/cellcast
+    description: Multi-cluster deployment placement oracle and short-lived credential broker
+    hooks:
+      post:
+        install: |
+          # Homebrew has not notarised this binary, and Gatekeeper quarantines
+          # anything downloaded that it cannot attribute. Without this the first
+          # run is a dialog rather than a command.
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status.zero?
+            system_command "/usr/bin/xattr",
+                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/cellcast"]
+          end
+
+report_sizes: true

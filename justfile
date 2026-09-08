@@ -22,8 +22,33 @@ fuzz_time := "30s"
 
 version := `git describe --tags --always --dirty 2>/dev/null || echo dev`
 commit := `git rev-parse --short HEAD 2>/dev/null || echo none`
-date := `date -u +%Y-%m-%dT%H:%M:%SZ`
+# The commit's timestamp, not the clock. Two builds of one commit then produce
+# identical bytes, which is the whole of the reproducibility claim; a wall-clock
+# stamp is the usual reason a "reproducible" build is not one. The `-dirty`
+# suffix on the version is what tells you the tree was not the commit.
+date := `git log -1 --format=%cI 2>/dev/null || echo unknown`
 pkg := "github.com/ethan-kane-ops/cellcast/internal/version"
+
+# Where the published artifacts go. Images and charts share a registry and
+# differ only by path, so one login covers both.
+registry := "ghcr.io"
+owner := "ethan-kane-ops"
+chart_repo := "oci://" + registry + "/" + owner + "/charts"
+
+# Binaries published as container images.
+#
+# The client is on this list as well as in the archives. An Argo CD PreSync hook
+# or a Buildkite step needs something it can run as a container, not a tarball;
+# the supported install for a person stays brew.
+image_binaries := "cellcast-hub cellcast-agent cellcast"
+chart_names := "cellcast cellcast-agent"
+
+# Architectures every image is published for.
+platforms := "linux/amd64,linux/arm64"
+
+# buildx needs a container-driver builder to emit a multi-platform manifest. The
+# default `docker` driver cannot, and says so only at the end of a long build.
+builder := "cellcast"
 
 ldflags := "-s -w" + \
     " -X " + pkg + ".version=" + version + \
@@ -162,6 +187,201 @@ docs-build:
 # Regenerate CHANGELOG.md from Conventional Commits
 changelog:
     git cliff -o CHANGELOG.md
+
+# --- Release ------------------------------------------------------------------
+#
+# CI is dormant until the repository goes public (ENG-188), so the release lives
+# in these recipes rather than in a workflow. That is the better shape anyway: a
+# pipeline whose steps exist only inside a workflow file cannot be rehearsed
+# before it is trusted, and this one publishes images that broker cluster
+# credentials. `just release-check` runs every step and publishes nothing.
+#
+# Publishing order is deliberate. Everything is verified before anything is
+# pushed, and the GitHub release goes last, because it is the artifact a person
+# reads and it should not appear before the things it describes exist.
+
+# Print the current digests for the base images the Dockerfile pins
+image-bases:
+    #!/usr/bin/env bash
+    # The Dockerfile pins by digest, which is what makes a rebuild of an old tag
+    # reproducible. Digests do not update themselves; this is how you find the
+    # new one when you decide to move.
+    set -euo pipefail
+    for ref in golang:1.26-alpine gcr.io/distroless/static-debian12:nonroot; do
+        docker pull -q "$ref" > /dev/null
+        echo "$ref -> $(docker image inspect "$ref" | jq -r '.[0].RepoDigests[0]')"
+    done
+
+# Ensure a buildx builder that can emit a multi-platform manifest
+_builder:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! docker buildx inspect {{builder}} > /dev/null 2>&1; then
+        echo "creating buildx builder {{builder}} (the default driver cannot build multi-platform)"
+        docker buildx create --name {{builder}} --driver docker-container --bootstrap > /dev/null
+    fi
+
+# Build one image for this machine's architecture and load it locally
+image name tag=version:
+    docker build \
+        --build-arg BINARY={{name}} \
+        --build-arg VERSION={{tag}} \
+        --build-arg COMMIT={{commit}} \
+        --build-arg DATE={{date}} \
+        --tag {{registry}}/{{owner}}/{{name}}:{{tag}} .
+    @echo "built {{registry}}/{{owner}}/{{name}}:{{tag}}"
+
+# Build every published image for every platform, discarding the result
+images-check tag=version: _builder
+    #!/usr/bin/env bash
+    # buildx cannot --load a multi-platform manifest into the local daemon, so
+    # the local proof that both architectures compile is a build whose output
+    # goes nowhere. Without this, a compile error on the architecture you do not
+    # run is found by the release.
+    set -euo pipefail
+    for b in {{image_binaries}}; do
+        echo "==> $b ({{platforms}})"
+        docker buildx build --builder {{builder}} --platform {{platforms}} \
+            --build-arg BINARY="$b" \
+            --build-arg VERSION={{tag}} \
+            --build-arg COMMIT={{commit}} \
+            --build-arg DATE={{date}} \
+            --output=type=cacheonly .
+    done
+    echo "every image builds for {{platforms}}"
+
+# Build and push every published image as a multi-arch manifest
+images-push tag: _builder
+    #!/usr/bin/env bash
+    # The tag is required rather than defaulted. `git describe` on an untagged
+    # commit yields something like v0.1.0-4-gf0d8f81-dirty, and pushing that to
+    # a public registry is not a mistake worth leaving one keystroke away.
+    set -euo pipefail
+    for b in {{image_binaries}}; do
+        echo "==> pushing {{registry}}/{{owner}}/$b:{{tag}}"
+        docker buildx build --builder {{builder}} --platform {{platforms}} \
+            --build-arg BINARY="$b" \
+            --build-arg VERSION={{tag}} \
+            --build-arg COMMIT={{commit}} \
+            --build-arg DATE={{date}} \
+            --tag {{registry}}/{{owner}}/$b:{{tag}} \
+            --push .
+    done
+
+# Package both charts into dist/charts
+chart-package:
+    #!/usr/bin/env bash
+    # No --version or --app-version override. Chart.yaml is the single place
+    # those live, a contract test holds them in lockstep with the tag, and a
+    # flag here would be a second answer that wins silently.
+    set -euo pipefail
+    rm -rf dist/charts
+    mkdir -p dist/charts
+    for c in {{chart_names}}; do
+        helm package "charts/$c" --destination dist/charts
+    done
+    ls -1 dist/charts
+
+# Push the packaged charts to the OCI registry
+chart-push: chart-package
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in dist/charts/*.tgz; do
+        echo "==> pushing $f to {{chart_repo}}"
+        helm push "$f" {{chart_repo}}
+    done
+
+# Set the version both charts declare, and regenerate the changelog for it
+release-version tag:
+    #!/usr/bin/env bash
+    # The chart version, the chart appVersion and the image tag are one number
+    # cut from one commit. appVersion keeps the leading v because it is also the
+    # default image tag; version drops it because Helm requires bare semver.
+    set -euo pipefail
+    tag="{{tag}}"
+    if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+        echo "tag must be a v-prefixed semver, e.g. v0.3.0 (got '$tag')" >&2
+        exit 1
+    fi
+    bare="${tag#v}"
+    for c in {{chart_names}}; do
+        f="charts/$c/Chart.yaml"
+        sed -i.bak -E "s/^version: .*/version: $bare/" "$f"
+        sed -i.bak -E "s/^appVersion: .*/appVersion: \"$tag\"/" "$f"
+        rm -f "$f.bak"
+        echo "$f -> version $bare, appVersion $tag"
+    done
+    # The charts' READMEs carry the version in a badge, so they go stale on
+    # every release unless they are regenerated here. A contract test holds
+    # them to Chart.yaml, which is how that was found.
+    just chart-docs
+    git cliff --tag "$tag" -o CHANGELOG.md
+    echo "changelog regenerated; review it, commit, then tag $tag"
+
+# Print the release notes for one tag
+release-notes tag=version:
+    #!/usr/bin/env bash
+    # Which git-cliff mode is right depends on whether the tag exists yet.
+    # Before it does, the commits are unreleased and have to be labelled with
+    # the tag they are about to be given. After it does, they are not unreleased
+    # any more and --unreleased renders nothing, which is how a release gets
+    # published with an empty body.
+    set -euo pipefail
+    if git rev-parse -q --verify "refs/tags/{{tag}}" > /dev/null; then
+        git cliff --current --strip all
+    else
+        git cliff --tag "{{tag}}" --unreleased --strip all
+    fi
+
+# Every release step, publishing nothing
+release-check: check
+    #!/usr/bin/env bash
+    # The rehearsal. Same builds, same packaging, same goreleaser config, no
+    # registry and no GitHub release.
+    set -euo pipefail
+    goreleaser check
+    goreleaser release --snapshot --clean --skip=publish
+    just images-check
+    just chart-package
+    echo
+    echo "release-check passed. Nothing was published."
+
+# Cut a release: verify everything, then publish images, charts and the release
+release tag: (_release-guard tag)
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Verification first, all of it. A credential broker that shipped broken is
+    # not something to fix forward: the bad image is already pulled.
+    just check-all
+    just verify-e2e
+    # Then publish, least reversible last.
+    just images-push "{{tag}}"
+    just chart-push
+    # The notes go outside dist/. `goreleaser --clean` empties that directory
+    # before it reads --release-notes, so a file written there is gone by the
+    # time the release pipe wants it.
+    notes=$(mktemp)
+    trap 'rm -f "$notes"' EXIT
+    just release-notes "{{tag}}" > "$notes"
+    goreleaser release --clean --release-notes "$notes"
+    echo "released {{tag}}"
+
+# Refuse to release from a tree that is not exactly the tag
+_release-guard tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail() { echo "$1" >&2; exit 1; }
+    tag="{{tag}}"
+    [ -z "$(git status --porcelain)" ] || fail "working tree is dirty; a release must be a commit somebody can check out"
+    git rev-parse -q --verify "refs/tags/$tag" > /dev/null || fail "tag $tag does not exist"
+    [ "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse HEAD)" ] || fail "tag $tag does not point at HEAD"
+    for c in {{chart_names}}; do
+        got=$(grep -E '^appVersion:' "charts/$c/Chart.yaml" | sed -E 's/^appVersion: *"?([^"]*)"?/\1/')
+        [ "$got" = "$tag" ] || fail "charts/$c declares appVersion $got, not $tag; run 'just release-version $tag'"
+    done
+    command -v goreleaser > /dev/null || fail "goreleaser is not installed"
+    command -v git-cliff > /dev/null || fail "git-cliff is not installed"
+    echo "release guard passed for $tag"
 
 # Lint both charts and render them with every optional block turned on
 chart-lint:
@@ -406,7 +626,7 @@ hooks-all:
 
 # Remove build artifacts
 clean:
-    rm -rf bin/ coverage.out
+    rm -rf bin/ dist/ coverage.out
 
 # Install the client binary via `go install` and reshim so mise exposes it
 install:

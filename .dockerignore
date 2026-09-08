@@ -1,0 +1,25 @@
+# The build context is the reproducibility surface: anything that reaches the
+# builder can change a layer hash, and everything here changes between two
+# checkouts of the same commit.
+.git
+.github
+bin
+dist
+site
+coverage.out
+coverage.txt
+*.test
+
+# Not compiled into any binary. Excluded so that editing a chart or a page does
+# not invalidate the build cache for an image whose contents cannot change.
+charts
+config
+dashboards
+docs
+examples
+mkdocs.yml
+cliff.toml
+.goreleaser.yaml
+.pre-commit-config.yaml
+.claude
+CHANGELOG.md

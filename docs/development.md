@@ -142,6 +142,19 @@ just docs-build       # static build into ./site, --strict
 `--strict` turns a broken internal link into a build failure, which is the only
 reason link rot ever gets fixed.
 
+## Release
+
+```bash
+just release-check    # every release step, publishing nothing
+just image cellcast-hub   # one image, this machine's architecture, loaded locally
+just images-check     # every image, every architecture, output discarded
+just chart-package    # both charts into dist/charts
+```
+
+`just release-check` is worth running after any change to the `Dockerfile`, the charts'
+`Chart.yaml`, or `.goreleaser.yaml`. It is the only thing that compiles for the
+architecture you do not run on. The full procedure is in [Releasing](releasing.md).
+
 ## CI
 
 There is none yet, on purpose. `just check` plus pre-commit is the verification
