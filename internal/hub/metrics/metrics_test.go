@@ -181,6 +181,18 @@ cellcast_cluster_capacity_ratio{cell="prod-euw1"} 0.3
 	if got := testutil.CollectAndCount(reg, "cellcast_capacity_staleness_seconds"); got != 1 {
 		t.Errorf("staleness series = %d, want one per known cell", got)
 	}
+
+	// The configured window is published so that an alert derives its threshold
+	// instead of hardcoding one. CellcastCapacityStale is written against it, so
+	// this series disappearing silently disarms that alert.
+	window := `
+# HELP cellcast_capacity_staleness_window_seconds The configured window after which a cell's capacity stops being usable for scoring.
+# TYPE cellcast_capacity_staleness_window_seconds gauge
+cellcast_capacity_staleness_window_seconds 3600
+`
+	if err := testutil.GatherAndCompare(reg, strings.NewReader(window), "cellcast_capacity_staleness_window_seconds"); err != nil {
+		t.Error(err)
+	}
 }
 
 // TestAStaleCellReportsStalenessAndNoRatio is the failure mode this metric
