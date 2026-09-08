@@ -123,23 +123,83 @@ tidy:
 generate:
     go tool controller-gen object paths=./api/...
 
-# Regenerate CRD manifests
+# Regenerate CRD manifests and refresh the copies the chart installs
 manifests:
+    #!/usr/bin/env bash
+    set -euo pipefail
     go tool controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd/bases
+    # Helm's .Files cannot reach outside the chart directory, so the chart holds
+    # a copy of everything it installs that is generated or maintained
+    # elsewhere. The copy is refreshed here and verified by verify-generate, so
+    # a stale one is a failed gate rather than a chart that installs last
+    # month's schema.
+    cp config/crd/bases/*.yaml charts/cellcast/crd-bases/
+    cp config/prometheus/prometheusrule.yaml charts/cellcast/files/prometheusrule.yaml
 
 # Fail if generated output is stale (a hand-edited CRD is a silent correctness bug)
 verify-generate: generate manifests
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! git diff --quiet -- api/ config/crd/; then
+    # The chart paths are the copies `manifests` writes, not the whole chart:
+    # widening this to charts/ would report an edited template as stale
+    # generated output and send the reader to a command that changes nothing.
+    generated="api/ config/crd/ charts/cellcast/crd-bases/ charts/cellcast/files/"
+    if ! git diff --quiet -- $generated; then
         echo "generated output is stale; run 'just generate manifests' and commit the result" >&2
-        git diff --stat -- api/ config/crd/ >&2
+        git diff --stat -- $generated >&2
         exit 1
     fi
     echo "generated output is up to date"
 
+# Serve the docs site locally with live reload
+docs-serve:
+    uv run --with-requirements docs/requirements.txt mkdocs serve
+
+# Build the static docs site into ./site
+docs-build:
+    uv run --with-requirements docs/requirements.txt mkdocs build --strict
+
+# Regenerate CHANGELOG.md from Conventional Commits
+changelog:
+    git cliff -o CHANGELOG.md
+
+# Lint both charts and render them with every optional block turned on
+chart-lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    helm lint charts/cellcast
+    helm lint charts/cellcast-agent --set cellName=prod-euw1 --set hub.endpoint=https://hub.example.test
+    # Rendering is the half that catches a template which lints and then fails
+    # to produce valid YAML. Optional blocks are on, because a block nobody
+    # rendered is a block nobody checked.
+    helm template cellcast charts/cellcast \
+        --set metrics.serviceMonitor.enabled=true \
+        --set metrics.prometheusRule.enabled=true \
+        --set networkPolicy.enabled=true \
+        --set hub.oidc.issuers[0].url=https://token.actions.githubusercontent.com \
+        --set hub.oidc.issuers[0].provider=github > /dev/null
+    helm template cellcast-agent charts/cellcast-agent \
+        --set cellName=prod-euw1 \
+        --set hub.endpoint=https://hub.example.test \
+        --set hub.caConfigMap=hub-ca > /dev/null
+    echo "charts lint and render"
+
+# Regenerate the charts' values documentation
+chart-docs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v helm-docs > /dev/null; then
+        echo "helm-docs is not installed; run 'mise install' in this repo" >&2
+        exit 1
+    fi
+    helm-docs --chart-search-root charts --sort-values-order file
+
+# Print what the charts would install, for reading before installing
+chart-show chart="cellcast":
+    helm template cellcast charts/{{chart}}         --set cellName=prod-euw1 --set hub.endpoint=https://hub.example.test
+
 # Full local gate. Run before every commit.
-check: tidy verify-generate lint test
+check: tidy verify-generate lint chart-lint test
 
 # Download the etcd and kube-apiserver binaries envtest runs against
 envtest-assets:
@@ -284,10 +344,18 @@ verify-agent:
         kubectl create clusterrolebinding oidc-discovery \
             --clusterrole=system:service-account-issuer-discovery \
             --group=system:unauthenticated
-        # Namespace, ServiceAccount and RBAC only. The Deployment is not
-        # applied because these agents run as host processes against each
-        # cluster's kubeconfig, which is what lets the test kill one.
-        kubectl apply -f config/agent/00-namespace.yaml -f config/agent/10-rbac.yaml
+        # ServiceAccount and RBAC only, rendered from the chart that ships so
+        # the fixture cannot drift from what a real cell installs. The
+        # Deployment is deliberately not applied: these agents run as host
+        # processes against each cluster's kubeconfig, which is what lets the
+        # test kill one.
+        kubectl create ns cellcast-system
+        helm template cellcast-agent charts/cellcast-agent \
+            --namespace cellcast-system \
+            --set cellName="$c" --set hub.endpoint=https://placeholder.invalid \
+            --show-only templates/serviceaccount.yaml \
+            --show-only templates/rbac.yaml \
+            | kubectl apply -f -
         kubectl create ns apps
         kubectl -n apps create sa deployer
 

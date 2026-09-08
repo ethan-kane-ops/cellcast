@@ -1,0 +1,33 @@
+cellcast-hub {{ .Chart.AppVersion }} is installing into namespace {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "cellcast.fullname" . }}
+
+{{ if not .Values.hub.oidc.issuers -}}
+WARNING: no trusted OIDC issuer is configured, so the hub will refuse every API
+request as unauthenticated. This is the correct state for a broker that cannot
+tell who is asking, and it is not a working install. Set one:
+
+  helm upgrade {{ .Release.Name }} cellcast/cellcast --reuse-values \
+    --set hub.oidc.issuers[0].url=https://token.actions.githubusercontent.com \
+    --set hub.oidc.issuers[0].provider=github
+
+{{ end -}}
+Next, in this cluster:
+
+  1. Register each cell.       kubectl apply -f cluster.yaml
+  2. Tell the hub how to mint
+     for it.                   kubectl apply -f trustconfig.yaml
+  3. Say who may deploy where. kubectl apply -f placementpolicy.yaml
+
+Then in each registered cell, install the agent so the hub can see how loaded
+it is. The cell name must match the Cluster resource above:
+
+  helm install cellcast-agent cellcast/cellcast-agent \
+    --namespace {{ .Release.Namespace }} --create-namespace \
+    --set cellName=<cell> \
+    --set hub.endpoint=https://{{ include "cellcast.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }} \
+    --set hub.audience={{ .Values.hub.oidc.audience }}
+
+Until an agent reports, a cell has no capacity, so it is excluded from scoring
+rather than treated as empty. A hub replica that has heard from nothing refuses
+placements with PlacementUnavailable and says so in its log.

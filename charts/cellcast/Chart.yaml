@@ -1,0 +1,47 @@
+apiVersion: v2
+name: cellcast
+description: Multi-cluster deployment placement oracle and short-lived credential broker
+type: application
+
+# The chart version and the thing it installs move independently. appVersion is
+# the hub image tag; version is this chart's own.
+version: 0.2.0
+appVersion: "0.2.0"
+
+home: https://github.com/ethan-kane-ops/cellcast
+sources:
+  - https://github.com/ethan-kane-ops/cellcast
+keywords:
+  - multi-cluster
+  - placement
+  - deployment
+  - credentials
+  - oidc
+maintainers:
+  - name: ethan-kane-ops
+    url: https://github.com/ethan-kane-ops
+kubeVersion: ">=1.28.0-0"
+
+annotations:
+  artifacthub.io/category: skip-prediction
+  artifacthub.io/license: MIT
+  artifacthub.io/operator: "true"
+  artifacthub.io/crds: |
+    - kind: Cluster
+      version: v1alpha1
+      name: clusters.cellcast.io
+      displayName: Cluster
+      description: A registered cell in the fleet
+    - kind: PlacementPolicy
+      version: v1alpha1
+      name: placementpolicies.cellcast.io
+      displayName: PlacementPolicy
+      description: Which callers may reach which cells, and how the survivors are ranked
+    - kind: TrustConfig
+      version: v1alpha1
+      name: trustconfigs.cellcast.io
+      displayName: TrustConfig
+      description: How the hub authenticates to one cell in order to mint for it
+  artifacthub.io/signKey: |
+    fingerprint: unpublished
+    url: https://github.com/ethan-kane-ops/cellcast

@@ -1,0 +1,54 @@
+# {{ template "chart.name" . }}
+
+{{ template "chart.description" . }}
+
+{{ template "chart.badgesSection" . }}
+
+The hub is the only cellcast component that can mint credentials. It holds trust
+configuration, never credentials: see
+[docs/threat-model.md](https://github.com/ethan-kane-ops/cellcast/blob/main/docs/threat-model.md)
+for what a compromise of this process does and does not grant.
+
+## Install
+
+```console
+helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
+  --namespace cellcast-system --create-namespace \
+  --set hub.oidc.issuers[0].url=https://token.actions.githubusercontent.com \
+  --set hub.oidc.issuers[0].provider=github
+```
+
+The issuer is not optional in practice. Without one the hub authenticates
+nobody and refuses every API request, which is the correct state for a broker
+that cannot tell who is asking, and is not a working install.
+
+## Things worth knowing before you install
+
+**The CRDs are in `templates/`, not `crds/`.** Helm installs a `crds/`
+directory once and never upgrades it, which means a schema change would need a
+manual `kubectl apply` that nobody remembers. These are templated instead, so
+`helm upgrade` carries them, and `crds.install=false` hands them to whatever
+manages CRDs out of band. They carry `helm.sh/resource-policy: keep`, so
+`helm uninstall` leaves the registry behind rather than deleting every
+`Cluster` in it.
+
+**`terminationGracePeriodSeconds` is checked, not merely defaulted.** A
+terminating hub reports itself unready, keeps serving for `hub.drainDelay` so
+endpoint removal can propagate, and only then drains within
+`hub.shutdownTimeout`. Those run in sequence, so the grace period has to exceed
+their sum or the kubelet interrupts the drain. The chart refuses to render if it
+does not.
+
+**`updateStrategy.rollingUpdate.maxUnavailable` is `0` on purpose.** A new
+replica starts with an empty capacity index and refuses placements until the
+fleet has reported to it. Surging before terminating is what keeps a rollout
+from being a window in which deploys fail.
+
+**Metrics are unauthenticated.** The endpoint discloses cell names, policy names
+and refusal counts, which an authenticated caller could already list through the
+API. Reaching it should be a NetworkPolicy decision; `networkPolicy.enabled`
+is where that lives.
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "chart.maintainersSection" . }}

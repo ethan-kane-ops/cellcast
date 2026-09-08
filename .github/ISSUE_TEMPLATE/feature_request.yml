@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest something cellcast should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        [ROADMAP.md](https://github.com/ethan-kane-ops/cellcast/blob/main/ROADMAP.md)
+        lists what is planned and, more usefully, what has been decided against
+        and why. Worth a look first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do that cellcast makes hard. Not the solution yet.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Including anything that nearly worked. It usually says where the real gap is.

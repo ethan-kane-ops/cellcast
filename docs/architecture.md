@@ -581,6 +581,20 @@ only the leader exits; followers stay in their acquisition loop and keep serving
 restarted replica cannot sync, so it stays unready and out of the Service until the partition
 clears.
 
+### Deployment
+
+Two charts, not one: `charts/cellcast` installs the hub into the hub cluster and
+`charts/cellcast-agent` installs the reporter into each cell. The split follows
+ADR-007. Bundling them would make every spoke carry the hub's CRDs, RBAC and
+minting configuration for a component it does not run, in a cluster where that
+configuration is exactly what an attacker would want to find.
+
+The hub chart templates its CRDs rather than using Helm's `crds/` directory,
+which is installed once and never upgraded. Templating means `helm upgrade`
+carries a schema change, and `crds.install=false` hands the CRDs to whatever
+manages them out of band. They are annotated `helm.sh/resource-policy: keep`, so
+uninstalling the hub does not delete the registry with it.
+
 ## Data model
 
 Two custom resources, both `v1alpha1`, versioned from the start so a `v1beta1` is additive rather

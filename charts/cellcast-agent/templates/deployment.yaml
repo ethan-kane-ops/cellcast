@@ -1,0 +1,149 @@
+{{- include "cellcast-agent.validateRequired" . }}
+# A Deployment with leader election, not a DaemonSet. Capacity is a
+# cluster-level fact, so one reporter per node would publish N copies of the
+# same number at N times the API server cost.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cellcast-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cellcast-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cellcast-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cellcast-agent.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cellcast-agent.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "cellcast-agent.selectorLabels" $ | nindent 14 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "cellcast-agent.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --hub-endpoint={{ .Values.hub.endpoint }}
+            - --cell-name={{ .Values.cellName }}
+            - --namespace={{ .Release.Namespace }}
+            - --probe-addr=:{{ .Values.ports.probe }}
+            - --heartbeat-interval={{ .Values.agent.heartbeatInterval }}
+            - --request-timeout={{ .Values.agent.requestTimeout }}
+            - --max-backoff={{ .Values.agent.maxBackoff }}
+            - --leader-election={{ .Values.agent.leaderElection }}
+            - --log-level={{ .Values.agent.logLevel }}
+            - --log-format={{ .Values.agent.logFormat }}
+            {{- if .Values.hub.caConfigMap }}
+            - --hub-ca-file=/etc/cellcast/hub-ca/{{ .Values.hub.caConfigMapKey }}
+            {{- end }}
+            {{- with .Values.agent.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            # Names this replica in the lease, so `kubectl get lease` says which
+            # pod is reporting rather than showing an opaque identifier.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: probes
+              containerPort: {{ .Values.ports.probe }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+          # Readiness tracks the informer caches, not leadership: a standby
+          # replica is working as intended and must report ready, or a
+          # two-replica Deployment permanently shows one pod unhealthy.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: cellcast-token
+              mountPath: /var/run/secrets/cellcast
+              readOnly: true
+            {{- if .Values.hub.caConfigMap }}
+            - name: hub-ca
+              mountPath: /etc/cellcast/hub-ca
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        # The agent's identity. A projected token with cellcast's own audience,
+        # NOT the default ServiceAccount token: that one is minted for the API
+        # server, and a hub that accepted it would be accepting a credential
+        # minted for somebody else.
+        - name: cellcast-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ .Values.hub.audience }}
+                  expirationSeconds: {{ .Values.hub.tokenExpirationSeconds }}
+        {{- if .Values.hub.caConfigMap }}
+        - name: hub-ca
+          configMap:
+            name: {{ .Values.hub.caConfigMap }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

@@ -1,0 +1,23 @@
+cellcast-agent {{ .Chart.AppVersion }} is reporting cell {{ .Values.cellName }} to {{ .Values.hub.endpoint }}.
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "cellcast-agent.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "cellcast-agent.fullname" . }} -f
+
+Within one heartbeat interval ({{ .Values.agent.heartbeatInterval }}) the hub should be scoring
+this cell. Ask it, from a machine that can reach the hub API:
+
+  curl -sH "Authorization: Bearer $CELLCAST_TOKEN" \
+    {{ .Values.hub.endpoint }}/api/v1/capacity
+
+If it does not, the two things that are wrong most often are both on the hub
+side, in the Cluster resource named {{ .Values.cellName }}:
+
+  * spec.reporter is unset, so no capacity is accepted for the cell at all.
+  * spec.reporter.issuer does not match this cluster's service account issuer.
+    Read the one this cluster uses with:
+
+      kubectl get --raw /.well-known/openid-configuration | grep issuer
+
+The subject the hub will see is:
+
+  system:serviceaccount:{{ .Release.Namespace }}:{{ include "cellcast-agent.serviceAccountName" . }}

@@ -1,0 +1,151 @@
+# Default values for the cellcast reporter agent.
+#
+# This chart installs into a cell, not into the hub cluster. It is separate from
+# the hub chart on purpose: bundling them would make every spoke carry the hub's
+# CRDs and RBAC for something it never runs.
+#
+# Two values have no usable default and must be set: `cellName` and
+# `hub.endpoint`.
+
+# -- Name of the Cluster resource in the hub's registry that this cell is
+# registered as. The hub accepts capacity for a cell only from the identity that
+# cell's registration names, so a wrong name here is a rejected report rather
+# than a misattributed one.
+cellName: ""
+
+hub:
+  # -- URL of the cellcast hub, for example
+  # `https://cellcast.example.com` or the in-cluster Service when the hub runs
+  # alongside this cell.
+  endpoint: ""
+  # -- Audience the projected ServiceAccount token is minted for. It must match
+  # the hub's `--oidc-audience`, and it must NOT be the API server's audience:
+  # a hub that accepted the default token would be accepting a credential minted
+  # for somebody else.
+  audience: cellcast
+  # -- Lifetime of the projected token. The kubelet rewrites the file at 80% of
+  # this and the agent re-reads it on every heartbeat, so nothing depends on a
+  # token living as long as the pod.
+  tokenExpirationSeconds: 3600
+  # -- ConfigMap holding a PEM bundle that verifies the hub's certificate. Leave
+  # empty to use the system roots.
+  caConfigMap: ""
+  # -- Key inside that ConfigMap.
+  caConfigMapKey: ca.crt
+
+# -- Number of agent replicas. One reports; the rest hold the lease's runner-up
+# position and take over without waiting for a reschedule.
+replicaCount: 2
+
+image:
+  # -- Container image registry.
+  registry: ghcr.io
+  # -- Image repository, without the registry.
+  repository: ethan-kane-ops/cellcast-agent
+  # -- Image tag. Defaults to the chart's appVersion.
+  tag: ""
+  # -- Image digest. Takes precedence over `tag` when set.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for a private registry.
+imagePullSecrets: []
+
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full resource name prefix.
+fullnameOverride: ""
+
+agent:
+  # -- How often capacity is published. The hub's staleness window is three of
+  # these by default, so a single dropped report never takes a healthy cell out
+  # of scoring.
+  heartbeatInterval: 30s
+  # -- Timeout for one report. Must be shorter than heartbeatInterval, or a hung
+  # hub leaves the previous attempt running when the next tick fires.
+  requestTimeout: 10s
+  # -- Ceiling on the retry interval while the hub is unreachable. Deliberately
+  # short: a cell that is not reporting is a cell that is not being placed on.
+  maxBackoff: 2m
+  # -- Report from one replica at a time.
+  leaderElection: true
+  # -- Log level: debug, info, warn or error.
+  logLevel: info
+  # -- Log format: json or text.
+  logFormat: json
+  # -- Extra arguments appended to the agent command.
+  extraArgs: []
+
+ports:
+  # -- Port health and readiness probes listen on.
+  probe: 8081
+
+serviceAccount:
+  # -- Create a ServiceAccount for the agent.
+  create: true
+  # -- Name of the ServiceAccount. Generated from the release when empty.
+  name: ""
+  # -- Annotations for the ServiceAccount.
+  annotations: {}
+
+rbac:
+  # -- Create the ClusterRole, Role and their bindings.
+  create: true
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget. A cell whose agent is fully evicted stops
+  # reporting, goes Unknown at the hub, and drops out of scoring.
+  enabled: true
+  # -- Pods that may be unavailable during a voluntary disruption.
+  maxUnavailable: 1
+  # -- Minimum available pods. Mutually exclusive with maxUnavailable.
+  minAvailable: ""
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# -- Spread replicas across nodes, softly, so a single-node cell still runs.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+# -- Pod affinity rules.
+affinity: {}
+# -- Node selector for agent pods.
+nodeSelector: {}
+# -- Tolerations for agent pods. A reporter that cannot be scheduled on a
+# tainted node still sees it, because capacity is read from the API server
+# rather than from the node it runs on.
+tolerations: []
+# -- PriorityClass for agent pods.
+priorityClassName: ""
+
+# -- Extra annotations for agent pods.
+podAnnotations: {}
+# -- Extra labels for agent pods.
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# -- Extra environment variables for the agent container.
+extraEnv: []
+# -- Extra volumes for the agent pod.
+extraVolumes: []
+# -- Extra volume mounts for the agent container.
+extraVolumeMounts: []

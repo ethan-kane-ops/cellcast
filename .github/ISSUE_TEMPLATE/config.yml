@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ethan-kane-ops/cellcast/security/advisories/new
+    about: Report privately. Never in a public issue. cellcast issues credentials for real clusters.
+  - name: Question or usage help
+    url: https://github.com/ethan-kane-ops/cellcast/discussions
+    about: Ask here first if you are not sure it is a bug.

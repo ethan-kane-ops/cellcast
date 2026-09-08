@@ -1,0 +1,22 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- $shipped := .Files.Get "files/prometheusrule.yaml" | fromYaml }}
+{{- if not $shipped.spec }}
+{{- fail "files/prometheusrule.yaml is missing or unreadable; run `just manifests` to refresh the chart's copy" }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "cellcast.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+# The rules themselves come from config/prometheus/prometheusrule.yaml, copied
+# here by `just manifests`. A contract test ties those expressions to the
+# metrics the code actually emits, in both directions, and a second copy
+# maintained by hand would quietly stop agreeing with it.
+spec:
+  {{- toYaml $shipped.spec | nindent 2 }}
+{{- end }}

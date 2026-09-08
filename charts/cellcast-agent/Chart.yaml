@@ -1,0 +1,23 @@
+apiVersion: v2
+name: cellcast-agent
+description: In-cluster capacity reporter for a cellcast cell
+type: application
+
+version: 0.2.0
+appVersion: "0.2.0"
+
+home: https://github.com/ethan-kane-ops/cellcast
+sources:
+  - https://github.com/ethan-kane-ops/cellcast
+keywords:
+  - multi-cluster
+  - capacity
+  - placement
+maintainers:
+  - name: ethan-kane-ops
+    url: https://github.com/ethan-kane-ops
+kubeVersion: ">=1.28.0-0"
+
+annotations:
+  artifacthub.io/category: skip-prediction
+  artifacthub.io/license: MIT

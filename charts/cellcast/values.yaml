@@ -1,0 +1,245 @@
+# Default values for the cellcast hub.
+#
+# The hub is the only component that can mint credentials. Everything under
+# `oidc` decides who it will mint for, and it starts refusing everybody: a
+# broker with no configured issuer is fail-closed by design, not broken.
+
+# -- Number of hub replicas. Every replica answers placements; only the
+# controllers take a lease, so this scales the API path linearly.
+replicaCount: 3
+
+image:
+  # -- Container image registry.
+  registry: ghcr.io
+  # -- Image repository, without the registry.
+  repository: ethan-kane-ops/cellcast-hub
+  # -- Image tag. Defaults to the chart's appVersion.
+  tag: ""
+  # -- Image digest. Takes precedence over `tag` when set.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for a private registry.
+imagePullSecrets: []
+
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full resource name prefix.
+fullnameOverride: ""
+
+hub:
+  # -- Log level: debug, info, warn or error. The audit trail is written at a
+  # fixed level and is never suppressed by this.
+  logLevel: info
+  # -- Log format: json or text.
+  logFormat: json
+
+  # -- Namespace holding the Cluster, PlacementPolicy and TrustConfig registry.
+  # Empty means the release namespace, which is what a single-tenant install
+  # wants. Set it only when the hub reads a registry it is not deployed beside.
+  registryNamespace: ""
+
+  # -- Absolute ceiling on minted credential lifetime. No policy and no request
+  # may exceed it. The Kubernetes TokenRequest API applies no maximum of its own
+  # unless the operator configured one, so this is the bound that is certain to
+  # exist.
+  tokenMaxTTL: 1h
+
+  capacity:
+    # -- How long an agent report stays usable. Past it the cell is Unknown and
+    # excluded from scoring rather than read as empty.
+    staleness: 90s
+    # -- How long an Unknown entry is kept before being dropped, which is what
+    # keeps "went quiet" distinguishable from "was never here".
+    retention: 1h
+    # -- Bound on the in-memory capacity index.
+    maxCells: 1000
+
+  # -- How long a starting replica waits for the fleet to report before it goes
+  # ready anyway. Agents heartbeat through the Service and a Service routes only
+  # to ready pods, so this wait cannot be unbounded.
+  warmupTimeout: 90s
+  # -- How long a terminating replica keeps serving while already reporting
+  # unready, so endpoint removal can propagate before the listener closes.
+  drainDelay: 5s
+  # -- Bound on draining in-flight requests, measured from the end of drainDelay.
+  shutdownTimeout: 20s
+  # -- Maximum time a client may take to send request headers.
+  readHeaderTimeout: 10s
+
+  leaderElection:
+    # -- Elect a leader for the reconciler path. The API path never elects.
+    enabled: true
+    # -- Namespace holding the lease. Empty means the release namespace.
+    namespace: ""
+
+  oidc:
+    # -- Audience callers must request, identifying this cellcast instance. It
+    # is also the audience the agent's projected token must carry.
+    audience: cellcast
+    # -- Trusted issuers. Until at least one is set the hub authenticates
+    # nobody and every API request is refused, which is the correct state for a
+    # broker that cannot tell who is asking.
+    # Each entry is `{url, provider}`, for example:
+    # `- url: https://token.actions.githubusercontent.com`
+    # `  provider: github`
+    issuers: []
+    # -- Tolerance applied to token exp, nbf and iat.
+    clockSkew: 60s
+    # -- How often issuer metadata is re-resolved.
+    refreshInterval: 1h
+    # -- Timeout for issuer discovery and JWKS fetches.
+    httpTimeout: 10s
+
+  # -- Extra arguments appended to the hub command. Anything settable by flag
+  # can be set here without waiting for the chart to grow a value for it.
+  extraArgs: []
+
+ports:
+  # -- Port the placement and registry API listens on.
+  api: 8080
+  # -- Port health and readiness probes listen on. Separate from the API so
+  # probes work when the API is not exposed.
+  probe: 8081
+  # -- Port the Prometheus endpoint listens on. Set to 0 to disable it.
+  metrics: 8082
+
+crds:
+  # -- Install the CRDs with the chart. Set false where CRDs are managed out of
+  # band, which many shops require.
+  install: true
+  # -- Annotate the CRDs so `helm uninstall` leaves them, and the registry with
+  # them. Deleting a CRD deletes every Cluster and PlacementPolicy in it.
+  keep: true
+
+serviceAccount:
+  # -- Create a ServiceAccount for the hub.
+  create: true
+  # -- Name of the ServiceAccount. Generated from the release when empty.
+  name: ""
+  # -- Annotations for the ServiceAccount, which is where a cloud provider's
+  # workload identity binding goes.
+  annotations: {}
+
+rbac:
+  # -- Create the Role and RoleBinding the hub needs.
+  create: true
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Port the Service exposes the API on.
+  port: 8080
+  # -- Annotations for the Service.
+  annotations: {}
+  # -- Extra labels for the Service.
+  labels: {}
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget. A hub in the deploy critical path should
+  # not be fully evictable by a node drain.
+  enabled: true
+  # -- Pods that may be unavailable during a voluntary disruption. Expressed as
+  # maxUnavailable rather than minAvailable so that a single-replica
+  # development install can still be drained.
+  maxUnavailable: 1
+  # -- Minimum available pods. Mutually exclusive with maxUnavailable.
+  minAvailable: ""
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    # -- Zero, deliberately. A new replica has to be ready, which means warm,
+    # before an old one goes away, or a rollout is a window in which placements
+    # are refused.
+    maxUnavailable: 0
+    maxSurge: 1
+
+# -- Grace period for a terminating pod. It must exceed drainDelay plus
+# shutdownTimeout, or the kubelet's SIGKILL lands mid-drain. The chart refuses
+# to render if it does not.
+terminationGracePeriodSeconds: 40
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# -- Spread replicas across nodes. ScheduleAnyway rather than DoNotSchedule so a
+# single-node development cluster still runs, while a real one spreads.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: {}
+
+# -- Pod affinity rules. Left empty because topologySpreadConstraints above
+# already spreads across nodes; set this for zone rules or co-scheduling.
+affinity: {}
+# -- Node selector for hub pods.
+nodeSelector: {}
+# -- Tolerations for hub pods.
+tolerations: []
+# -- PriorityClass for hub pods. A service in the deploy critical path is worth
+# naming here.
+priorityClassName: ""
+
+# -- Extra annotations for hub pods.
+podAnnotations: {}
+# -- Extra labels for hub pods.
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+metrics:
+  serviceMonitor:
+    # -- Create a ServiceMonitor. Requires the Prometheus Operator CRDs.
+    enabled: false
+    # -- Scrape interval.
+    interval: 30s
+    # -- Scrape timeout.
+    scrapeTimeout: 10s
+    # -- Extra labels, for a Prometheus that selects ServiceMonitors by label.
+    labels: {}
+    # -- Metric relabelings.
+    metricRelabelings: []
+    # -- Relabelings.
+    relabelings: []
+  prometheusRule:
+    # -- Install the shipped alerting rules. Requires the Prometheus Operator
+    # CRDs.
+    enabled: false
+    # -- Extra labels, for a Prometheus that selects PrometheusRules by label.
+    labels: {}
+
+networkPolicy:
+  # -- Restrict who may reach the hub. Off by default because a policy that
+  # names the wrong callers is an outage, and the right callers differ per
+  # estate.
+  enabled: false
+  # -- Selectors allowed to reach the API port. Ingress from agents and from
+  # whatever runs the client belongs here.
+  allowedIngress: []
+  # -- Selectors allowed to reach the metrics port.
+  metricsAllowedIngress: []
+
+# -- Extra environment variables for the hub container.
+extraEnv: []
+# -- Extra volumes for the hub pod.
+extraVolumes: []
+# -- Extra volume mounts for the hub container.
+extraVolumeMounts: []

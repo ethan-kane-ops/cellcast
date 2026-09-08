@@ -1,0 +1,138 @@
+# Alerting rules for cellcast-hub.
+#
+# Five rules, each for a failure that is silent without one. Everything else a
+# dashboard shows is something an operator goes looking for; these are the ones
+# that have to come and find them.
+#
+# Requires the Prometheus Operator CRDs. ENG-180 templates this into the chart;
+# until then apply it directly:
+#
+#   kubectl apply -f config/prometheus/prometheusrule.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cellcast-hub
+  namespace: cellcast-system
+  labels:
+    app.kubernetes.io/name: cellcast
+    app.kubernetes.io/component: hub
+spec:
+  groups:
+    - name: cellcast.rules
+      rules:
+        # The failure mode that routes deploys wrong. A cell whose agent has
+        # stopped reporting drops out of scoring, so deploys silently
+        # concentrate on the cells that are still talking, and nothing else
+        # says so.
+        #
+        # The threshold is derived from the hub's own --capacity-staleness
+        # rather than copied from its default, so retuning the flag retunes the
+        # alert. Two windows means the cell has missed the grace period and then
+        # missed it again.
+        #
+        # Matched with `ignoring(cell)` rather than `on()`: every other label
+        # (job, instance, namespace, pod) is shared by the two metrics because
+        # they come from the same target, and `on()` would collapse a
+        # multi-replica hub into a many-to-many match that fails to evaluate.
+        # Each replica keeps its own capacity index, so firing per replica is
+        # the right granularity rather than an artefact.
+        - alert: CellcastCapacityStale
+          expr: |
+            cellcast_capacity_staleness_seconds
+              > ignoring(cell) group_left() (2 * cellcast_capacity_staleness_window_seconds)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cellcast has no fresh capacity for {{ $labels.cell }}"
+            description: >-
+              The hub last accepted a capacity report for {{ $labels.cell }}
+              {{ $value | humanizeDuration }} ago, which is more than twice its
+              staleness window. The cell is excluded from scoring, so placements
+              are concentrating on the rest of the fleet. Check the agent in
+              that cell.
+
+        # The same failure, one step earlier: a cell that is registered, is
+        # LIVE, and has never reported at all. It has no staleness series to
+        # exceed a threshold, so the rule above cannot see it.
+        # Collapsed to one series per cell before matching, because a cell that
+        # has reported to any replica has been heard from. Comparing per replica
+        # would alert on every cell whose agent happens to be talking to a
+        # different one.
+        - alert: CellcastCellNeverReported
+          expr: |
+            (max by (cell) (cellcast_cluster_state{state="LIVE"}) == 1)
+              unless on(cell) (max by (cell) (cellcast_capacity_staleness_seconds))
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "cellcast has never had capacity for {{ $labels.cell }}"
+            description: >-
+              {{ $labels.cell }} is registered and LIVE but no agent has ever
+              reported capacity for it, so it can never be placed on. Either the
+              agent was not deployed, or spec.reporter does not name the identity
+              it presents.
+
+        # A replica that is in the Service and cannot place. Readiness waits
+        # for the fleet to report but the wait is bounded, because agents
+        # heartbeat through the Service and a Service routes only to ready
+        # pods; past the deadline the replica goes ready anyway and refuses
+        # placements until the heartbeats land.
+        #
+        # `min` rather than `avg` or `sum`: one cold replica out of three
+        # refuses a third of the estate's deploys while the average still looks
+        # healthy. Fifteen minutes is many times the default --warmup-timeout,
+        # so a replica still cold here is not warming up, it is not being
+        # reported to at all.
+        - alert: CellcastReplicaCannotPlace
+          expr: min(cellcast_hub_warm) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "a cellcast-hub replica is serving without capacity"
+            description: >-
+              At least one hub replica has never seen a capacity report covering
+              the fleet, so every placement it answers is refused with
+              PlacementUnavailable. Either the agents cannot reach the hub
+              Service, or a registered cell has no agent running. The hub log
+              names the cells it is waiting for.
+
+        # Either a broken pipeline or somebody probing. Expressed as a share of
+        # all attempts rather than an absolute rate, because the absolute number
+        # that means trouble depends entirely on how much an estate deploys.
+        - alert: CellcastAuthRejectionRatioHigh
+          expr: |
+            sum(rate(cellcast_auth_rejections_total[5m]))
+              /
+            clamp_min(
+              sum(rate(cellcast_auth_rejections_total[5m]))
+                + sum(rate(cellcast_placement_requests_total[5m])),
+              0.001
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "over half of cellcast requests are failing authentication"
+            description: >-
+              Break it down by reason. A run of Expired is a clock or a retry
+              loop; IssuerNotAllowed or Signature is not, and means somebody is
+              presenting tokens this hub was not configured to accept.
+
+        # The misconfiguration that stops every deploy in the estate, and the
+        # only one here that is unambiguous rather than a judgement call: a hub
+        # started with no --oidc-issuer refuses every caller and still passes
+        # its own health checks.
+        - alert: CellcastNoAuthenticator
+          expr: rate(cellcast_auth_rejections_total{reason="NoAuthenticator"}[5m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cellcast-hub has no authenticator configured"
+            description: >-
+              The hub is refusing every request because no trusted OIDC issuer
+              is configured. It is healthy and ready, and it will authorize
+              nothing until --oidc-issuer is set.

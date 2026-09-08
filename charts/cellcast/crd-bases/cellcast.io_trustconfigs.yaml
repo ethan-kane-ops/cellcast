@@ -1,0 +1,212 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: trustconfigs.cellcast.io
+spec:
+  group: cellcast.io
+  names:
+    kind: TrustConfig
+    listKind: TrustConfigList
+    plural: trustconfigs
+    shortNames:
+    - cctrust
+    singular: trustconfig
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.provider
+      name: Provider
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: Detail
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          TrustConfig declares how the hub mints credentials for a set of cells.
+
+          It holds configuration, never credential material: the fields here name a
+          service account and a namespace, and the only secret it can reference is the
+          hub's own way in to the spoke. Nothing a caller receives is stored anywhere
+          in this resource. See docs/architecture.md ADR-004.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              TrustConfigSpec declares how credentials are minted for the cells that
+              reference it.
+            properties:
+              credentialSource:
+                description: CredentialSource is how the hub reaches the cell to mint.
+                properties:
+                  inCluster:
+                    description: |-
+                      InCluster mints against the cluster the hub itself runs in, using the
+                      hub's own projected service account token.
+
+                      This is the only configuration that stores no credential at all, and it
+                      is what makes the single-cluster demo reproducible with nothing to leak.
+                    type: boolean
+                  secretRef:
+                    description: |-
+                      SecretRef names a Secret holding a kubeconfig for the cell.
+
+                      Read uncached at mint time and never retained, so the hub's memory does
+                      not hold a resident map of every spoke credential.
+                    properties:
+                      key:
+                        default: kubeconfig
+                        description: Key holding the material.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of inCluster or secretRef must be set
+                  rule: (has(self.inCluster) && self.inCluster) != has(self.secretRef)
+              kubernetes:
+                description: Kubernetes configures the TokenRequest provider.
+                properties:
+                  audiences:
+                    description: |-
+                      Audiences the minted token is valid for.
+
+                      Empty means the cell's API server audience, which is what makes the token
+                      usable as a kubeconfig credential. Setting this to anything else produces
+                      a token the target API server will refuse.
+                    items:
+                      type: string
+                    type: array
+                  namespace:
+                    description: Namespace is the namespace holding that service account.
+                    minLength: 1
+                    type: string
+                  serviceAccountName:
+                    description: |-
+                      ServiceAccountName is the service account in the cell that tokens are
+                      minted for. The permissions the caller receives are exactly this account's
+                      permissions, so this name is the RBAC boundary and belongs in review.
+                    minLength: 1
+                    type: string
+                required:
+                - namespace
+                - serviceAccountName
+                type: object
+              provider:
+                description: Provider selects the minting mechanism.
+                enum:
+                - kubernetes
+                - aws
+                type: string
+            required:
+            - credentialSource
+            - provider
+            type: object
+            x-kubernetes-validations:
+            - message: spec.kubernetes is required when provider is kubernetes
+              rule: self.provider != 'kubernetes' || has(self.kubernetes)
+          status:
+            description: TrustConfigStatus is the observed state of a trust configuration.
+            properties:
+              conditions:
+                description: Conditions describe whether this configuration is usable.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the .metadata.generation this status
+                  reflects.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
