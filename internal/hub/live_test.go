@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
@@ -64,7 +65,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	report(t, index, "dev-euw1", 0.01)
 
 	addr := freeAddr(t)
-	srv := liveServer(t, cfg, k8s, index, addr)
+	srv, auditTrail := liveServer(t, cfg, k8s, index, addr)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -123,6 +124,34 @@ func TestLiveEndToEnd(t *testing.T) {
 		}
 	})
 
+	// ENG-176's done-when, against a token a real API server issued rather than
+	// a fixture. It runs after the deploy subtest because it reads that
+	// subtest's kubeconfig.
+	t.Run("the mint is audited and the trail holds no token material", func(t *testing.T) {
+		token := tokenFromKubeconfig(t, kubeconfig)
+
+		if got := auditTrail.raw(); strings.Contains(got, token) {
+			t.Fatal("the audit trail contains the minted token")
+		}
+
+		minted := only(t, auditTrail.records(t), "mint")
+		if minted["outcome"] != "granted" {
+			t.Fatalf("mint outcome = %v, want granted", minted["outcome"])
+		}
+		if minted["token_sha256"] != audit.HashToken(token) {
+			t.Errorf("token_sha256 = %v, want the digest of the token the API server issued", minted["token_sha256"])
+		}
+		if minted["cell"] != "prod-euw1" || minted["service_account"] != "deployer" {
+			t.Errorf("mint record = %v/%v, want prod-euw1 and deployer", minted["cell"], minted["service_account"])
+		}
+		if minted["subject"] != "repo:acme/checkout:ref:refs/heads/main" {
+			t.Errorf("subject = %v, want the pipeline that asked", minted["subject"])
+		}
+		if minted["expires_at"] == nil {
+			t.Error("the mint record does not say when the credential stops working")
+		}
+	})
+
 	t.Run("draining the chosen cell moves the next placement", func(t *testing.T) {
 		setState(t.Context(), t, k8s, "prod-euw1", cellcastv1alpha1.ClusterStateDraining)
 		t.Cleanup(func() {
@@ -141,11 +170,34 @@ func TestLiveEndToEnd(t *testing.T) {
 	})
 }
 
+// tokenFromKubeconfig reads the credential the CLI wrote.
+func tokenFromKubeconfig(t *testing.T, path string) string {
+	t.Helper()
+
+	cfg, err := clientcmd.LoadFromFile(path)
+	if err != nil {
+		t.Fatalf("loading the written kubeconfig: %v", err)
+	}
+	for _, auth := range cfg.AuthInfos {
+		if auth.Token != "" {
+			return auth.Token
+		}
+	}
+	t.Fatal("the written kubeconfig carries no token")
+	return ""
+}
+
 // liveServer wires every real component behind a stub authenticator.
-func liveServer(t *testing.T, cfg *rest.Config, k8s client.Client, index *capacity.Registry, addr string) *Server {
+//
+// The audit trail is captured rather than written to stdout so that the mint
+// below can be checked against a token a real API server issued. A sentinel
+// token proves the handler does not copy a string it was handed; only a real
+// one proves nothing on the minting path writes credential material out.
+func liveServer(t *testing.T, cfg *rest.Config, k8s client.Client, index *capacity.Registry, addr string) (*Server, *trail) {
 	t.Helper()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	tr := &trail{}
 
 	connector := broker.NewSecretConnector(k8s, testNamespace, cfg)
 	minter := broker.New(k8s, testNamespace, time.Hour, log,
@@ -163,11 +215,12 @@ func liveServer(t *testing.T, cfg *rest.Config, k8s client.Client, index *capaci
 		WithPlacer(engine),
 		WithMinter(minter),
 		WithAuthenticator(pipelineIdentity{}),
+		WithAuditor(tr.auditor()),
 	)
 	if err != nil {
 		t.Fatalf("NewServer() = %v, want nil", err)
 	}
-	return srv
+	return srv, tr
 }
 
 // pipelineIdentity stands in for a CI platform's OIDC issuer.

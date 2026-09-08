@@ -10,8 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
@@ -41,6 +43,16 @@ type Server struct {
 	// placer decides which cell a caller may reach. Nil means the placement
 	// route reports itself unavailable.
 	placer Placer
+
+	// audit is the trail of decisions and issued credentials. Never nil:
+	// NewServer builds one if no option supplied it, because a broker that can
+	// be run without an audit trail will be.
+	audit *audit.Auditor
+
+	// events publishes the audit trail a second way, as Kubernetes Events on
+	// the cell each record concerns. Nil means the JSON trail is the only view,
+	// which is the case wherever the hub has no manager behind it.
+	events events.EventRecorder
 
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
@@ -87,6 +99,26 @@ func WithCacheSync(fn func(context.Context) bool) Option {
 	return func(s *Server) { s.waitForSync = fn }
 }
 
+// WithEventRecorder attaches the Kubernetes Events view of the audit trail.
+//
+// Without it the trail is written to the log only. The narrow events interface
+// rather than controller-runtime's is deliberate: the only thing the hub does
+// with a recorder is call Eventf, and a one-method dependency is one a test can
+// stand in for without a broadcaster.
+func WithEventRecorder(rec events.EventRecorder) Option {
+	return func(s *Server) { s.events = rec }
+}
+
+// WithAuditor replaces the audit sink.
+//
+// The default writes JSON to stdout, which is what a deployed hub wants and
+// what a test suite does not, so tests supply their own. There is no option to
+// disable auditing: an operator who does not want the records can filter them
+// downstream, where the choice is visible.
+func WithAuditor(a *audit.Auditor) Option {
+	return func(s *Server) { s.audit = a }
+}
+
 // NewServer builds a hub API server.
 func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
@@ -96,7 +128,27 @@ func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
+	if s.audit == nil {
+		s.audit = audit.New(NewAuditLogger(cfg), s.clusterNotifier())
+	}
 	return s, nil
+}
+
+// clusterNotifier returns the Kubernetes Events view, or nil if the hub has no
+// way to publish one.
+//
+// Returning an untyped nil matters: a nil *clusterEvents inside a non-nil
+// interface would pass the auditor's nil check and then dereference.
+func (s *Server) clusterNotifier() audit.Notifier {
+	if s.events == nil || s.k8s == nil {
+		return nil
+	}
+	return &clusterEvents{
+		recorder:  s.events,
+		reader:    s.k8s,
+		namespace: s.cfg.Namespace,
+		log:       s.log,
+	}
 }
 
 // SetReady marks the server ready to serve traffic.

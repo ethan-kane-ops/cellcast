@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
@@ -98,20 +99,42 @@ type placementResponse struct {
 // is enforced by the engine rather than here; what this function owns is
 // turning each outcome into a status and a reason a client can act on.
 func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
-	id, ok := IdentityFrom(r.Context())
+	ctx := r.Context()
+
+	// rec accumulates the audit record as the request works its way through the
+	// handler, so that whichever exit is taken has already gathered everything
+	// known at that point.
+	rec := audit.Record{Event: audit.EventPlacement, RequestID: requestIDFrom(ctx)}
+
+	// refuse audits the refusal and then writes it. Every early return below
+	// goes through it, which is what makes "no refusal leaves the hub
+	// unrecorded" a property of the code rather than of remembering.
+	refuse := func(status int, reason refusal.Reason, msg string, cause error) {
+		rec.Outcome = audit.OutcomeRefused
+		rec.Reason = reason
+		if cause != nil {
+			rec.Error = cause.Error()
+		}
+		s.audit.Record(ctx, rec)
+		writeRefusal(w, status, reason, msg)
+	}
+
+	id, ok := IdentityFrom(ctx)
 	if !ok {
 		// Unreachable: the middleware rejects an unauthenticated request before
 		// any handler runs. Guarded because a nil identity must never be read
 		// as a caller who matches every policy.
-		writeRefusal(w, http.StatusUnauthorized, refusal.NoPolicy, "unauthenticated")
+		refuse(http.StatusUnauthorized, refusal.NoPolicy, "unauthenticated", nil)
 		return
 	}
+	rec.Issuer, rec.Subject, rec.Claims = id.Issuer, id.Subject, id.Claims
+
 	if s.placer == nil {
 		// Distinct from MintUnavailable, which looks identical on the wire and
 		// is not. A hub that cannot decide may be answered by the caller's
 		// fallback stance; a hub that cannot mint may never be, because a
 		// cached placement is never a cached credential (ADR-006).
-		writeRefusal(w, http.StatusServiceUnavailable, refusal.PlacementUnavailable, "placement unavailable")
+		refuse(http.StatusServiceUnavailable, refusal.PlacementUnavailable, "placement unavailable", nil)
 		return
 	}
 
@@ -119,11 +142,16 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPlacementBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		writeRefusal(w, http.StatusBadRequest, refusal.InvalidRequest, "request body is not valid placement JSON")
+		// The decode error itself is not audited: it is derived from the body,
+		// and the body of a placement request is the one thing on this route
+		// that is caller-controlled prose.
+		refuse(http.StatusBadRequest, refusal.InvalidRequest, "request body is not valid placement JSON", nil)
 		return
 	}
+	rec.Workload, rec.TargetedDark = req.Workload, req.TargetDark
+
 	if req.Workload == "" {
-		writeRefusal(w, http.StatusBadRequest, refusal.InvalidRequest, "workload must be set")
+		refuse(http.StatusBadRequest, refusal.InvalidRequest, "workload must be set", nil)
 		return
 	}
 
@@ -131,27 +159,44 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	if req.TTL != "" {
 		d, err := time.ParseDuration(req.TTL)
 		if err != nil || d <= 0 {
-			writeRefusal(w, http.StatusBadRequest, refusal.InvalidRequest, "ttl must be a positive Go duration, for example 15m")
+			refuse(http.StatusBadRequest, refusal.InvalidRequest, "ttl must be a positive Go duration, for example 15m", nil)
 			return
 		}
 		requested = d
+		rec.RequestedTTL = requested
 	}
 
-	decision, err := s.placer.Place(r.Context(), id, placement.Request{
+	decision, err := s.placer.Place(ctx, id, placement.Request{
 		Workload:   req.Workload,
 		TargetDark: req.TargetDark,
 	})
 	if err != nil {
 		status, reason := placementRefusal(err)
-		s.log.InfoContext(r.Context(), "placement refused",
-			slog.String("request_id", requestIDFrom(r.Context())),
+		var refused *placement.RefusedError
+		if errors.As(err, &refused) {
+			rec.Policy = refused.Policy
+			rec.Candidates = auditCandidates(refused.Candidates)
+		}
+		s.log.InfoContext(ctx, "placement refused",
+			slog.String("request_id", requestIDFrom(ctx)),
 			slog.String("workload", req.Workload),
 			slog.String("subject", id.Subject),
 			slog.String("reason", string(reason)),
 		)
-		writeRefusal(w, status, reason, refusalMessage(reason))
+		refuse(status, reason, refusalMessage(reason), err)
 		return
 	}
+
+	rec.Cell = decision.Cell
+	rec.Policy = decision.Policy
+	rec.Strategy = string(decision.Strategy)
+	rec.Confidence = string(decision.Confidence())
+	rec.Candidates = auditCandidates(decision.Candidates)
+	rec.Outcome = audit.OutcomeGranted
+	if req.DryRun {
+		rec.Outcome = audit.OutcomeDryRun
+	}
+	s.audit.Record(ctx, rec)
 
 	resp := placementResponse{
 		Cell:         decision.Cell,
@@ -174,36 +219,55 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The mint is a second audited fact about the same request, tied to the
+	// first by request_id. The candidate table belongs to the decision and is
+	// dropped here: repeating it would double the size of the trail and say
+	// nothing the placement record did not already say.
+	rec.Event = audit.EventMint
+	rec.Outcome, rec.Reason, rec.Error = "", "", ""
+	rec.Candidates = nil
+
 	if s.minter == nil {
 		// A cell name with no way to reach it looks like success and is not.
-		writeRefusal(w, http.StatusServiceUnavailable, refusal.MintUnavailable, "credential broker unavailable")
+		refuse(http.StatusServiceUnavailable, refusal.MintUnavailable, "credential broker unavailable", nil)
 		return
 	}
 
-	cluster, err := s.clusterByName(r.Context(), decision.Cell)
+	cluster, err := s.clusterByName(ctx, decision.Cell)
 	if err != nil {
-		s.log.ErrorContext(r.Context(), "reading the chosen cell failed",
-			slog.String("request_id", requestIDFrom(r.Context())),
+		s.log.ErrorContext(ctx, "reading the chosen cell failed",
+			slog.String("request_id", requestIDFrom(ctx)),
 			slog.String("cell", decision.Cell),
 			slog.Any("error", err),
 		)
-		writeRefusal(w, http.StatusInternalServerError, refusal.MintFailed, "internal error")
+		refuse(http.StatusInternalServerError, refusal.MintFailed, "internal error", err)
 		return
 	}
 
-	cred, ttl, err := s.minter.Mint(r.Context(), cluster, decision.TokenTTL, requested, id.Subject)
+	cred, ttl, err := s.minter.Mint(ctx, cluster, decision.TokenTTL, requested, id.Subject)
 	if err != nil {
 		// The detail goes to the operator's log, not to the caller: a minting
 		// failure names service accounts and namespaces in the target cell.
-		s.log.ErrorContext(r.Context(), "minting failed",
-			slog.String("request_id", requestIDFrom(r.Context())),
+		s.log.ErrorContext(ctx, "minting failed",
+			slog.String("request_id", requestIDFrom(ctx)),
 			slog.String("cell", decision.Cell),
 			slog.String("subject", id.Subject),
 			slog.Any("error", err),
 		)
-		writeRefusal(w, http.StatusServiceUnavailable, refusal.MintFailed, "could not mint a credential for the chosen cell")
+		refuse(http.StatusServiceUnavailable, refusal.MintFailed, "could not mint a credential for the chosen cell", err)
 		return
 	}
+
+	// Audited before the response is written. A token that exists and was not
+	// recorded is the one outcome this trail may never produce, and a client
+	// that hangs up mid-response still holds a working credential.
+	rec.Outcome = audit.OutcomeGranted
+	rec.Namespace = cred.Namespace
+	rec.ServiceAccount = cred.ServiceAccount
+	rec.GrantedTTL = ttl.Granted
+	rec.ExpiresAt = cred.ExpiresAt
+	rec.TokenSHA256 = audit.HashToken(cred.Token)
+	s.audit.Record(ctx, rec)
 
 	resp.Credential = &credentialResponse{
 		Server:         cred.Server,
@@ -245,6 +309,28 @@ func explain(d *placement.Decision) []candidateResponse {
 			Reason:      c.Reason,
 			Utilisation: c.Utilisation,
 			Chosen:      c.Cell == d.Cell,
+		})
+	}
+	return out
+}
+
+// auditCandidates renders the candidate table for the audit trail.
+//
+// A separate rendering from explain: that one answers the caller and marks the
+// winner, this one is the operator's record of what was considered and is kept
+// whether or not the caller asked to be told.
+func auditCandidates(candidates []placement.Candidate) []audit.Candidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]audit.Candidate, 0, len(candidates))
+	for _, c := range candidates {
+		out = append(out, audit.Candidate{
+			Cell:        c.Cell,
+			Admitted:    c.Admitted,
+			Stage:       c.Stage,
+			Reason:      c.Reason,
+			Utilisation: c.Utilisation,
 		})
 	}
 	return out

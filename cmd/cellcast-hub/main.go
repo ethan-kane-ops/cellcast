@@ -162,6 +162,10 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		hub.WithPlacer(engine),
 		hub.WithMinter(minter),
 		hub.WithCacheSync(mgr.GetCache().WaitForCacheSync),
+		// The audit trail's second view. Records go to stdout regardless; this
+		// also hangs them on the Cluster they concern, so `kubectl describe
+		// cluster` answers "who has been deploying here".
+		hub.WithEventRecorder(mgr.GetEventRecorder("cellcast-hub")),
 	}
 
 	authn, err := buildAuthenticator(ctx, authCfg, log)
