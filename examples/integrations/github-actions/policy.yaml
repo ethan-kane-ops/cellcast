@@ -7,6 +7,15 @@
 # against the issuers it was started with:
 #
 #   --oidc-issuer https://token.actions.githubusercontent.com=github
+#
+# The subjects below carry numeric owner and repository IDs, which is the
+# immutable format GitHub issues for every repository created after 15 July
+# 2026. An older repository gets `repo:OWNER/REPO:...` with no IDs, and a policy
+# written in the wrong one of those two forms authenticates the caller and then
+# refuses it with NoPolicy, which reads like a hub problem and is not. Ask for
+# the prefix rather than assuming it:
+#
+#   gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
 apiVersion: cellcast.io/v1alpha1
 kind: PlacementPolicy
 metadata:
@@ -18,14 +27,17 @@ spec:
     # carries depends on what triggered the workflow. A policy pinned to the
     # branch alone refuses every pull request, which reads as a broken hub.
     - issuer: https://token.actions.githubusercontent.com
-      subject: repo:ethan-kane-ops/cellcast:ref:refs/heads/main
+      subject: repo:ethan-kane-ops@56138094/cellcast@1332281435:ref:refs/heads/main
+      # Belt and braces, and the claim that survives a rename. `repository` is
+      # the current owner/name and is not affected by the subject format, so a
+      # policy that matched only on it would still be pinned to one repository.
       claims:
         repository: ethan-kane-ops/cellcast
     # A pull request raised from a branch of this repository. A fork's workflow
     # is granted no id-token permission, so it cannot present a token here at
     # all, whatever this policy says.
     - issuer: https://token.actions.githubusercontent.com
-      subject: repo:ethan-kane-ops/cellcast:pull_request
+      subject: repo:ethan-kane-ops@56138094/cellcast@1332281435:pull_request
       claims:
         repository: ethan-kane-ops/cellcast
 

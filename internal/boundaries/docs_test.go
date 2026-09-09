@@ -70,8 +70,9 @@ func TestTheDocsOnlyNameFlagsThatExist(t *testing.T) {
 		"--drain-delay", "--shutdown-timeout", "--capacity-staleness", "--log-level",
 		"--set", "--reuse-values", "--namespace", "--create-namespace", "--raw",
 		"--from-file",
-		// buildkite-agent oidc request-token, quoted by the integration page.
-		"--audience", "--lifetime",
+		// buildkite-agent oidc request-token, and gh, quoted by the
+		// integration page.
+		"--audience", "--lifetime", "--jq",
 		"--previous", "--certificate-identity-regexp", "--certificate-oidc-issuer",
 		"--strict", "--with-requirements", "--kubeconfig",
 	}

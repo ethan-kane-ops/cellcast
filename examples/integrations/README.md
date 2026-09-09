@@ -48,6 +48,15 @@ and the policy it needs in [`github-actions/policy.yaml`](github-actions/policy.
 Pin the actions to commit SHAs in a repository that cares; the example uses tags
 so it stays readable.
 
+The one thing worth checking before writing that policy is the subject format.
+Every repository created after 15 July 2026 gets an immutable subject carrying
+numeric owner and repository IDs, and a policy written in the other form
+authenticates the caller and then refuses it with `NoPolicy`:
+
+```bash
+gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
+```
+
 ### What the action does
 
 1. Downloads the client for the runner, checks it against the published

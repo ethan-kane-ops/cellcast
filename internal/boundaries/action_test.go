@@ -116,7 +116,7 @@ func TestTheIntegrationExamplesOnlyNameFlagsThatExist(t *testing.T) {
 	// reading, they are pasting, and the error arrives in a deploy.
 	accepted := append(clientFlags(t), binaryFlags(t, "cellcast-hub")...)
 	// Flags belonging to the other programs the examples legitimately call.
-	foreign := []string{"--audience", "--lifetime", "--kubeconfig"}
+	foreign := []string{"--audience", "--lifetime", "--kubeconfig", "--jq"}
 
 	root := filepath.Join(repoRoot(t), "examples", "integrations")
 	var checked int

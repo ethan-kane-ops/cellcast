@@ -94,6 +94,24 @@ spec:
 That `subject` is what pins deploys to one branch of one repository. An
 issuer-only selector would permit every repository on GitHub.
 
+!!! warning "The subject format depends on when the repository was created"
+
+    Every repository created after 15 July 2026 gets an immutable subject
+    carrying numeric owner and repository IDs, so the value above is
+    `repo:acme@123456/checkout@789012:ref:refs/heads/main` rather than the form
+    shown. Older repositories keep the form shown unless they opt in.
+
+    A policy written in the wrong one of the two authenticates the caller and
+    then refuses it with `NoPolicy`, which reads like a hub problem and is not.
+    Ask for the prefix rather than assuming it:
+
+    ```bash
+    gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
+    ```
+
+    Matching on `claims.repository` instead pins the policy to one repository in
+    either format, at the cost of permitting every branch of it.
+
 ## GitLab CI
 
 ```yaml
