@@ -19,14 +19,10 @@ every parser that reads untrusted input. Helm charts for the hub and the agent.
 **The release and supply chain pipeline.** Multi-arch images and OCI charts for GHCR, the client
 through goreleaser, cosign keyless signatures and SBOMs on everything published, SLSA build
 provenance on every image, and `govulncheck` over both the source and the built binaries. Built and
-rehearsed end to end with `just release-check`; nothing is published until the repository is public
-and the release runs from a workflow rather than a laptop.
+rehearsed end to end with `just release-check`, and run for real from the release workflow so that
+the keyless signatures carry that workflow's identity rather than a personal one.
 
 ## Next
-
-**Publishing the first release.** The pipeline exists and has never run for real. The first tag
-needs the repository public, so that keyless signatures carry the release workflow's identity
-rather than a personal one.
 
 **Pipeline integrations.** A GitHub Action, an Argo CD pre-sync hook and a Buildkite plugin.
 cellcast attaches to an existing pipeline, and the integrations are what make that true in practice
