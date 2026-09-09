@@ -1,0 +1,32 @@
+# The policy that lets a Buildkite pipeline reach the production cells.
+#
+# Matched on claims rather than on the subject. Buildkite's `sub` carries the
+# commit, so it is different on every build and cannot be written down in
+# advance. The claims below are stable and say the same thing: this pipeline, in
+# this organisation, on this branch.
+#
+# `organization_slug`, `pipeline_slug` and `build_branch` are the claims the
+# hub's buildkite provider extracts. A claim it does not extract cannot be
+# matched here, however clearly it appears in the token (docs/extending.md).
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: buildkite-checkout
+  namespace: cellcast-system
+spec:
+  subjects:
+    - issuer: https://agent.buildkite.com
+      claims:
+        organization_slug: acme
+        pipeline_slug: checkout-api
+        build_branch: main
+
+  permittedCells:
+    matchLabels:
+      env: prod
+
+  strategy: LeastLoaded
+
+  tokenTTL:
+    default: 15m
+    max: 30m

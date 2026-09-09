@@ -1,0 +1,89 @@
+# An Argo CD PreSync hook that stops a sync landing in a cell that should no
+# longer receive it.
+#
+# Argo still owns the deploy. cellcast is asked one question before the sync
+# starts, and the answer is the Job's exit code: is this cell still somewhere
+# this workload may go. A cell that has been put in DRAINING, or that policy has
+# stopped permitting, fails the hook and the sync does not run.
+#
+# It reads as a gate rather than a placement because of the policy beside it
+# (policy.yaml): the identity this Job carries is permitted exactly one cell, so
+# "where should this go" and "may this go here" are the same question. Moving
+# the workload is then a change to the Application's destination, reviewed in a
+# pull request, which is the whole reason anybody runs Argo.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cellcast-presync
+  namespace: apps
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cellcast-presync
+  namespace: apps
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    # Kept on failure. The hook's log is the explanation of why the sync
+    # stopped, and deleting it leaves an operator with a failed sync and
+    # nothing to read.
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  # A refusal is an answer, not a flake. Retrying it three times turns a clear
+  # failure into three minutes of confusion.
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: cellcast-presync
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: place
+          image: ghcr.io/ethan-kane-ops/cellcast:v0.2.0
+          args:
+            - place
+            - --hub=https://cellcast.example.com
+            - --workload=checkout-api
+            # Nothing is minted and nothing is deployed. The decision is the
+            # whole point, and a hook that minted a credential would be handing
+            # one to a pod that has no use for it.
+            - --dry-run
+            # Every cell and why it was or was not chosen, in the hook's log,
+            # which is where an operator looks after a sync refuses to start.
+            - --explain
+            - --token-file=/var/run/secrets/cellcast/token
+            # The root filesystem is read only and this pod is not a pipeline
+            # that runs again tomorrow, so there is nothing for a cached
+            # decision to be useful to.
+            - --cache-ttl=0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: cellcast-token
+              mountPath: /var/run/secrets/cellcast
+              readOnly: true
+      volumes:
+        # The identity, issued by this cluster for this pod, expiring in ten
+        # minutes. The audience has to match the hub's --oidc-audience, and a
+        # token with the default audience is one the hub will refuse.
+        - name: cellcast-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: cellcast
+                  expirationSeconds: 600

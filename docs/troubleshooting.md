@@ -69,8 +69,11 @@ issuer:
 kubectl -n cellcast-system logs deploy/cellcast | grep -i 'certificate\|discovery'
 ```
 
-Trust the issuer's CA with `hub.oidc.caConfigMap`. See
-[getting started](getting-started.md).
+Trust the issuer's CA with `hub.oidc.caConfigMap`, which the chart turns into
+`--oidc-ca-file`. A hub run outside the chart takes that flag directly, pointing
+at a PEM bundle. Either way the bundle is added to the system roots rather than
+replacing them, so a public issuer configured alongside a private one keeps
+working. See [getting started](getting-started.md).
 
 ## A cell never gets placements
 

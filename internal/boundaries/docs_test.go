@@ -66,10 +66,13 @@ func TestTheDocsOnlyNameFlagsThatExist(t *testing.T) {
 	// Flags that belong to another program the page legitimately quotes.
 	foreign := []string{
 		"--service-account-issuer", "--service-account-max-token-expiration",
-		"--oidc-audience", "--oidc-issuer", "--token-max-ttl", "--warmup-timeout",
+		"--oidc-audience", "--oidc-issuer", "--oidc-ca-file", "--token-max-ttl", "--warmup-timeout",
 		"--drain-delay", "--shutdown-timeout", "--capacity-staleness", "--log-level",
 		"--set", "--reuse-values", "--namespace", "--create-namespace", "--raw",
 		"--from-file",
+		// buildkite-agent oidc request-token, and gh, quoted by the
+		// integration page.
+		"--audience", "--lifetime", "--jq",
 		"--previous", "--certificate-identity-regexp", "--certificate-oidc-issuer",
 		"--strict", "--with-requirements", "--kubeconfig",
 	}

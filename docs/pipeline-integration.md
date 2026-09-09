@@ -6,11 +6,13 @@ credential; the deploy step already in place does the deploying.
 The client needs two things: the hub's URL, and the identity token the CI
 platform already issues. There is no secret to configure and nothing to rotate.
 
-!!! note "Purpose-built integrations are not shipped yet"
+!!! tip "There is an action, a hook and a pipeline step"
 
-    A GitHub Action, an Argo CD pre-sync hook and a Buildkite plugin are on the
-    [roadmap](https://github.com/ethan-kane-ops/cellcast/blob/main/ROADMAP.md).
-    Everything below uses the client binary directly and works today.
+    A GitHub Action, an Argo CD PreSync hook and a Buildkite pipeline step are
+    in
+    [examples/integrations](https://github.com/ethan-kane-ops/cellcast/tree/main/examples/integrations),
+    each with the policy it needs. Everything below is the same thing done by
+    hand, which is what a platform with no integration of its own needs.
 
 ## The shape, in any pipeline
 
@@ -28,8 +30,33 @@ to every other job on the machine. There is no `--token` flag.
 
 ## GitHub Actions
 
-The token comes from the OIDC endpoint the runner exposes. `id-token: write` is
-the permission that makes it available.
+The action does all of this. Three lines, and `KUBECONFIG` is set for the step
+after it:
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write     # required for the OIDC token
+      contents: read
+    steps:
+      - id: cellcast
+        uses: ethan-kane-ops/cellcast/.github/actions/place@v0.2.0
+        with:
+          hub: https://cellcast.example.com
+          workload: checkout-api
+          ttl: 15m
+
+      - run: kubectl -n apps apply -f deploy/checkout-api.yaml
+```
+
+It publishes the chosen cell as `steps.cellcast.outputs.cell`, and `source`,
+which is what to branch on: anything other than `hub` means the hub did not
+answer and no credential was minted. The inputs are listed in
+[examples/integrations](https://github.com/ethan-kane-ops/cellcast/tree/main/examples/integrations).
+
+The same thing without it, on a runner that already has the client:
 
 ```yaml
 jobs:
@@ -67,6 +94,24 @@ spec:
 That `subject` is what pins deploys to one branch of one repository. An
 issuer-only selector would permit every repository on GitHub.
 
+!!! warning "The subject format depends on when the repository was created"
+
+    Every repository created after 15 July 2026 gets an immutable subject
+    carrying numeric owner and repository IDs, so the value above is
+    `repo:acme@123456/checkout@789012:ref:refs/heads/main` rather than the form
+    shown. Older repositories keep the form shown unless they opt in.
+
+    A policy written in the wrong one of the two authenticates the caller and
+    then refuses it with `NoPolicy`, which reads like a hub problem and is not.
+    Ask for the prefix rather than assuming it:
+
+    ```bash
+    gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
+    ```
+
+    Matching on `claims.repository` instead pins the policy to one repository in
+    either format, at the cost of permitting every branch of it.
+
 ## GitLab CI
 
 ```yaml
@@ -82,6 +127,43 @@ deploy:
 
 GitLab puts the token straight into the environment variable, which is the name
 the client already reads.
+
+## Buildkite
+
+`buildkite-agent oidc request-token` is built into the agent, so there is no
+plugin to install:
+
+```yaml
+steps:
+  - label: "deploy checkout-api"
+    env:
+      CELLCAST_HUB: https://cellcast.example.com
+    commands:
+      - export TOKEN_FILE="$$(mktemp)"
+      - trap 'rm -f "$$TOKEN_FILE"' EXIT
+      - buildkite-agent oidc request-token --audience cellcast --lifetime 300 > "$$TOKEN_FILE"
+      - cellcast place --workload checkout-api --ttl 15m --token-file "$$TOKEN_FILE"
+      - kubectl --kubeconfig cellcast.kubeconfig -n apps apply -f deploy.yaml
+```
+
+Buildkite interpolates `$VAR` when the pipeline is uploaded and `$$VAR` when the
+step runs, so a single `$` here resolves on the wrong machine.
+
+The policy for a Buildkite caller matches on claims rather than on the subject,
+because Buildkite's `sub` carries the commit and is different on every build.
+
+## Argo CD
+
+Argo keeps the deploy. A PreSync hook asks cellcast one question before the sync
+starts, and the answer is its exit code: is this cell still somewhere this
+workload may go. A cell moved to `DRAINING`, or dropped from the policy, fails
+the hook and the sync does not run.
+
+That works as a gate because the identity the hook carries is permitted exactly
+one cell, so "where should this go" and "may this go here" are the same
+question. Moving a workload is then a change to the Application's destination,
+reviewed in a pull request. The Job and its policy are in
+[examples/integrations/argocd](https://github.com/ethan-kane-ops/cellcast/tree/main/examples/integrations/argocd).
 
 ## Branching on the result
 

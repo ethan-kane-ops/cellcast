@@ -36,9 +36,9 @@ uploading.
 
 ## Status
 
-v0.1.0, the first tagged release. The placement path, the broker, the audit trail, metrics,
-multi-replica HA, both charts and the release pipeline are built and tested. Pre-1.0, the API and
-the CRD schema may change between minor versions, and [building from
+v0.2.0. The placement path, the broker, the audit trail, metrics, multi-replica HA, both charts,
+the release pipeline and the pipeline integrations are built and tested. Pre-1.0, the API and the
+CRD schema may change between minor versions, and [building from
 source](#building-from-source) stays supported.
 
 ## What it is not
@@ -127,18 +127,18 @@ therefore proves nothing. Verification has to name the expected signer, which fo
 its own release workflow:
 
 ```bash
-cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.1.0 \
-  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.1.0 \
+cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.2.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 The same command covers the agent image, the client image and both charts
-(`ghcr.io/ethan-kane-ops/charts/cellcast:0.1.0`). For the client archives, verify the checksum file
+(`ghcr.io/ethan-kane-ops/charts/cellcast:0.2.0`). For the client archives, verify the checksum file
 and then check the archive against it:
 
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
-  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.1.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 shasum -a 256 --ignore-missing -c checksums.txt
 ```
@@ -147,7 +147,7 @@ Every image carries an SBOM and SLSA build provenance, recorded by the builder f
 compiled rather than inferred afterwards by scanning a stripped static binary:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.1.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.2.0 --format '{{ json .SBOM }}'
 ```
 
 Pin by digest in production regardless. A tag can be moved; a digest names the same bytes
@@ -164,6 +164,7 @@ one printed here. See [SECURITY.md](./SECURITY.md) and [docs/releasing.md](docs/
 | [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted |
 | [Extending](docs/extending.md) | Adding a CI platform the hub does not know, or a second way to mint |
 | [Examples](examples/) | A complete four-cell fleet and three policies, applyable as they are |
+| [Pipeline integrations](examples/integrations/) | A GitHub Action, an Argo CD PreSync hook and a Buildkite step, each with its policy |
 | [Audit trail](docs/audit.md) | What is recorded for every placement and mint, and worked queries over it |
 | [Metrics](docs/metrics.md) | The Prometheus surface, the dashboard, and the five alerts |
 | [Hub chart](charts/cellcast/README.md) | Installing the hub, and every value it takes |

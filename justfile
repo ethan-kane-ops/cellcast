@@ -345,6 +345,26 @@ release-version tag:
         rm -f "$f.bak"
         echo "$f -> version $bare, appVersion $tag"
     done
+    # The README's verification block is the one command an adopter copies
+    # verbatim, and a superseded tag in it verifies fine, which is the worst
+    # way for it to be wrong. Each pattern names where a release number appears
+    # rather than rewriting every triple in the file: a Go version is also
+    # three numbers with dots in it.
+    sed -i.bak -E \
+        -e "s|^v[0-9]+\\.[0-9]+\\.[0-9]+\\.|$tag.|" \
+        -e "s|(cellcast-hub:)v[0-9]+\\.[0-9]+\\.[0-9]+|\\1$tag|g" \
+        -e "s|(refs/tags/)v[0-9]+\\.[0-9]+\\.[0-9]+|\\1$tag|g" \
+        -e "s|(charts/cellcast:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1$bare|g" \
+        README.md
+    rm -f README.md.bak
+    echo "README.md -> verifies $tag"
+    # The GitHub Action installs a release by number, and that number is what a
+    # caller who pins nothing gets. The pattern is deliberately narrow: it is
+    # the only default in the file that looks like a version.
+    action=".github/actions/place/action.yml"
+    sed -i.bak -E "s|^([[:space:]]*default: )v[0-9]+\\.[0-9]+\\.[0-9]+.*$|\\1$tag|" "$action"
+    rm -f "$action.bak"
+    echo "$action -> installs $tag"
     # The charts' READMEs carry the version in a badge, so they go stale on
     # every release unless they are regenerated here. A contract test holds
     # them to Chart.yaml, which is how that was found.
@@ -991,6 +1011,73 @@ install:
     go install -trimpath -ldflags '{{ldflags}}' ./cmd/cellcast
     mise reshim 2>/dev/null || true
     @echo "installed → $(which cellcast 2>/dev/null || go env GOBIN)/cellcast"
+
+# --- Integration --------------------------------------------------------------
+#
+# The claim the project is pitched on is that cellcast attaches to a pipeline
+# somebody already has. These two recipes are the halves of that claim a
+# workflow cannot state for itself: the fleet it runs against, and the check
+# that the app reached the cell cellcast named rather than simply reaching one.
+#
+# The fleet is the demo's, deliberately. A second three-cell builder would drift
+# from the first, and the shape is already the one that makes the point: the
+# emptiest cell in the estate is the one policy refuses.
+
+# Build the demo fleet and start a hub that also trusts GitHub Actions
+integration-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ./demo/setup.sh
+    # Applied before the hub is asked anything, and applied unedited, so an
+    # example that has drifted from the schema fails here rather than failing
+    # for whoever copied it.
+    KUBECONFIG=demo/.work/euw1.kubeconfig \
+        kubectl apply -f examples/integrations/github-actions/policy.yaml
+    CELLCAST_EXTRA_ISSUERS="https://token.actions.githubusercontent.com=github" ./demo/up.sh
+
+# Print what the hub and the agents logged, for a failed integration run
+integration-logs:
+    #!/usr/bin/env bash
+    # A refusal is the interesting failure and the least visible one: the client
+    # prints the reason and nothing else, and the reason alone does not say
+    # which subject was presented or which claims a policy could have matched.
+    # The audit record does, and it is written at info.
+    set -euo pipefail
+    # Tolerant on purpose. This runs because something already failed, and a
+    # fleet that fell over before it wrote a log should not turn one failure
+    # into two.
+    shopt -s nullglob
+    logs=(demo/.work/logs/*.log)
+    if [ ${#logs[@]} -eq 0 ]; then
+        echo "no logs; the fleet did not get far enough to write any"
+        exit 0
+    fi
+    for log in "${logs[@]}"; do
+        echo "=== $log ==="
+        cat "$log"
+    done
+
+# Check the sample app reached the named cell and no other
+integration-check cell:
+    #!/usr/bin/env bash
+    # Both halves. That the app is in the cell cellcast chose proves the
+    # credential worked; that it is in neither of the others proves the
+    # credential was scoped to one cell, which is the part a single positive
+    # check would miss entirely.
+    set -euo pipefail
+    found=""
+    for cell in euw1 use1 apse1; do
+        if KUBECONFIG="demo/.work/$cell.kubeconfig" \
+            kubectl -n apps get deployment sample-app > /dev/null 2>&1; then
+            found="$found $cell"
+        fi
+    done
+    found="${found# }"
+    if [ "$found" != "{{ cell }}" ]; then
+        echo "sample-app is in [$found]; cellcast placed it on {{ cell }}" >&2
+        exit 1
+    fi
+    echo "sample-app is in {{ cell }} and nowhere else"
 
 # --- Demo ---------------------------------------------------------------------
 #

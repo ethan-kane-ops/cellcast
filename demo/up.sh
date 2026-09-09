@@ -30,6 +30,17 @@ for cell in $cells; do
     issuer_flags="$issuer_flags --oidc-issuer=$(cat "$work/$cell.issuer")=generic"
 done
 
+# Issuers beyond the three cells, as space-separated "url=provider" pairs. The
+# integration workflow sets this to GitHub's issuer so that a real Actions token
+# can reach this hub. Empty for the recording, where nothing presents one.
+#
+# The provider after the "=" selects which claims are extracted, and so what a
+# policy can match on. The cells get "generic" because a Kubernetes service
+# account token carries nothing else worth matching.
+for extra in ${CELLCAST_EXTRA_ISSUERS:-}; do
+    issuer_flags="$issuer_flags --oidc-issuer=$extra"
+done
+
 echo "==> starting the hub on $hub_addr"
 # --oidc-ca-file is what makes this possible without a publicly-trusted issuer.
 # Each cell signs its own certificate, so the hub cannot fetch any cell's keys
@@ -37,6 +48,11 @@ echo "==> starting the hub on $hub_addr"
 # nohup, so the hub outlives the shell that started it. Without it the hub is
 # a child of this script and can go down with the terminal that ran it, which
 # looks exactly like a hub that crashed on startup.
+#
+# warn keeps the recording's terminal quiet, and is wrong anywhere the answer
+# matters: the audit record is written at info, and it is the only thing that
+# names the issuer, the subject and the claims a policy could have matched on.
+# A refusal nobody can explain is what the trail exists for.
 KUBECONFIG="$work/euw1.kubeconfig" nohup ./bin/cellcast-hub \
     --addr "$hub_addr" \
     --probe-addr 127.0.0.1:18081 \
@@ -46,7 +62,7 @@ KUBECONFIG="$work/euw1.kubeconfig" nohup ./bin/cellcast-hub \
     --oidc-audience cellcast \
     --oidc-ca-file "$work/issuer-roots" \
     $issuer_flags \
-    --log-level warn --log-format text \
+    --log-level "${CELLCAST_LOG_LEVEL:-warn}" --log-format text \
     > "$work/logs/hub.log" 2>&1 &
 hub_pid=$!
 disown "$hub_pid" 2> /dev/null || true
