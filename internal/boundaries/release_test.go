@@ -578,3 +578,23 @@ func TestTheReadmeVerifiesTheReleaseTheChartsDeclare(t *testing.T) {
 		}
 	}
 }
+
+func TestTheReleaseTagIsSignedAndNotMerelyAnnotated(t *testing.T) {
+	// The distinction that hid this: commit.gpgsign signs commits, and an
+	// annotated tag is a different object with a different setting. `git tag -a`
+	// writes an unsigned tag pointing at a signed commit, and the tag ruleset's
+	// signature rule is satisfied by that commit, so the push succeeds and the
+	// release looks fully signed from every angle except the tag itself.
+	//
+	// The recipe carries the flag rather than relying on tag.gpgSign, because
+	// the config belongs to whichever machine cuts the release and this is a
+	// property of the release.
+	justfile := readRepoFile(t, "justfile")
+
+	if containsOutsideComments(justfile, "git tag -a") {
+		t.Error("the release creates an annotated tag with `git tag -a`, which is unsigned unless tag.gpgSign happens to be set on that machine")
+	}
+	if !containsOutsideComments(justfile, "git tag -s") {
+		t.Error("nothing in the justfile signs the release tag")
+	}
+}

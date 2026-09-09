@@ -488,7 +488,15 @@ release-tag:
     done
 
     echo "tagging $(git rev-parse --short HEAD) as $tag"
-    git tag -a "$tag" -m "$tag"
+    # -s, not -a. commit.gpgsign covers commits and nothing else: an annotated
+    # tag is a separate object with its own signature, governed by tag.gpgSign,
+    # which defaults to false. The release ruleset's signature rule is satisfied
+    # by the commit the tag points at, so an unsigned tag object passes it and
+    # nothing anywhere says the tag itself is unsigned.
+    #
+    # The flag rather than the config, because the config belongs to whichever
+    # machine happens to cut the release and the recipe belongs here.
+    git tag -s "$tag" -m "$tag"
     git push origin "refs/tags/$tag"
     echo
     echo "release workflow started: https://github.com/{{owner}}/cellcast/actions/workflows/release.yml"
