@@ -33,6 +33,23 @@ The issuer is not optional in practice. A hub with none authenticates nobody and
 refuses every request. That is the correct state for a broker that cannot tell
 who is asking, and it is not a working install.
 
+!!! note "A self-hosted issuer needs its CA"
+
+    The hub fetches each issuer's discovery document and keys over HTTPS and
+    verifies that certificate against the system roots. GitHub Actions, GitLab
+    SaaS and Buildkite chain to a public root and need nothing extra. A
+    self-hosted GitLab, a GitHub Enterprise Server or an internal Keycloak
+    usually presents a certificate from the organisation's own CA, and the hub
+    cannot reach it until that CA is trusted:
+
+    ```bash
+    kubectl -n cellcast-system create configmap issuer-roots --from-file=ca.crt=./internal-ca.crt
+    helm upgrade cellcast ... --set hub.oidc.caConfigMap=issuer-roots
+    ```
+
+    The bundle is added to the system roots rather than replacing them, so a
+    public issuer configured alongside an internal one keeps working.
+
 A complete worked fleet, four cells and three policies, is in
 [examples/](https://github.com/ethan-kane-ops/cellcast/tree/main/examples). The
 rest of this page builds one of those objects at a time.
