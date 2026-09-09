@@ -387,6 +387,7 @@ release-prepare bump="auto":
         *) fail "usage: just release-prepare [auto|patch|minor|major|vX.Y.Z]" ;;
     esac
     case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+    bare="${tag#v}"
     if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
         fail "tag $tag already exists"
     fi
@@ -400,10 +401,25 @@ release-prepare bump="auto":
     git add -A
     git commit -m "chore(release): $tag"
     git push
+    # A release pull request is read by the same stranger as any other one, so
+    # the body describes the diff rather than the release procedure.
     body=$(printf '%s\n' \
-        "Sets both charts to $tag, and regenerates the changelog and the chart READMEs." \
+        "## What changed" \
         "" \
-        "Merging this publishes nothing. The tag is what does, and it is applied once this is on main.")
+        "- Both charts declare version $bare and appVersion $tag." \
+        "- CHANGELOG.md gains the $tag section, generated from the commits since the last tag." \
+        "- Both chart READMEs regenerate, because each carries its chart version in a badge." \
+        "" \
+        "## Why" \
+        "" \
+        "The chart version, the chart appVersion and the image tag are one number cut from one" \
+        "commit. Moving them together in a single commit is what allows a release tag to name a" \
+        "commit on which all three already agree." \
+        "" \
+        "## Testing" \
+        "" \
+        "\`just check\`, including the chart lint and the contract test that holds each chart" \
+        "README to its Chart.yaml.")
     gh pr create --title "chore(release): $tag" --body "$body"
     echo
     echo "merge that, then: git switch main && git pull && just release-tag"
