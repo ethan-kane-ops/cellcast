@@ -3,6 +3,7 @@ package apitest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,10 @@ import (
 // directly. The unit tests already call Reconcile by hand, so what is left to
 // prove is the wiring: that each controller is registered, that its watches
 // fire, and that a reconcile it did not ask for still reaches it.
+// envtestIssuer is the issuer the manager under test is started with, standing
+// in for a --oidc-issuer flag.
+const envtestIssuer = "https://token.actions.githubusercontent.com"
+
 func startManager(t *testing.T, ns string, index *capacity.Registry) {
 	t.Helper()
 	requireEnv(t)
@@ -45,7 +50,7 @@ func startManager(t *testing.T, ns string, index *capacity.Registry) {
 	if err != nil {
 		t.Fatalf("building manager: %v", err)
 	}
-	if err := hub.RegisterControllers(mgr, index, ns); err != nil {
+	if err := hub.RegisterControllers(mgr, index, ns, []string{envtestIssuer}); err != nil {
 		t.Fatalf("registering controllers: %v", err)
 	}
 
@@ -301,4 +306,67 @@ func TestPolicyReadinessFollowsTheFleet(t *testing.T) {
 		}
 		awaitReady(t, metav1.ConditionFalse, "NoCellsMatched")
 	})
+}
+
+// TestAPolicyNamingAnUntrustedIssuerSaysSo is the whole point of the condition,
+// through a real API server: the mistake is visible on the object the operator
+// just applied, rather than in a hub log they do not have, days later, as a
+// refused deploy on somebody else's machine.
+func TestAPolicyNamingAnUntrustedIssuerSaysSo(t *testing.T) {
+	c := newClient(t)
+	ns := newNamespace(t, c)
+	startManager(t, ns, nil)
+
+	policy := &cellcastv1alpha1.PlacementPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-prod", Namespace: ns},
+		Spec: cellcastv1alpha1.PlacementPolicySpec{
+			Subjects: []cellcastv1alpha1.SubjectSelector{{
+				Issuer:  "https://gitlab.example.com",
+				Subject: "project_path:acme/checkout:ref_type:branch:ref:main",
+			}},
+			PermittedCells: metav1.LabelSelector{MatchLabels: map[string]string{"env": "prod"}},
+		},
+	}
+	if err := c.Create(context.Background(), policy); err != nil {
+		t.Fatalf("creating the policy: %v", err)
+	}
+
+	cond := awaitPolicyCondition(t, c, ns, policy.Name, hub.PolicyConditionIssuerTrusted)
+	if cond.Status != metav1.ConditionFalse {
+		t.Errorf("%s = %s, want False", hub.PolicyConditionIssuerTrusted, cond.Status)
+	}
+	if cond.Reason != hub.PolicyReasonIssuerNotTrusted {
+		t.Errorf("reason = %s, want %s", cond.Reason, hub.PolicyReasonIssuerNotTrusted)
+	}
+	// Both halves of what the operator has to reconcile: the issuer they wrote,
+	// and the one the hub actually holds.
+	for _, want := range []string{"gitlab.example.com", envtestIssuer} {
+		if !strings.Contains(cond.Message, want) {
+			t.Errorf("message %q does not name %s", cond.Message, want)
+		}
+	}
+}
+
+// awaitPolicyCondition polls for a condition the controller writes
+// asynchronously. Create returns as soon as the API server has the object; the
+// reconcile that produces the status is a separate round trip.
+func awaitPolicyCondition(t *testing.T, c client.Client, ns, name, condition string) *metav1.Condition {
+	t.Helper()
+
+	var found *metav1.Condition
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var policy cellcastv1alpha1.PlacementPolicy
+		if err := c.Get(context.Background(),
+			client.ObjectKey{Namespace: ns, Name: name}, &policy); err != nil {
+			t.Fatalf("reading the policy: %v", err)
+		}
+		if found = meta.FindStatusCondition(policy.Status.Conditions, condition); found != nil {
+			return found
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Fatalf("no %s condition after 10s", condition)
+	return nil
 }

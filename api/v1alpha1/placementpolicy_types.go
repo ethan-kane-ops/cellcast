@@ -114,6 +114,7 @@ type PlacementPolicyStatus struct {
 // +kubebuilder:resource:shortName=ccpol
 // +kubebuilder:printcolumn:name="Strategy",type=string,JSONPath=`.spec.strategy`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Issuers",type=string,JSONPath=`.status.conditions[?(@.type=="IssuerTrusted")].status`
 // +kubebuilder:printcolumn:name="Cells",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

@@ -15,7 +15,7 @@ NoPolicy
 
 | Reason | What it means | Where to look |
 |---|---|---|
-| `NoPolicy` | No `PlacementPolicy` matches this caller | The token's claims against `spec.subjects` |
+| `NoPolicy` | No `PlacementPolicy` matches this caller | The `IssuerTrusted` condition first, then the token's claims against `spec.subjects` |
 | `NoPermittedCells` | A policy matched, but its selector permits no registered cell | `permittedCells` against the cells' labels |
 | `NoEligibleCells` | Every permitted cell is `DRAINING`, or `DARK` without `--dark` | The cells' `spec.state` |
 | `CapacityUnknown` | Every permitted, eligible cell has stale or missing capacity | The agents |
@@ -23,6 +23,21 @@ NoPolicy
 | `PlacementUnavailable` | The hub is running but cannot decide yet | Usually a replica still warming up. Retry |
 | `MintUnavailable` / `MintFailed` | The decision was made and the credential was not | The cell's `TrustConfig` |
 | `InvalidRequest` | The request itself was malformed | The client's arguments |
+
+`NoPolicy` has one cause worth eliminating before any other, because it is
+invisible from the caller's side. A policy naming an issuer the hub was not
+started with matches nobody, and the hub says so on the policy rather than in
+the refusal:
+
+```console
+$ kubectl -n cellcast-system get placementpolicy
+NAME       STRATEGY      READY   ISSUERS   CELLS
+app-prod   LeastLoaded   True    False     selector "env=prod" matches 2 registered cell(s)
+```
+
+`ISSUERS: False` is a hub flag to fix, not a policy. If it is `True`, the
+mismatch is in a claim or the subject, and
+[Placement policy](placement-policy.md) covers reading those.
 
 Two of them look alike and are not. `PlacementUnavailable` may be answered by an
 `--on-unavailable` stance, because the caller was already found to be permitted.

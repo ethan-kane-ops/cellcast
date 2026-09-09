@@ -154,3 +154,29 @@ qa-dark    LeastLoaded   False   selector "env=qa" matches no registered cell
 
 `READY: False` means a policy that will refuse every caller it matches. Usually
 a label typo, and much cheaper to see here than in a build log.
+
+The `ISSUERS` column answers the other half, which is whether the hub can verify
+anybody this policy names:
+
+```console
+$ kubectl -n cellcast-system get placementpolicy
+NAME       STRATEGY      READY   ISSUERS   CELLS
+app-prod   LeastLoaded   True    True      selector "env=prod" matches 2 registered cell(s)
+gitlab     LeastLoaded   True    False     selector "env=prod" matches 2 registered cell(s)
+```
+
+The second one selects cells perfectly well and can still never match a caller.
+Naming an issuer in a policy does not add it: the hub verifies signatures only
+against the issuers it was started with, so a policy pointing anywhere else is
+valid YAML that matches nobody. The condition says which issuer, and which ones
+the hub actually holds:
+
+```console
+$ kubectl -n cellcast-system get placementpolicy gitlab \
+    -o jsonpath='{.status.conditions[?(@.type=="IssuerTrusted")].message}'
+this hub does not verify "https://gitlab.example.com"; it was started with
+"https://token.actions.githubusercontent.com", and a policy does not add an issuer
+```
+
+The fix is a `--oidc-issuer` flag on the hub, not an edit to the policy. See
+[Extending](extending.md) for which provider name to give it.

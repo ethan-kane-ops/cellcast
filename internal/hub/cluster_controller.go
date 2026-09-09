@@ -173,7 +173,12 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //
 // Reconcilers are added here rather than in main so that the set of controllers
 // the hub runs is a property of the package that owns them.
-func RegisterControllers(mgr manager.Manager, index *capacity.Registry, namespace string) error {
+//
+// trustedIssuers is the hub's --oidc-issuer allowlist, which the policy
+// controller reports against. It is passed in rather than read from a package
+// variable so that a test can run the controller against an issuer set it
+// chose.
+func RegisterControllers(mgr manager.Manager, index *capacity.Registry, namespace string, trustedIssuers []string) error {
 	r := &ClusterReconciler{
 		Client:   mgr.GetClient(),
 		Recorder: mgr.GetEventRecorder("cellcast-hub"),
@@ -188,7 +193,7 @@ func RegisterControllers(mgr manager.Manager, index *capacity.Registry, namespac
 		return fmt.Errorf("registering cluster controller: %w", err)
 	}
 
-	policies := &PlacementPolicyReconciler{Client: mgr.GetClient()}
+	policies := &PlacementPolicyReconciler{Client: mgr.GetClient(), TrustedIssuers: trustedIssuers}
 	if err := policies.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("registering placement policy controller: %w", err)
 	}
