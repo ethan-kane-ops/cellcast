@@ -48,6 +48,11 @@ echo "==> starting the hub on $hub_addr"
 # nohup, so the hub outlives the shell that started it. Without it the hub is
 # a child of this script and can go down with the terminal that ran it, which
 # looks exactly like a hub that crashed on startup.
+#
+# warn keeps the recording's terminal quiet, and is wrong anywhere the answer
+# matters: the audit record is written at info, and it is the only thing that
+# names the issuer, the subject and the claims a policy could have matched on.
+# A refusal nobody can explain is what the trail exists for.
 KUBECONFIG="$work/euw1.kubeconfig" nohup ./bin/cellcast-hub \
     --addr "$hub_addr" \
     --probe-addr 127.0.0.1:18081 \
@@ -57,7 +62,7 @@ KUBECONFIG="$work/euw1.kubeconfig" nohup ./bin/cellcast-hub \
     --oidc-audience cellcast \
     --oidc-ca-file "$work/issuer-roots" \
     $issuer_flags \
-    --log-level warn --log-format text \
+    --log-level "${CELLCAST_LOG_LEVEL:-warn}" --log-format text \
     > "$work/logs/hub.log" 2>&1 &
 hub_pid=$!
 disown "$hub_pid" 2> /dev/null || true

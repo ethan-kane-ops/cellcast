@@ -1035,6 +1035,19 @@ integration-up:
         kubectl apply -f examples/integrations/github-actions/policy.yaml
     CELLCAST_EXTRA_ISSUERS="https://token.actions.githubusercontent.com=github" ./demo/up.sh
 
+# Print what the hub and the agents logged, for a failed integration run
+integration-logs:
+    #!/usr/bin/env bash
+    # A refusal is the interesting failure and the least visible one: the client
+    # prints the reason and nothing else, and the reason alone does not say
+    # which subject was presented or which claims a policy could have matched.
+    # The audit record does, and it is written at info.
+    set -euo pipefail
+    for log in demo/.work/logs/*.log; do
+        echo "=== $log ==="
+        cat "$log"
+    done
+
 # Check the sample app reached the named cell and no other
 integration-check cell:
     #!/usr/bin/env bash

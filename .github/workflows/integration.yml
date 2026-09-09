@@ -52,7 +52,13 @@ jobs:
       # Three cells, three agents, and the policy from examples/ applied
       # unedited. Takes several minutes: each cell is a real cluster with its
       # own service account issuer, because a fleet sharing one proves nothing.
+      #
+      # info rather than the demo's warn. The audit record is written at info,
+      # and it is the only thing that names the subject a refusal was refused
+      # for.
       - run: just integration-up
+        env:
+          CELLCAST_LOG_LEVEL: info
 
       - name: Place the workload
         id: cellcast
@@ -86,6 +92,11 @@ jobs:
           workload: checkout-api
           dry-run: "true"
           export-kubeconfig: "false"
+
+      # Before the teardown, which deletes the logs with the clusters.
+      - name: What the hub and the agents logged
+        if: failure()
+        run: just integration-logs
 
       - name: Tear down the fleet
         if: always()
