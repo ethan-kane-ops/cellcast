@@ -70,6 +70,22 @@ type Placement struct {
 	Credential   *Credential `json:"credential"`
 	TTL          *TTL        `json:"ttl"`
 	Candidates   []Candidate `json:"candidates"`
+	// Identity is the caller the hub authenticated. Present on a successful
+	// placement too: a deploy admitted by a policy nobody expected is as much
+	// a policy bug as one refused, and nothing else reports it.
+	Identity *Identity `json:"identity,omitempty"`
+}
+
+// Identity is the caller as the hub parsed them.
+//
+// It is the caller's own token read back, which is the one thing an
+// authorization refusal otherwise never says. A policy naming a subject in a
+// format the issuer does not produce authenticates fine and is refused, and
+// from this side the two are indistinguishable without it.
+type Identity struct {
+	Issuer  string            `json:"issuer"`
+	Subject string            `json:"subject"`
+	Claims  map[string]string `json:"claims,omitempty"`
 }
 
 // Refusal is a placement the hub declined.
@@ -78,9 +94,19 @@ type Refusal struct {
 	// Reason is the machine-readable code. Match on this, never on Message.
 	Reason  refusal.Reason `json:"reason"`
 	Message string         `json:"error"`
+	// Identity is present whenever the hub got as far as authenticating.
+	Identity *Identity `json:"identity,omitempty"`
 }
 
 func (r *Refusal) Error() string {
+	// NoPolicy alone carries the subject, because NoPolicy alone is the
+	// refusal whose cause is the subject. Appending it to every refusal would
+	// put a long opaque string in front of somebody whose cell is merely
+	// draining, and the ones that would be helped would stop reading it.
+	if r.Reason == refusal.NoPolicy && r.Identity != nil && r.Identity.Subject != "" {
+		return fmt.Sprintf("%s: %s (the hub read this caller as %q; run `cellcast policy test` to see every claim)",
+			r.Reason, r.Message, r.Identity.Subject)
+	}
 	return fmt.Sprintf("%s: %s", r.Reason, r.Message)
 }
 

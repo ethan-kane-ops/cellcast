@@ -15,6 +15,7 @@ import (
 	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
@@ -74,6 +75,32 @@ type ttlResponse struct {
 }
 
 // placementResponse is the body of a successful placement.
+// identityResponse is the caller's own identity, as the hub parsed it.
+//
+// Echoed back because the commonest authorization failure is a policy naming a
+// subject in a format the issuer does not actually produce, and the caller
+// cannot see the difference from their side: the refusal carries a reason and
+// nothing else, and only the hub's audit record names what was presented.
+//
+// It discloses nothing new. These are the caller's own claims, out of the token
+// the caller just sent, and they are exactly the three fields audit.Record
+// already carries and logs. That classification is the allowlist: anything
+// added here has to be a field TestRecordHasNoFieldThatCouldHoldAToken has
+// already ruled on. Policy contents are deliberately not here, because a
+// PlacementPolicy is not the caller's to read.
+type identityResponse struct {
+	Issuer  string            `json:"issuer"`
+	Subject string            `json:"subject"`
+	Claims  map[string]string `json:"claims,omitempty"`
+}
+
+func identityOf(id *identity.Identity) *identityResponse {
+	if id == nil {
+		return nil
+	}
+	return &identityResponse{Issuer: id.Issuer, Subject: id.Subject, Claims: id.Claims}
+}
+
 type placementResponse struct {
 	Cell     string `json:"cell"`
 	Policy   string `json:"policy"`
@@ -91,6 +118,10 @@ type placementResponse struct {
 	Credential   *credentialResponse `json:"credential,omitempty"`
 	TTL          *ttlResponse        `json:"ttl,omitempty"`
 	Candidates   []candidateResponse `json:"candidates,omitempty"`
+	// Identity is the caller as the hub read them, on success as well as on
+	// a refusal: a placement that succeeded under the wrong policy is the same
+	// question asked the other way round.
+	Identity *identityResponse `json:"identity,omitempty"`
 }
 
 // handlePlacement serves POST /api/v1/placement.
@@ -124,7 +155,15 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 			rec.Error = cause.Error()
 		}
 		s.audit.Record(ctx, rec)
-		writeRefusal(w, status, reason, msg)
+		// From rec rather than from the identity variable, which is not in
+		// scope for the refusals above authentication. rec is empty then, and
+		// an empty block is omitted rather than reported as a caller with no
+		// subject.
+		var echo *identityResponse
+		if rec.Issuer != "" || rec.Subject != "" {
+			echo = &identityResponse{Issuer: rec.Issuer, Subject: rec.Subject, Claims: rec.Claims}
+		}
+		writeRefusal(w, status, reason, msg, echo)
 	}
 
 	id, ok := IdentityFrom(ctx)
@@ -229,6 +268,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		DecidedFor:   id.Subject,
 		TargetedDark: decision.TargetedDark,
 		DryRun:       req.DryRun,
+		Identity:     identityOf(id),
 	}
 	if req.Explain {
 		resp.Candidates = explain(decision)
@@ -413,8 +453,13 @@ func refusalMessage(reason refusal.Reason) string {
 
 // writeRefusal writes a refusal carrying both a machine-readable reason and a
 // human one.
-func writeRefusal(w http.ResponseWriter, status int, reason refusal.Reason, msg string) {
-	writeJSON(w, status, map[string]string{"reason": string(reason), "error": msg})
+func writeRefusal(w http.ResponseWriter, status int, reason refusal.Reason, msg string, id *identityResponse) {
+	body := struct {
+		Reason   string            `json:"reason"`
+		Error    string            `json:"error"`
+		Identity *identityResponse `json:"identity,omitempty"`
+	}{Reason: string(reason), Error: msg, Identity: id}
+	writeJSON(w, status, body)
 }
 
 // clusterByName reads one registered cell.

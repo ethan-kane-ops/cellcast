@@ -2,7 +2,6 @@ package hub
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -295,14 +294,11 @@ func TestAColdReplicaRefusesAPlacementItCannotScore(t *testing.T) {
 		t.Fatalf("POST = %d (%s), want 503", rec.Code, rec.Body)
 	}
 
-	var body map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding refusal: %v", err)
-	}
+	body := decodeRefusal(t, rec.Body.Bytes())
 	// Not CapacityUnknown, which says the fleet went dark. This one is a
 	// property of the replica the caller happened to reach and clears itself,
 	// so a retry is worth making (ADR-006).
-	if got := refusal.Reason(body["reason"]); got != refusal.PlacementUnavailable {
+	if got := refusal.Reason(body.Reason); got != refusal.PlacementUnavailable {
 		t.Errorf("reason = %q, want %q", got, refusal.PlacementUnavailable)
 	}
 }

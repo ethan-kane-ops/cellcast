@@ -24,7 +24,18 @@ NoPolicy
 | `MintUnavailable` / `MintFailed` | The decision was made and the credential was not | The cell's `TrustConfig` |
 | `InvalidRequest` | The request itself was malformed | The client's arguments |
 
-`NoPolicy` has one cause worth eliminating before any other, because it is
+`NoPolicy` is the one to start from the caller's side:
+
+```console
+$ cellcast policy test --workload checkout-api
+```
+
+It runs the whole decision, mints nothing, and prints the issuer, subject and
+claims the hub read out of the token. Compare those against `spec.subjects`; a
+subject in a format the issuer does not actually produce is the commonest cause,
+and it is invisible from a refusal alone.
+
+`NoPolicy` also has one cause worth eliminating before any other, because it is
 invisible from the caller's side. A policy naming an issuer the hub was not
 started with matches nobody, and the hub says so on the policy rather than in
 the refusal:
