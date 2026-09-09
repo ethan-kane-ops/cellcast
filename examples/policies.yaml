@@ -1,0 +1,98 @@
+# Who may reach which cells, and how the survivors are ranked. In that order:
+# the filter is the security control and the score is only an optimisation.
+#
+# A caller matching no policy is refused with NoPolicy. There is no "any cell"
+# fallback and no flag that turns one on, so these objects are the whole of what
+# anyone can reach.
+---
+# The ordinary case: one pipeline, one branch, the two regions currently serving
+# production.
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: checkout-prod
+  namespace: cellcast-system
+spec:
+  subjects:
+    # Every field present must match, so a selector is an AND. issuer is
+    # required and must also be on the hub's own --oidc-issuer allowlist:
+    # naming an issuer here does not add it, and a policy naming an
+    # unconfigured issuer matches nothing.
+    #
+    # subject and claims are exact-match. There is no pattern matching, because
+    # a glob reads as narrower than it is and the failure stays silent until
+    # somebody notices an unexpected branch deploying to production.
+    - issuer: https://token.actions.githubusercontent.com
+      subject: repo:acme/checkout:ref:refs/heads/main
+      claims:
+        repository: acme/checkout
+  permittedCells:
+    matchLabels:
+      env: prod
+    matchExpressions:
+      - key: region
+        operator: In
+        values: [euw1, use1]
+  strategy: LeastLoaded
+  tokenTTL:
+    # Granted when the caller asks for nothing.
+    default: 15m
+    # The ceiling. A longer request is clamped and the response says so.
+    #
+    # Do not set this below 10m for a kubernetes provider. The TokenRequest API
+    # refuses a shorter lifetime, so such a policy admits placements and then
+    # fails every mint. That is checked when the mint runs, not when this object
+    # is applied.
+    max: 30m
+  allowDarkTargeting: false
+---
+# The reason DARK exists. A smoke test targets the new region by name before
+# anything routes to it, and only this policy permits that.
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: checkout-smoke-apse1
+  namespace: cellcast-system
+spec:
+  subjects:
+    - issuer: https://token.actions.githubusercontent.com
+      subject: repo:acme/checkout:ref:refs/heads/main
+      claims:
+        # A different workflow in the same repository. Without this claim the
+        # selector would be the production one, and every deploy job would
+        # inherit the right to target a dark cell.
+        workflow: smoke-test
+  permittedCells:
+    matchLabels:
+      env: prod
+      region: apse1
+  allowDarkTargeting: true
+  tokenTTL:
+    default: 15m
+    max: 15m
+---
+# Staging, where the cells are interchangeable and even distribution is more
+# useful than chasing the emptiest one.
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: checkout-staging
+  namespace: cellcast-system
+spec:
+  subjects:
+    - issuer: https://token.actions.githubusercontent.com
+      subject: repo:acme/checkout:ref:refs/heads/main
+      claims:
+        environment: staging
+    # A second issuer for the same policy. A caller from either platform that
+    # matches its selector is treated the same way, which is what makes a
+    # migration between CI platforms a policy edit rather than a rewrite.
+    - issuer: https://gitlab.example.com
+      subject: project_path:acme/checkout:ref_type:branch:ref:main
+  permittedCells:
+    matchLabels:
+      env: staging
+  strategy: RoundRobin
+  tokenTTL:
+    default: 30m
+    max: 1h

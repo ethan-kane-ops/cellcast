@@ -152,6 +152,7 @@ one printed here. See [SECURITY.md](./SECURITY.md) and [docs/releasing.md](docs/
 | [Architecture](docs/architecture.md) | System shape, the placement path, and eleven decision records with the alternatives that were rejected |
 | [Threat model](docs/threat-model.md) | Trust boundaries, eight threats with mitigations, and the risks explicitly accepted |
 | [Extending](docs/extending.md) | Adding a CI platform the hub does not know, or a second way to mint |
+| [Examples](examples/) | A complete four-cell fleet and three policies, applyable as they are |
 | [Audit trail](docs/audit.md) | What is recorded for every placement and mint, and worked queries over it |
 | [Metrics](docs/metrics.md) | The Prometheus surface, the dashboard, and the five alerts |
 | [Hub chart](charts/cellcast/README.md) | Installing the hub, and every value it takes |

@@ -8,11 +8,11 @@ A tag publishes five things, and every one of them is cut from the same commit.
 | `cellcast-agent` image, both architectures | `ghcr.io/ethan-kane-ops/cellcast-agent` | `Dockerfile` |
 | `cellcast` client image, both architectures | `ghcr.io/ethan-kane-ops/cellcast` | `Dockerfile` |
 | `cellcast` and `cellcast-agent` charts | `oci://ghcr.io/ethan-kane-ops/charts` | `helm package` |
-| `cellcast` client archives and checksums | the GitHub release, and the Homebrew tap | goreleaser |
+| `cellcast` client archives and checksums | the GitHub release | goreleaser |
 
-The client is on that list twice. A person installs it with `brew install` or by
-unpacking an archive; a pipeline step with no package manager, such as an Argo CD
-PreSync hook, runs the image instead. The hub and the agent are the other way
+The client is on that list twice. A person unpacks an archive; a pipeline step
+that has no package manager, such as an Argo CD PreSync hook, runs the image
+instead. The hub and the agent are the other way
 round and ship only as images: they hold trust configuration and mint credentials, and
 a tarball of the hub would look like a supported way to run the broker outside every
 control the chart applies.

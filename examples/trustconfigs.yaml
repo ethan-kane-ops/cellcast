@@ -1,0 +1,80 @@
+# How the hub authenticates to each cell in order to mint for it.
+#
+# A TrustConfig references a credential and never contains one. The hub reads
+# the referenced Secret with a direct API read rather than through its cache, so
+# no cluster credential is ever held in memory for longer than the call that
+# uses it.
+#
+# One per cell, in the hub's own namespace.
+---
+apiVersion: cellcast.io/v1alpha1
+kind: TrustConfig
+metadata:
+  name: prod-euw1
+  namespace: cellcast-system
+spec:
+  provider: kubernetes
+  credentialSource:
+    # Created out of band, and never checked in:
+    #   kubectl -n cellcast-system create secret generic prod-euw1-admin \
+    #     --from-file=kubeconfig=./prod-euw1.kubeconfig
+    secretRef:
+      name: prod-euw1-admin
+      key: kubeconfig
+  kubernetes:
+    # The whole of what cellcast can mint for this cell. A caller placed here
+    # receives a token for this service account in this namespace, bounded by
+    # whatever RBAC that account already has in that cluster. Nothing broader is
+    # reachable through cellcast, whatever a policy says.
+    serviceAccountName: deployer
+    namespace: apps
+    # audiences is deliberately unset. Empty means the cell's own API server
+    # audience, which is what makes the token usable as a kubeconfig
+    # credential. Any other value mints a token that cell will refuse.
+---
+apiVersion: cellcast.io/v1alpha1
+kind: TrustConfig
+metadata:
+  name: prod-use1
+  namespace: cellcast-system
+spec:
+  provider: kubernetes
+  credentialSource:
+    secretRef:
+      name: prod-use1-admin
+      key: kubeconfig
+  kubernetes:
+    serviceAccountName: deployer
+    namespace: apps
+---
+apiVersion: cellcast.io/v1alpha1
+kind: TrustConfig
+metadata:
+  name: prod-apse1
+  namespace: cellcast-system
+spec:
+  provider: kubernetes
+  credentialSource:
+    secretRef:
+      name: prod-apse1-admin
+      key: kubeconfig
+  kubernetes:
+    serviceAccountName: deployer
+    namespace: apps
+---
+apiVersion: cellcast.io/v1alpha1
+kind: TrustConfig
+metadata:
+  name: staging-euw1
+  namespace: cellcast-system
+spec:
+  provider: kubernetes
+  credentialSource:
+    # The other branch: this cell is the hub's own cluster, so the hub mints
+    # with its own ServiceAccount and there is no kubeconfig to hold. Exactly
+    # one of inCluster and secretRef may be set, and a CEL rule on the CRD
+    # rejects a TrustConfig that sets both or neither.
+    inCluster: true
+  kubernetes:
+    serviceAccountName: deployer
+    namespace: apps

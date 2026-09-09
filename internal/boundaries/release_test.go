@@ -228,9 +228,9 @@ func chartYAML(t *testing.T, chart string) chartMeta {
 func TestEveryImageAChartPullsIsAnImageTheReleaseBuilds(t *testing.T) {
 	// This one has already happened. Both charts referenced
 	// ghcr.io/ethan-kane-ops/cellcast-hub and -agent while the only Dockerfile
-	// in the repository built the client, which is the binary that ships
-	// through brew and never as an image. Nothing said so, because a chart
-	// naming an image that does not exist is a perfectly valid chart.
+	// in the repository built the client, and no image existed for either
+	// server. Nothing said so, because a chart naming an image that does not
+	// exist is a perfectly valid chart.
 	built := strings.Fields(justVar(t, "image_binaries"))
 	if len(built) == 0 {
 		t.Fatal("the justfile publishes no images, so this test checked nothing")
@@ -279,6 +279,36 @@ func TestEveryImageTheReleaseBuildsIsABinaryInThisRepository(t *testing.T) {
 	for _, name := range built {
 		if _, err := os.Stat(filepath.Join(repoRoot(t), "cmd", name)); err != nil {
 			t.Errorf("the release builds an image for %q, which is not a binary in cmd/", name)
+		}
+	}
+}
+
+// externalPublishers are goreleaser sections that push to a repository other
+// than this one. Each needs a credential the release workflow does not have.
+var externalPublishers = []string{
+	"homebrew_casks", "brews", "nix", "scoops", "winget", "aurs", "chocolateys", "krews",
+}
+
+func TestTheReleasePublishesOnlyWhereItsTokenReaches(t *testing.T) {
+	// The release workflow authenticates with GITHUB_TOKEN, which GitHub scopes
+	// to this repository alone. A publisher pointed at a tap, a bucket or
+	// another repository therefore fails on a credential, and it fails in the
+	// last step: after three images, two charts and the GitHub release have all
+	// been pushed. A half-published release is the one state this pipeline
+	// cannot back out of on its own.
+	//
+	// It is also the step no rehearsal covers. `just release-check` runs
+	// goreleaser with --skip=publish, so the first execution of a publisher is
+	// the real release. That combination is why this is a test rather than a
+	// note: a tap that had never been created sat in this file for weeks
+	// without anything failing.
+	config := readRepoFile(t, ".goreleaser.yaml")
+
+	for _, section := range externalPublishers {
+		if containsOutsideComments(config, section+":") {
+			t.Errorf("goreleaser declares %s, which publishes to another repository; "+
+				"the release workflow's GITHUB_TOKEN cannot reach it, and it would fail "+
+				"after everything else is already public", section)
 		}
 	}
 }

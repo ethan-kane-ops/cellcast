@@ -386,8 +386,8 @@ channels, and different privilege levels.
 **Consequences.** This is a threat-model argument, not tidiness. The agent runs in every registered
 spoke, which is the largest attack surface in the system by count, and it must not link the broker's
 minting code. Separate binaries make that a compile-time guarantee rather than a code review
-convention. It also keeps the client small enough to ship through a Homebrew tap without dragging
-controller-runtime along.
+convention. It also keeps the client small enough to ship as an archive a pipeline can fetch and
+unpack, without dragging controller-runtime along.
 
 **Rejected.** One binary with `serve` and `agent` subcommands. Simpler to build, but it puts the
 minting code on every spoke in the estate.

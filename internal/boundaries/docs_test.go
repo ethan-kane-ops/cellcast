@@ -141,7 +141,7 @@ func TestTheDocsOnlyNameRecipesThatExist(t *testing.T) {
 	// Prose like "just the audit record" is not a recipe reference, and a test
 	// that says it is trains the reader to ignore this failure.
 	named := regexp.MustCompile("(?m)(?:`|^)just ([a-z][a-z0-9-]*)")
-	for _, file := range []string{"docs/development.md", "docs/getting-started.md", "docs/releasing.md", "docs/extending.md", "CONTRIBUTING.md", "README.md"} {
+	for _, file := range []string{"docs/development.md", "docs/getting-started.md", "docs/releasing.md", "docs/extending.md", "CONTRIBUTING.md", "README.md", "examples/README.md"} {
 		t.Run(file, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join(repoRoot(t), file))
 			if err != nil {

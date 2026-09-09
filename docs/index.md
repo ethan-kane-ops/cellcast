@@ -62,3 +62,4 @@ make the flag a way around the policy engine.
 - **[Threat model](threat-model.md)**: trust boundaries, the threats, and the risks explicitly accepted.
 - **[Placement policy](placement-policy.md)**: writing a policy, and seeing what it does before relying on it.
 - **[Extending](extending.md)**: adding a CI platform the hub does not know, or a second way to mint.
+- **[Examples](https://github.com/ethan-kane-ops/cellcast/tree/main/examples)**: a complete four-cell fleet and the policies over it, applyable as they are.

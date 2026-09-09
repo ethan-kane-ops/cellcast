@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     # Each recipe creates and destroys its own clusters, so they are
     # independent and the matrix is free parallelism. fail-fast is off because
-    # knowing that two of the three broke is more useful than knowing one did.
+    # knowing that three of the four broke is more useful than knowing one did.
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +36,9 @@ jobs:
           - verify-e2e
           # Three cells, three agents, and one dropping out of scoring.
           - verify-agent
+          # Both charts installed for real, which is the only check that the
+          # image the Dockerfile builds runs under the chart that ships it.
+          - verify-chart
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0

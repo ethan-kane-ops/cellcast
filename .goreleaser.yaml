@@ -104,25 +104,4 @@ release:
   prerelease: auto
   mode: replace
 
-homebrew_casks:
-  - name: cellcast
-    ids:
-      - cellcast
-    repository:
-      owner: ethan-kane-ops
-      name: homebrew-tap
-      branch: main
-    homepage: https://github.com/ethan-kane-ops/cellcast
-    description: Multi-cluster deployment placement oracle and short-lived credential broker
-    hooks:
-      post:
-        install: |
-          # Homebrew has not notarised this binary, and Gatekeeper quarantines
-          # anything downloaded that it cannot attribute. Without this the first
-          # run is a dialog rather than a command.
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status.zero?
-            system_command "/usr/bin/xattr",
-                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/cellcast"]
-          end
-
 report_sizes: true
