@@ -365,6 +365,18 @@ release-version tag:
     sed -i.bak -E "s|^([[:space:]]*default: )v[0-9]+\\.[0-9]+\\.[0-9]+.*$|\\1$tag|" "$action"
     rm -f "$action.bak"
     echo "$action -> installs $tag"
+    # The ref an example tells a caller to write in their own workflow. This
+    # one is not a cosmetic staleness like a badge: a tag cut before the action
+    # existed does not contain action.yml, so the ref does not resolve at all
+    # and the documented three-line integration fails on its first run. The
+    # files are found rather than listed, so a fourth example is covered the
+    # day it is written.
+    mapfile -t refs < <(git grep -lE 'actions/place@v[0-9]+\.[0-9]+\.[0-9]+' -- '*.md' '*.yml' '*.yaml')
+    if [ ${#refs[@]} -gt 0 ]; then
+        sed -i.bak -E "s|(actions/place@)v[0-9]+\.[0-9]+\.[0-9]+|\1$tag|g" "${refs[@]}"
+        rm -f "${refs[@]/%/.bak}"
+        echo "${refs[*]} -> use the action at $tag"
+    fi
     # The charts' READMEs carry the version in a badge, so they go stale on
     # every release unless they are regenerated here. A contract test holds
     # them to Chart.yaml, which is how that was found.

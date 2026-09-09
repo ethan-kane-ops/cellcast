@@ -4,8 +4,8 @@ description: In-cluster capacity reporter for a cellcast cell
 type: application
 
 # In lockstep with the git tag and with the hub chart. See charts/cellcast/Chart.yaml.
-version: 0.2.0
-appVersion: "v0.2.0"
+version: 0.3.0
+appVersion: "v0.3.0"
 
 home: https://github.com/ethan-kane-ops/cellcast
 sources:

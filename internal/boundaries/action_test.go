@@ -2,6 +2,7 @@ package boundaries_test
 
 import (
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -145,5 +146,73 @@ func TestTheIntegrationExamplesOnlyNameFlagsThatExist(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("the integration examples name no flags, so this test checked nothing")
+	}
+}
+
+// actionRef matches the ref an example tells a caller to pin the composite
+// action to.
+var actionRef = regexp.MustCompile(`actions/place@(v[0-9]+\.[0-9]+\.[0-9]+)`)
+
+func TestEveryExamplePinsTheActionToATagThatContainsIt(t *testing.T) {
+	// The other version number in the same examples, and the one with teeth.
+	// A stale `version:` input installs an old client, which at least runs; a
+	// stale ref names a tag cut before action.yml existed, and GitHub cannot
+	// resolve it at all. The failure lands in a stranger's workflow, on their
+	// first attempt, reading "repository does not contain the path".
+	//
+	// This is exactly how v0.2.0 shipped: the examples were written in the same
+	// change as the action and pinned the only tag there was, which was the one
+	// released before it.
+	//
+	// The tag is checked against the charts rather than against git, because on
+	// a release branch the tag does not exist yet. What makes the ref resolve
+	// is ordering: the action reaches main before a tag is ever cut from it.
+	want := chartYAML(t, "cellcast").AppVersion
+
+	var found int
+	// Tracked rather than walked: the working tree also holds gitignored
+	// notes and a built copy of the docs site, and neither ships.
+	for _, name := range trackedFiles(t) {
+		if !slices.Contains([]string{".md", ".yml", ".yaml"}, filepath.Ext(name)) {
+			continue
+		}
+		for _, ref := range actionRef.FindAllStringSubmatch(readRepoFile(t, name), -1) {
+			found++
+			if ref[1] != want {
+				t.Errorf("%s pins the action at %s and the charts declare %s; run `just release-version`", name, ref[1], want)
+			}
+		}
+	}
+
+	if found == 0 {
+		t.Fatal("no example pins the action to a released tag, so this test checked nothing")
+	}
+}
+
+func TestTheTagTheExamplesNameContainsTheAction(t *testing.T) {
+	// The check above only proves the examples and the charts say the same
+	// number, and both said v0.2.0 while v0.2.0 was a tag cut before the action
+	// was written. Agreement is not resolvability.
+	//
+	// This asks git directly, and so it is the one that fires on the real
+	// failure. It needs the tag present, which a release branch and a shallow
+	// CI checkout both lack, so a missing tag skips rather than fails: the
+	// version-agreement test above is what covers those.
+	tag := chartYAML(t, "cellcast").AppVersion
+	root := repoRoot(t)
+
+	if err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", tag+"^{commit}").Run(); err != nil {
+		t.Skipf("%s is not a tag in this clone yet", tag)
+	}
+
+	action := filepath.Join(".github", "actions", "place", "action.yml")
+	out, err := exec.Command("git", "-C", root, "ls-tree", "-r", "--name-only", tag, "--", action).Output()
+	if err != nil {
+		t.Fatalf("reading %s at %s: %v", action, tag, err)
+	}
+
+	if strings.TrimSpace(string(out)) == "" {
+		t.Errorf("the examples tell a caller to use the action at %s, and %s does not contain %s; "+
+			"GitHub cannot resolve that ref at all. Cut a release from a commit that has the action", tag, tag, action)
 	}
 }

@@ -30,7 +30,7 @@ permissions:
 
 steps:
   - id: cellcast
-    uses: ethan-kane-ops/cellcast/.github/actions/place@v0.2.0
+    uses: ethan-kane-ops/cellcast/.github/actions/place@v0.3.0
     with:
       hub: https://cellcast.example.com
       workload: checkout-api
