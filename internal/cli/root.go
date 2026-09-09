@@ -27,6 +27,7 @@ issues. There is no secret to configure.`,
 	}
 
 	cmd.AddCommand(newPlaceCmd())
+	cmd.AddCommand(newPolicyCmd())
 	cmd.AddCommand(version.NewCommand())
 	return cmd
 }

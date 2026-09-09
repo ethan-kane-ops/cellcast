@@ -266,12 +266,9 @@ func TestPlacementRefusals(t *testing.T) {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
 
-			var body map[string]string
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-				t.Fatalf("decoding refusal: %v", err)
-			}
-			if refusal.Reason(body["reason"]) != tt.wantReason {
-				t.Errorf("reason = %q, want %q", body["reason"], tt.wantReason)
+			body := decodeRefusal(t, rec.Body.Bytes())
+			if refusal.Reason(body.Reason) != tt.wantReason {
+				t.Errorf("reason = %q, want %q", body.Reason, tt.wantReason)
 			}
 		})
 	}
@@ -508,16 +505,102 @@ func TestUnavailableReasonsAreNotInterchangeable(t *testing.T) {
 				t.Fatalf("POST = %d (%s), want 503", rec.Code, rec.Body)
 			}
 
-			var body map[string]string
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-				t.Fatalf("decoding refusal: %v", err)
-			}
-			if got := refusal.Reason(body["reason"]); got != tt.want {
+			body := decodeRefusal(t, rec.Body.Bytes())
+			if got := refusal.Reason(body.Reason); got != tt.want {
 				t.Errorf("reason = %q, want %q", got, tt.want)
 			}
 			if refusal.Optimisation(tt.want) != (tt.want == refusal.PlacementUnavailable) {
 				t.Errorf("%q is classified wrongly for a client fallback", tt.want)
 			}
 		})
+	}
+}
+
+// refusalBody is a refusal as the hub writes it. Typed rather than
+// map[string]string because the body carries the caller's identity as a nested
+// object, and a map of strings decodes the whole response as invalid rather
+// than ignoring the field it does not want.
+type refusalBody struct {
+	Reason   string `json:"reason"`
+	Error    string `json:"error"`
+	Identity *struct {
+		Issuer  string            `json:"issuer"`
+		Subject string            `json:"subject"`
+		Claims  map[string]string `json:"claims"`
+	} `json:"identity"`
+}
+
+func decodeRefusal(t *testing.T, raw []byte) refusalBody {
+	t.Helper()
+	var body refusalBody
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decoding refusal: %v", err)
+	}
+	return body
+}
+
+// TestARefusalNamesTheCallerItRefused covers the failure that costs the most to
+// diagnose. The hub authenticates the caller perfectly and refuses them at
+// authorization, and the refusal carries a reason and nothing else, so from the
+// caller's side an unresolvable subject format is indistinguishable from a
+// broken hub. Only the audit record named what was presented, and an adopter
+// does not have the hub's logs.
+func TestARefusalNamesTheCallerItRefused(t *testing.T) {
+	h := placementServer(t, &stubPlacer{err: placement.ErrNoPolicy}, &stubMinter{})
+	rec := post(t, h, `{"workload":"checkout-api"}`)
+
+	body := decodeRefusal(t, rec.Body.Bytes())
+	if body.Identity == nil {
+		t.Fatalf("the refusal carries no identity: %s", rec.Body)
+	}
+	if got, want := body.Identity.Subject, "repo:acme/app:ref:refs/heads/main"; got != want {
+		t.Errorf("subject = %q, want %q", got, want)
+	}
+	if got, want := body.Identity.Issuer, "https://token.actions.githubusercontent.com"; got != want {
+		t.Errorf("issuer = %q, want %q", got, want)
+	}
+	if got := body.Identity.Claims["repository"]; got != "acme/app" {
+		t.Errorf("claims = %v, want the repository claim the policy would match on", body.Identity.Claims)
+	}
+}
+
+func TestAnUnauthenticatedRefusalCarriesNoIdentity(t *testing.T) {
+	// The hub must never echo an identity it did not authenticate. A 401 comes
+	// from the middleware with no caller resolved, and an empty subject in a
+	// block whose whole purpose is to be compared by eye is worse than no block
+	// at all: it reads as "the hub saw you as nobody" rather than "the hub
+	// never got as far as looking".
+	h := testServer(t, WithPlacer(&stubPlacer{decision: testDecision()})).apiHandler()
+	rec := post(t, h, `{"workload":"checkout-api"}`)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d (%s), want 401 from the default denyAll", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "identity") {
+		t.Errorf("a 401 body names an identity: %s", rec.Body)
+	}
+}
+
+func TestASuccessfulPlacementAlsoNamesTheCaller(t *testing.T) {
+	// The same question asked the other way round: a deploy that succeeded
+	// under a policy nobody expected is as much a policy bug as one that was
+	// refused, and it is the one nothing else reports.
+	h := placementServer(t, &stubPlacer{decision: testDecision()}, &stubMinter{}, registeredCell("prod-euw1"))
+	rec := post(t, h, `{"workload":"checkout-api","dryRun":true}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", rec.Code, rec.Body)
+	}
+
+	var body struct {
+		Identity *struct {
+			Subject string `json:"subject"`
+		} `json:"identity"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding placement: %v", err)
+	}
+	if body.Identity == nil || body.Identity.Subject != "repo:acme/app:ref:refs/heads/main" {
+		t.Errorf("identity = %+v, want the subject the hub authenticated", body.Identity)
 	}
 }

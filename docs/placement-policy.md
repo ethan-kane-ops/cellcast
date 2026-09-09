@@ -141,6 +141,34 @@ The `STAGE` column says where a cell dropped out:
 
 A cell excluded at `capacity` is a monitoring problem, not a policy problem.
 
+That table only exists once a policy has matched. When none does, the refusal is
+`NoPolicy` and carries nothing else, because naming which selector missed would
+tell a caller how the authorization rules are shaped. What the hub will report
+is the caller's own token, which is the half a policy author cannot see:
+
+```console
+$ cellcast policy test --workload checkout-api
+refused: NoPolicy
+  no placement policy permits this caller
+
+the hub read this token as:
+  issuer   https://token.actions.githubusercontent.com
+  subject  repo:acme@56138094/app@1332281435:pull_request
+  claims    ref=refs/heads/main
+            repository=acme/app
+
+no policy names that caller. Compare the values above against spec.subjects:
+  kubectl -n cellcast-system get placementpolicy -o yaml
+```
+
+Two strings side by side is usually the whole diagnosis. The subject above is
+the immutable format, which every repository created after 15 July 2026 gets; a
+policy written as `repo:acme/app:pull_request` authenticates that caller
+perfectly and then refuses it.
+
+It mints nothing and can be run as often as a policy is edited. It exits
+non-zero on a refusal, so it works as a pipeline check.
+
 ## Policy readiness
 
 The hub reports whether a policy currently selects anything:
