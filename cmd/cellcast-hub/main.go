@@ -125,15 +125,22 @@ func buildAuthenticator(ctx context.Context, cfg oidc.Config, log *slog.Logger) 
 		return nil, err
 	}
 
-	issuers := make([]string, 0, len(cfg.Issuers))
-	for _, iss := range cfg.Issuers {
-		issuers = append(issuers, iss.Issuer)
-	}
 	log.Info("oidc authentication enabled",
-		"issuers", strings.Join(issuers, ","),
+		"issuers", strings.Join(issuerURLs(cfg), ","),
 		"audience", cfg.Audience,
 	)
 	return authn, nil
+}
+
+// issuerURLs is the configured allowlist as plain URLs. The policy controller
+// reports against the same list the authenticator verifies against, so there is
+// one answer to "which issuers does this hub trust" rather than two.
+func issuerURLs(cfg oidc.Config) []string {
+	out := make([]string, 0, len(cfg.Issuers))
+	for _, iss := range cfg.Issuers {
+		out = append(out, iss.Issuer)
+	}
+	return out
 }
 
 func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCfg oidc.Config) error {
@@ -156,7 +163,7 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		Retention: cfg.CapacityRetention,
 		MaxCells:  cfg.CapacityMaxCells,
 	})
-	if err := hub.RegisterControllers(mgr, index, cfg.Namespace); err != nil {
+	if err := hub.RegisterControllers(mgr, index, cfg.Namespace, issuerURLs(authCfg)); err != nil {
 		return err
 	}
 

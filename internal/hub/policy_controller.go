@@ -3,6 +3,9 @@ package hub
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,6 +27,19 @@ const (
 	PolicyReasonCellsMatched   = "CellsMatched"
 	PolicyReasonNoCellsMatched = "NoCellsMatched"
 	PolicyReasonInvalid        = "InvalidSelector"
+
+	// PolicyConditionIssuerTrusted reports whether the hub can verify tokens
+	// from every issuer this policy names.
+	//
+	// Separate from Ready rather than folded into it: they fail for unrelated
+	// reasons and an operator fixes them in different files. Ready is about the
+	// cells a selector matches, which is an edit to this policy or to a
+	// Cluster's labels; this is about the hub's --oidc-issuer flags.
+	PolicyConditionIssuerTrusted = "IssuerTrusted"
+
+	PolicyReasonIssuersTrusted      = "IssuersTrusted"
+	PolicyReasonIssuerNotTrusted    = "IssuerNotTrusted"
+	PolicyReasonNoIssuersConfigured = "NoIssuersConfigured"
 )
 
 // PlacementPolicyReconciler reports how many cells each policy permits.
@@ -39,6 +55,18 @@ const (
 // what a caller may reach.
 type PlacementPolicyReconciler struct {
 	Client client.Client
+	// TrustedIssuers is the hub's --oidc-issuer allowlist.
+	//
+	// A policy naming an issuer outside it is valid YAML, passes the CRD's CEL
+	// rules, and can never match a caller: the hub verifies signatures only
+	// against issuers it was started with, and a policy is not what adds one.
+	// Without this the mistake surfaces at deploy time as NoPolicy, in a
+	// different file, on a different machine, to a different person.
+	//
+	// Compared literally, which is what placement does with the iss claim. A
+	// comparison that normalised here and not there would report a policy as
+	// fine while every token it should match is refused.
+	TrustedIssuers []string
 }
 
 // Reconcile publishes the policy's current match count.
@@ -82,6 +110,15 @@ func (r *PlacementPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		ObservedGeneration: policy.Generation,
 	})
 
+	issuerStatus, issuerReason, issuerMessage := r.issuerCondition(policy.Spec.Subjects)
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               PolicyConditionIssuerTrusted,
+		Status:             issuerStatus,
+		Reason:             issuerReason,
+		Message:            issuerMessage,
+		ObservedGeneration: policy.Generation,
+	})
+
 	if policyStatusEqual(before, &policy.Status) {
 		return ctrl.Result{}, nil
 	}
@@ -89,6 +126,51 @@ func (r *PlacementPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, fmt.Errorf("updating placement policy status: %w", err)
 	}
 	return ctrl.Result{}, nil
+}
+
+// issuerCondition reports whether the hub can verify tokens from every issuer
+// the policy's subject selectors name.
+//
+// One unknown issuer is enough to make it false, and the message names which:
+// a policy usually lists several selectors for one platform, and "something in
+// here is wrong" sends the reader back to comparing strings by eye, which is
+// the exact task that produced the mistake.
+func (r *PlacementPolicyReconciler) issuerCondition(subjects []cellcastv1alpha1.SubjectSelector) (metav1.ConditionStatus, string, string) {
+	if len(r.TrustedIssuers) == 0 {
+		// The hub's own startup warns about this, and that warning is in a log
+		// nobody reads until something breaks. It is reported here as well
+		// because it is the state in which no policy in the cluster can match
+		// anybody, and every one of them will say so.
+		return metav1.ConditionFalse, PolicyReasonNoIssuersConfigured,
+			"the hub was started with no --oidc-issuer, so it authenticates no caller and no policy can match"
+	}
+
+	var untrusted []string
+	for _, sel := range subjects {
+		if !slices.Contains(r.TrustedIssuers, sel.Issuer) && !slices.Contains(untrusted, sel.Issuer) {
+			untrusted = append(untrusted, sel.Issuer)
+		}
+	}
+
+	if len(untrusted) == 0 {
+		return metav1.ConditionTrue, PolicyReasonIssuersTrusted,
+			fmt.Sprintf("every issuer named is one the hub verifies: %s", strings.Join(quoteAll(r.TrustedIssuers), ", "))
+	}
+
+	return metav1.ConditionFalse, PolicyReasonIssuerNotTrusted, fmt.Sprintf(
+		"this hub does not verify %s; it was started with %s, and a policy does not add an issuer",
+		strings.Join(quoteAll(untrusted), ", "), strings.Join(quoteAll(r.TrustedIssuers), ", "))
+}
+
+// quoteAll quotes each string so a trailing slash or an empty issuer is visible
+// in the message. Both are the kind of difference a reader's eye skips over,
+// and both make a policy match nothing.
+func quoteAll(values []string) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = strconv.Quote(v)
+	}
+	return out
 }
 
 func policyStatusEqual(a, b *cellcastv1alpha1.PlacementPolicyStatus) bool {
