@@ -21,6 +21,9 @@ short-lived, scoped credential for the chosen cell.
 It authenticates with the workload identity token your CI platform already
 issues. There is no secret to configure.`,
 		SilenceUsage: true,
+		// main prints the error and sets the exit code. Without this cobra
+		// prints it as well, so every failed command reports itself twice.
+		SilenceErrors: true,
 	}
 
 	cmd.AddCommand(newPlaceCmd())
