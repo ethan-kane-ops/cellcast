@@ -40,7 +40,7 @@ chart_repo := "oci://" + registry + "/" + owner + "/charts"
 #
 # The client is on this list as well as in the archives. An Argo CD PreSync hook
 # or a Buildkite step needs something it can run as a container, not a tarball;
-# the supported install for a person stays brew.
+# a person installing it on a workstation unpacks the archive.
 image_binaries := "cellcast-hub cellcast-agent cellcast"
 chart_names := "cellcast cellcast-agent"
 
@@ -736,6 +736,102 @@ verify-agent:
 
     CELLCAST_LIVE=1 CELLCAST_FLEET="$work/fleet.json" \
         go test ./internal/hub/ -run TestLiveAgentFleet -v -count=1 -timeout 15m
+
+# Install both charts into a real cluster and check what they install stays up
+verify-chart:
+    #!/usr/bin/env bash
+    # The question `helm template` and a server-side dry run cannot answer: does
+    # the image the Dockerfile builds actually run under the chart the release
+    # publishes.
+    #
+    # Everything between "renders" and "Ready" is untested by anything else. The
+    # container runs as 65532 with a read-only root filesystem, and a binary
+    # that wants to write anywhere crashloops rather than failing to render. The
+    # probes name ports the process has to be listening on. The Role the chart
+    # creates has to be enough for the manager's caches to sync, and a verb
+    # missing from it looks like a replica that is simply never ready. None of
+    # that is visible in rendered YAML, and all of it fails on an adopter's
+    # first install.
+    #
+    # Not part of `check`: it needs docker and takes a few minutes.
+    set -euo pipefail
+    cluster=cellcast-chart
+    ns=cellcast-system
+    # Not a release tag. A cluster left behind after an interrupted run cannot
+    # then be mistaken for one running a published image.
+    tag=chart-verify
+    kubeconfig=$(mktemp)
+
+    on_exit() {
+        status=$?
+        if [ "$status" -ne 0 ] && [ -s "$kubeconfig" ]; then
+            # A bare `helm --wait` timeout names nothing. This is the difference
+            # between "it failed" and knowing which container said what.
+            export KUBECONFIG="$kubeconfig"
+            echo "=== pods ===" >&2
+            kubectl -n "$ns" get pods -o wide >&2 || true
+            echo "=== events ===" >&2
+            kubectl -n "$ns" get events --sort-by=.lastTimestamp | tail -30 >&2 || true
+            for pod in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
+                echo "=== $pod ===" >&2
+                kubectl -n "$ns" describe "$pod" | tail -25 >&2 || true
+                kubectl -n "$ns" logs "$pod" --tail=40 --all-containers >&2 || true
+            done
+        fi
+        kind delete cluster --name "$cluster" >/dev/null 2>&1 || true
+        rm -f "$kubeconfig"
+    }
+    trap on_exit EXIT
+
+    kind create cluster --name "$cluster" --kubeconfig "$kubeconfig" --wait 90s
+    export KUBECONFIG="$kubeconfig"
+
+    for b in cellcast-hub cellcast-agent; do
+        just image "$b" "$tag"
+        kind load docker-image --name "$cluster" "{{registry}}/{{owner}}/$b:$tag"
+    done
+
+    # Chart defaults everywhere they are not the point: three replicas, leader
+    # election, the PodDisruptionBudget, and the CRDs the chart installs itself
+    # rather than the copies in config/crd/bases.
+    helm install cellcast charts/cellcast \
+        --namespace "$ns" --create-namespace \
+        --set image.tag="$tag" \
+        --set hub.oidc.issuers[0].url=https://token.actions.githubusercontent.com \
+        --set hub.oidc.issuers[0].provider=github \
+        --wait --timeout 5m
+
+    helm install cellcast-agent charts/cellcast-agent \
+        --namespace "$ns" \
+        --set image.tag="$tag" \
+        --set cellName=staging-euw1 \
+        --set hub.endpoint=http://cellcast."$ns".svc:8080 \
+        --wait --timeout 5m
+
+    # The published examples, applied through the CRDs the chart installed.
+    kubectl apply -f examples/
+
+    # One wait for the whole control loop. Reaching CredentialMissing means the
+    # hub process started, its controllers registered, its cache synced and the
+    # Role the chart creates was enough to watch TrustConfigs and write their
+    # status. A verb missing anywhere in that chain never gets this far.
+    kubectl -n "$ns" wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'=CredentialMissing \
+        trustconfig/prod-euw1 --timeout=120s
+
+    # Ready once is not the claim. A container that crashed and came back still
+    # ships a chart that fails somebody's first install, and `helm --wait` is
+    # satisfied either way.
+    restarted=$(kubectl -n "$ns" get pods \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.containerStatuses[0].restartCount}{"\n"}{end}' \
+        | grep -v '=0$' || true)
+    if [ -n "$restarted" ]; then
+        echo "containers restarted, so the chart installs something that does not stay up:" >&2
+        echo "$restarted" >&2
+        exit 1
+    fi
+
+    kubectl -n "$ns" get pods
+    echo "both charts install, come up and stay up"
 
 # Scan for known vulnerabilities in code that is actually reachable
 vuln:

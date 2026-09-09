@@ -1,0 +1,102 @@
+# The fleet. One Cluster per cell, registered in the hub's namespace.
+#
+# Labels here are the only thing a PlacementPolicy selects on, so they are the
+# real interface between whoever runs the fleet and whoever writes policy.
+# Labelling a new cell `env: prod` adds it to every policy that selects on that
+# label, without editing any of them.
+---
+apiVersion: cellcast.io/v1alpha1
+kind: Cluster
+metadata:
+  name: prod-euw1
+  namespace: cellcast-system
+  labels:
+    env: prod
+    region: euw1
+    tier: general
+spec:
+  endpoint: https://prod-euw1.k8s.example.com
+  provider: eks
+  state: LIVE
+  trustConfigRef:
+    name: prod-euw1
+  # Which agent may report capacity for this cell, and nothing else may.
+  #
+  # The issuer is the cell's own service account issuer, and it is what tells
+  # one cell's agent from another: a fleet whose clusters share an issuer cannot
+  # be told apart, so cellcast refuses to guess. The subject is the agent's
+  # ServiceAccount as the chart installs it. Without a reporter the cell accepts
+  # no heartbeats at all, so it never counts towards a hub replica's warmup and
+  # is scored as Unknown.
+  reporter:
+    issuer: https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLEEUW1
+    subject: system:serviceaccount:cellcast-system:cellcast-agent
+  # caBundle is optional and takes a base64 PEM. Set it when the cell's API
+  # server presents a certificate the hub's own trust store does not chain to,
+  # which is the usual case for a private CA.
+  # caBundle: LS0tLS1CRUdJTi...
+---
+apiVersion: cellcast.io/v1alpha1
+kind: Cluster
+metadata:
+  name: prod-use1
+  namespace: cellcast-system
+  labels:
+    env: prod
+    region: use1
+    tier: general
+spec:
+  endpoint: https://prod-use1.k8s.example.com
+  provider: eks
+  state: LIVE
+  trustConfigRef:
+    name: prod-use1
+  reporter:
+    issuer: https://oidc.eks.us-east-1.amazonaws.com/id/EXAMPLEUSE1
+    subject: system:serviceaccount:cellcast-system:cellcast-agent
+---
+apiVersion: cellcast.io/v1alpha1
+kind: Cluster
+metadata:
+  name: prod-apse1
+  namespace: cellcast-system
+  labels:
+    env: prod
+    region: apse1
+    tier: general
+spec:
+  endpoint: https://prod-apse1.k8s.example.com
+  provider: eks
+  # A new region, built and reachable but not yet taking production deploys.
+  #
+  # DARK is not "off". The cell is registered, its agent reports, and it is
+  # scored like any other; it is simply never returned unless a caller asks for
+  # it by name and a policy permits that. Bringing it into service is one field
+  # edit here, with no pipeline change anywhere.
+  state: DARK
+  trustConfigRef:
+    name: prod-apse1
+  reporter:
+    issuer: https://oidc.eks.ap-southeast-1.amazonaws.com/id/EXAMPLEAPSE1
+    subject: system:serviceaccount:cellcast-system:cellcast-agent
+---
+apiVersion: cellcast.io/v1alpha1
+kind: Cluster
+metadata:
+  name: staging-euw1
+  namespace: cellcast-system
+  labels:
+    env: staging
+    region: euw1
+    tier: general
+spec:
+  # The hub's own cluster, which is also a cell. Nothing prevents this and it is
+  # the cheapest way to run a single-cluster install.
+  endpoint: https://kubernetes.default.svc
+  provider: generic
+  state: LIVE
+  trustConfigRef:
+    name: staging-euw1
+  reporter:
+    issuer: https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLESTAGING
+    subject: system:serviceaccount:cellcast-system:cellcast-agent

@@ -33,6 +33,10 @@ The issuer is not optional in practice. A hub with none authenticates nobody and
 refuses every request. That is the correct state for a broker that cannot tell
 who is asking, and it is not a working install.
 
+A complete worked fleet, four cells and three policies, is in
+[examples/](https://github.com/ethan-kane-ops/cellcast/tree/main/examples). The
+rest of this page builds one of those objects at a time.
+
 ## 2. Tell the hub how to reach a cell
 
 Two objects per cell. A `TrustConfig` says how the hub authenticates to it, and

@@ -34,6 +34,7 @@ internal/
 charts/                the hub and agent Helm charts
 config/crd/bases/      GENERATED CRD manifests, never hand-edit
 dashboards/            Grafana JSON, tied to the code by a contract test
+examples/              a working fleet, checked against a real API server
 ```
 
 **The three-binary split is a security boundary, not tidiness.** The agent runs
@@ -116,10 +117,19 @@ That happened here, and the break-test caught it. Compare whole values.
 just verify-e2e       # place a workload, then kill the hub and check every fallback stance
 just verify-agent     # three real cells with real agents; watch one drop out of scoring
 just verify-mint      # mint a real credential and check what it can and cannot do
+just verify-chart     # install both charts for real and check what they install stays up
 ```
 
 Each builds its own kind clusters and tears them down. They are not part of
 `just check` because each one takes minutes and needs Docker.
+
+`verify-chart` is the only check that the image the `Dockerfile` builds actually
+runs under the chart the release publishes. Everything between "renders" and
+"Ready" is invisible to `helm lint`, to `helm template` and to a server-side dry
+run: the read-only root filesystem, the probe ports, and whether the Role the
+chart creates is enough for the manager's caches to sync. A missing verb there
+looks like a replica that is never ready, and it fails on an adopter's first
+install rather than in CI.
 
 Every kind cluster is created with its own service account issuer, because the
 hub tells one cell's agent from another by the `iss` claim, and every stock kind
@@ -177,7 +187,7 @@ script, so what CI checks and what a contributor runs locally cannot drift.
 | Workflow | Runs | What it does |
 |---|---|---|
 | `ci.yml` | push, PR | `just check`, the race detector, envtest, and both vulnerability scans |
-| `e2e.yml` | push, PR | the three kind suites, in parallel |
+| `e2e.yml` | push, PR | the four kind suites, in parallel |
 | `codeql.yml` | push, PR, weekly | static analysis over the Go source |
 | `scorecard.yml` | push to main, weekly | OSSF Scorecard, published |
 | `release.yml` | a `v*` tag | `just release` |
