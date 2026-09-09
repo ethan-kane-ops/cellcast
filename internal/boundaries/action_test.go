@@ -1,7 +1,10 @@
 package boundaries_test
 
 import (
+	"io/fs"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -100,5 +103,47 @@ func TestTheActionsSigningIdentityIsTheOneTheDocsName(t *testing.T) {
 	}
 	if !strings.Contains(readRepoFile(t, "README.md"), identity) {
 		t.Errorf("README.md no longer names %s; the action is verifying against an identity nothing documents", identity)
+	}
+}
+
+// integrationFlag matches a long flag as an example writes one, in a container
+// argument, a shell command or the prose beside them.
+var integrationFlag = regexp.MustCompile(`--([a-z][a-z0-9-]+)`)
+
+func TestTheIntegrationExamplesOnlyNameFlagsThatExist(t *testing.T) {
+	// These are copied straight into somebody's pipeline, which is a worse
+	// place to find a renamed flag than a documentation page: the reader is not
+	// reading, they are pasting, and the error arrives in a deploy.
+	accepted := append(clientFlags(t), binaryFlags(t, "cellcast-hub")...)
+	// Flags belonging to the other programs the examples legitimately call.
+	foreign := []string{"--audience", "--lifetime", "--kubeconfig"}
+
+	root := filepath.Join(repoRoot(t), "examples", "integrations")
+	var checked int
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(repoRoot(t), path)
+		if err != nil {
+			return err
+		}
+		text := readRepoFile(t, rel)
+
+		for _, m := range integrationFlag.FindAllStringSubmatch(text, -1) {
+			flag := "--" + m[1]
+			checked++
+			if slices.Contains(foreign, flag) || slices.Contains(accepted, flag) {
+				continue
+			}
+			t.Errorf("%s names %s, which neither the client nor the hub accepts", rel, flag)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking examples/integrations: %v", err)
+	}
+	if checked == 0 {
+		t.Fatal("the integration examples name no flags, so this test checked nothing")
 	}
 }
