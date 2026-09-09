@@ -90,6 +90,21 @@ type Config struct {
 
 	// HTTPTimeout bounds discovery and JWKS fetches.
 	HTTPTimeout time.Duration
+
+	// CAFile is a PEM bundle trusted when fetching issuer metadata, on top of
+	// the system roots. Empty means the system roots alone.
+	//
+	// A managed platform's issuer chains to a public root and needs nothing
+	// here. A self-hosted one usually does not: GitHub Enterprise Server, a
+	// self-hosted GitLab and an internal Keycloak commonly present a
+	// certificate from the organisation's own CA, and without this the hub
+	// cannot fetch their keys and so cannot authenticate anyone they issue for.
+	//
+	// Additive rather than a replacement, because a hub may trust an internal
+	// issuer and a public one at the same time, and narrowing the pool to the
+	// private CA would break the public issuer the moment the private one was
+	// configured.
+	CAFile string
 }
 
 // DefaultConfig returns a configuration with the bounds filled in and no

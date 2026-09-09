@@ -101,6 +101,7 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&authCfg.ClockSkew, "oidc-clock-skew", authCfg.ClockSkew, "tolerance applied to token exp, nbf and iat")
 	f.DurationVar(&authCfg.RefreshInterval, "oidc-refresh-interval", authCfg.RefreshInterval, "how often issuer metadata is re-resolved")
 	f.DurationVar(&authCfg.HTTPTimeout, "oidc-http-timeout", authCfg.HTTPTimeout, "timeout for issuer discovery and JWKS fetches")
+	f.StringVar(&authCfg.CAFile, "oidc-ca-file", authCfg.CAFile, "PEM bundle trusted when fetching issuer metadata, on top of the system roots (default: system roots)")
 
 	cmd.AddCommand(version.NewCommand())
 	return cmd

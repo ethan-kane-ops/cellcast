@@ -69,6 +69,7 @@ func TestTheDocsOnlyNameFlagsThatExist(t *testing.T) {
 		"--oidc-audience", "--oidc-issuer", "--token-max-ttl", "--warmup-timeout",
 		"--drain-delay", "--shutdown-timeout", "--capacity-staleness", "--log-level",
 		"--set", "--reuse-values", "--namespace", "--create-namespace", "--raw",
+		"--from-file",
 		"--previous", "--certificate-identity-regexp", "--certificate-oidc-issuer",
 		"--strict", "--with-requirements", "--kubeconfig",
 	}

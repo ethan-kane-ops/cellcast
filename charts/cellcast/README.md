@@ -79,6 +79,8 @@ API. Reaching it is a NetworkPolicy decision: `networkPolicy.enabled`.
 | hub.oidc.clockSkew | string | `"60s"` | Tolerance applied to token exp, nbf and iat. |
 | hub.oidc.refreshInterval | string | `"1h"` | How often issuer metadata is re-resolved. |
 | hub.oidc.httpTimeout | string | `"10s"` | Timeout for issuer discovery and JWKS fetches. |
+| hub.oidc.caConfigMap | string | `""` | ConfigMap holding a PEM bundle trusted when fetching issuer metadata, on top of the system roots. A managed platform's issuer chains to a public root and needs nothing here; a self-hosted GitLab, a GitHub Enterprise Server or an internal Keycloak usually presents a certificate from the organisation's own CA and cannot be reached without it. Leave empty to use the system roots alone. |
+| hub.oidc.caConfigMapKey | string | `"ca.crt"` | Key inside that ConfigMap. |
 | hub.extraArgs | list | `[]` | Extra arguments appended to the hub command. Anything settable by flag can be set here without waiting for the chart to grow a value for it. |
 | ports.api | int | `8080` | Port the placement and registry API listens on. |
 | ports.probe | int | `8081` | Port health and readiness probes listen on. Separate from the API so probes work when the API is not exposed. |

@@ -100,6 +100,9 @@ spec:
             {{- end }}
             - --oidc-issuer={{ .url }}={{ .provider }}
             {{- end }}
+            {{- if .Values.hub.oidc.caConfigMap }}
+            - --oidc-ca-file=/etc/cellcast/oidc-ca/{{ .Values.hub.oidc.caConfigMapKey }}
+            {{- end }}
             {{- with .Values.hub.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -141,11 +144,25 @@ spec:
           env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.extraVolumeMounts }}
+          {{- if or .Values.hub.oidc.caConfigMap .Values.extraVolumeMounts }}
           volumeMounts:
+            {{- if .Values.hub.oidc.caConfigMap }}
+            - name: oidc-ca
+              mountPath: /etc/cellcast/oidc-ca
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- with .Values.extraVolumes }}
+      {{- if or .Values.hub.oidc.caConfigMap .Values.extraVolumes }}
       volumes:
+        {{- if .Values.hub.oidc.caConfigMap }}
+        - name: oidc-ca
+          configMap:
+            name: {{ .Values.hub.oidc.caConfigMap }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}

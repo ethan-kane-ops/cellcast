@@ -2,11 +2,14 @@ package oidc
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -94,7 +97,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger, opts ...Option) (*Au
 		opt(a)
 	}
 	if a.httpClient == nil {
-		a.httpClient = &http.Client{Timeout: cfg.HTTPTimeout}
+		transport, err := issuerTransport(cfg.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		a.httpClient = &http.Client{Timeout: cfg.HTTPTimeout, Transport: transport}
 	}
 
 	registry := newKeyRegistry(ctx, cfg, a.httpClient, log)
@@ -102,6 +109,41 @@ func New(ctx context.Context, cfg Config, log *slog.Logger, opts ...Option) (*Au
 
 	a.keys = registry
 	return a, nil
+}
+
+// issuerTransport builds the transport used to fetch issuer metadata.
+//
+// The returned error is fatal at startup, which is the point: a CA file that
+// cannot be read is a hub that will refuse every caller from the issuer it was
+// configured for, and finding that out on the first deploy of the day rather
+// than at boot is the difference between a failed start and a silent outage.
+//
+// There is deliberately no path here that skips verification. A flag that
+// degrades to InsecureSkipVerify when its file is missing hands issuer
+// selection to whoever controls the network, which is exactly what verifying
+// the issuer's certificate exists to prevent.
+func issuerTransport(caFile string) (http.RoundTripper, error) {
+	if caFile == "" {
+		return http.DefaultTransport, nil
+	}
+
+	// Start from the system roots and add to them, so configuring an internal
+	// issuer does not stop a public one alongside it from resolving.
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("loading system certificate pool: %w", err)
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading oidc-ca-file: %w", err)
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("oidc-ca-file %s contains no usable certificate", caFile)
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	return transport, nil
 }
 
 // Authenticate verifies the caller's token and returns the identity policy

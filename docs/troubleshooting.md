@@ -59,6 +59,19 @@ A run of `Expired` is a clock problem or a retry loop. A run of
 `IssuerNotAllowed` is somebody presenting tokens this hub was not configured to
 accept.
 
+`Signature` covers the whole verification step, including fetching the issuer's
+keys, so it is also what a hub reports when it cannot reach the issuer at all.
+On a self-hosted issuer that is usually a certificate the hub does not trust.
+The hub logs the underlying error; look for a discovery failure naming the
+issuer:
+
+```bash
+kubectl -n cellcast-system logs deploy/cellcast | grep -i 'certificate\|discovery'
+```
+
+Trust the issuer's CA with `hub.oidc.caConfigMap`. See
+[getting started](getting-started.md).
+
 ## A cell never gets placements
 
 Ask what the hub thinks of it:
