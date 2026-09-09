@@ -36,7 +36,7 @@ uploading.
 
 ## Status
 
-v0.2.0. The placement path, the broker, the audit trail, metrics, multi-replica HA, both charts,
+v0.3.0. The placement path, the broker, the audit trail, metrics, multi-replica HA, both charts,
 the release pipeline and the pipeline integrations are built and tested. Pre-1.0, the API and the
 CRD schema may change between minor versions, and [building from
 source](#building-from-source) stays supported.
@@ -127,18 +127,18 @@ therefore proves nothing. Verification has to name the expected signer, which fo
 its own release workflow:
 
 ```bash
-cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.2.0 \
-  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.2.0 \
+cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.3.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 The same command covers the agent image, the client image and both charts
-(`ghcr.io/ethan-kane-ops/charts/cellcast:0.2.0`). For the client archives, verify the checksum file
+(`ghcr.io/ethan-kane-ops/charts/cellcast:0.3.0`). For the client archives, verify the checksum file
 and then check the archive against it:
 
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
-  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.2.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.3.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 shasum -a 256 --ignore-missing -c checksums.txt
 ```
@@ -147,7 +147,7 @@ Every image carries an SBOM and SLSA build provenance, recorded by the builder f
 compiled rather than inferred afterwards by scanning a stripped static binary:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.2.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 --format '{{ json .SBOM }}'
 ```
 
 Pin by digest in production regardless. A tag can be moved; a digest names the same bytes
