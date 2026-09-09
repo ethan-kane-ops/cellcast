@@ -22,14 +22,19 @@ provenance on every image, and `govulncheck` over both the source and the built 
 rehearsed end to end with `just release-check`, and run for real from the release workflow so that
 the keyless signatures carry that workflow's identity rather than a personal one.
 
-## Next
-
-**Pipeline integrations.** A GitHub Action, an Argo CD pre-sync hook and a Buildkite plugin.
-cellcast attaches to an existing pipeline, and the integrations are what make that true in practice
-rather than in a README.
+**Pipeline integrations.** A composite GitHub Action, an Argo CD PreSync hook and a Buildkite
+pipeline step, each with the policy it needs. An integration workflow deploys a sample app to one of
+three real cells through the action, with no secret configured anywhere in it, so the claim that
+cellcast attaches to an existing pipeline is checked on every push rather than asserted in a README.
 
 **A recorded demo.** Three cells with skewed load, a placement that explains its own scoring table,
-and a credential expiring in real time.
+and a credential bounded by what it can do. The emptiest cell in the fleet is the one policy refuses,
+which is the argument the recording exists to make.
+
+## Next
+
+The plan through v1.0 is done. What comes after it follows what adopters ask for rather than a list
+written in advance. The candidates are below.
 
 ## Under consideration
 

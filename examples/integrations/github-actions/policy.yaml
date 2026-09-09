@@ -1,0 +1,45 @@
+# The policy that lets a GitHub Actions workflow reach a cell.
+#
+# Applied for real by .github/workflows/integration.yml, so it is checked on
+# every push rather than only read.
+#
+# Naming the issuer here does not add it. The hub verifies signatures only
+# against the issuers it was started with:
+#
+#   --oidc-issuer https://token.actions.githubusercontent.com=github
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: github-actions-checkout
+  namespace: cellcast-system
+spec:
+  subjects:
+    # Two selectors rather than one, because the subject a runner's token
+    # carries depends on what triggered the workflow. A policy pinned to the
+    # branch alone refuses every pull request, which reads as a broken hub.
+    - issuer: https://token.actions.githubusercontent.com
+      subject: repo:ethan-kane-ops/cellcast:ref:refs/heads/main
+      claims:
+        repository: ethan-kane-ops/cellcast
+    # A pull request raised from a branch of this repository. A fork's workflow
+    # is granted no id-token permission, so it cannot present a token here at
+    # all, whatever this policy says.
+    - issuer: https://token.actions.githubusercontent.com
+      subject: repo:ethan-kane-ops/cellcast:pull_request
+      claims:
+        repository: ethan-kane-ops/cellcast
+
+  # The filter, and it runs before any scoring. Every cell labelled env=prod,
+  # which in the fleet this is tested against is two of the three. The third is
+  # the emptiest one, and it is labelled env=dev.
+  permittedCells:
+    matchLabels:
+      env: prod
+
+  strategy: LeastLoaded
+
+  tokenTTL:
+    # Long enough for a deploy and no longer. A credential that outlives the job
+    # it was minted for is a credential somebody can reuse from the runner.
+    default: 15m
+    max: 30m

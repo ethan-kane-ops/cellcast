@@ -1,0 +1,80 @@
+# The pitch, checked rather than asserted.
+#
+# cellcast is sold on attaching to a pipeline somebody already has, and the only
+# honest way to show that is a pipeline that deploys something. This job builds
+# three real kind cells, starts a hub that trusts GitHub's issuer alongside the
+# three cluster issuers, and deploys a sample app through the action published
+# in this repository.
+#
+# There is no secret anywhere in it. The only credential the job holds is the
+# identity token GitHub issues for this run, and the deploy credential is minted
+# on demand by the hub for whichever cell it chose.
+#
+# It is also the end-to-end test of the OIDC path against the real GitHub issuer
+# rather than a test one, and of an issuer allowlist holding a publicly trusted
+# issuer and three self-signed ones at the same time.
+name: integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  github-action:
+    name: deploy through the action
+    runs-on: ubuntu-latest
+    # A fork's pull request is granted no id-token permission, so this job
+    # cannot run for one. Skipped rather than failed: a contributor's first
+    # pull request should not open with a red cross they cannot fix.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The whole point. Without it the runner exposes no token endpoint.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          install_only: true
+
+      # Three cells, three agents, and the policy from examples/ applied
+      # unedited. Takes several minutes: each cell is a real cluster with its
+      # own service account issuer, because a fleet sharing one proves nothing.
+      - run: just integration-up
+
+      - name: Place the workload
+        id: cellcast
+        uses: ./.github/actions/place
+        with:
+          hub: http://127.0.0.1:18080
+          workload: checkout-api
+          ttl: 15m
+          explain: "true"
+          # The build in bin/, not a published release. A change that breaks the
+          # client should fail here rather than after it has been tagged.
+          client-path: ./bin/cellcast
+
+      # The caller's own step, and the only one here that is not a recipe. It is
+      # what the example tells a reader to write, so hiding it behind a recipe
+      # would hide the thing being demonstrated. KUBECONFIG was set by the
+      # action and points at a credential that expires in fifteen minutes.
+      - name: Deploy the sample app
+        run: kubectl -n apps apply -f examples/integrations/github-actions/app.yaml
+
+      - run: just integration-check ${{ steps.cellcast.outputs.cell }}
+
+      - name: Tear down the fleet
+        if: always()
+        run: just demo-down

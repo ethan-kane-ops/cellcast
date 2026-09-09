@@ -1,0 +1,42 @@
+# A Buildkite deploy step with no secret in it.
+#
+# `buildkite-agent oidc request-token` is built into the agent, so there is no
+# plugin to install and nothing to pin. The token it returns is signed by
+# Buildkite and verified by the hub against Buildkite's public keys.
+#
+# Buildkite interpolates $VAR when the pipeline is uploaded and $$VAR when the
+# step runs. Everything below that has to survive to run time is written $$.
+steps:
+  - label: ":kubernetes: deploy checkout-api"
+    key: deploy
+    env:
+      CELLCAST_HUB: https://cellcast.example.com
+    commands:
+      # A file, not an environment variable, and not an argument. On a shared
+      # agent the process list is readable by every other job on the machine.
+      - export TOKEN_FILE="$$(mktemp)"
+      - trap 'rm -f "$$TOKEN_FILE"' EXIT
+      # The audience has to match the hub's --oidc-audience. A token minted for
+      # the default audience is one the hub refuses, and the refusal reads as an
+      # authentication failure rather than as a configuration mistake.
+      - buildkite-agent oidc request-token --audience cellcast --lifetime 300 > "$$TOKEN_FILE"
+
+      - cellcast place --workload checkout-api --ttl 15m --token-file "$$TOKEN_FILE"
+
+      # cellcast wrote a kubeconfig at 0600 for the cell it chose. The deploy is
+      # whatever it already was.
+      - kubectl --kubeconfig cellcast.kubeconfig -n apps apply -f deploy/checkout-api.yaml
+
+  # A pre-merge step that decides nothing and deploys nothing. --dry-run runs
+  # the whole decision, policy and capacity included, and stops before minting;
+  # --explain prints every cell and why it was or was not chosen, which is how a
+  # policy change gets reviewed rather than guessed at.
+  - label: ":mag: what would deploy where"
+    branches: "!main"
+    env:
+      CELLCAST_HUB: https://cellcast.example.com
+    commands:
+      - export TOKEN_FILE="$$(mktemp)"
+      - trap 'rm -f "$$TOKEN_FILE"' EXIT
+      - buildkite-agent oidc request-token --audience cellcast --lifetime 300 > "$$TOKEN_FILE"
+      - cellcast place --workload checkout-api --dry-run --explain --token-file "$$TOKEN_FILE"

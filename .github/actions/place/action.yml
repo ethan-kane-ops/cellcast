@@ -1,0 +1,234 @@
+name: cellcast place
+description: >-
+  Ask a cellcast hub where to deploy, and write a short-lived kubeconfig for the
+  cell it chooses. No secret is configured; the runner's own identity token is
+  the credential.
+
+# Three lines in a caller's workflow. Everything the action needs beyond its
+# inputs comes from the runner: the OIDC token endpoint, and bash, curl, tar and
+# jq, all present on GitHub-hosted runners.
+#
+# The job must grant `id-token: write`. Without it the runner exposes no token
+# endpoint at all, and that is by far the most common way this fails.
+
+inputs:
+  hub:
+    description: Base URL of the cellcast hub.
+    required: true
+  workload:
+    description: >-
+      The workload being deployed. Policy and the decision cache are both keyed
+      on it, so it should name the thing being shipped rather than the job.
+    required: true
+  audience:
+    description: OIDC audience to request. Must match the hub's --oidc-audience.
+    default: cellcast
+  ttl:
+    description: Requested credential lifetime, for example 15m. Policy may grant less.
+    default: ""
+  kubeconfig:
+    description: >-
+      Where to write the kubeconfig. Defaults to a path under RUNNER_TEMP, which
+      is outside the workspace an upload-artifact step would archive.
+    default: ""
+  on-unavailable:
+    description: >-
+      What to do when the hub cannot answer: fail, last-known, or a cell name to
+      pin. No fallback ever produces a credential.
+    default: fail
+  dark:
+    description: Target a dark cell, if policy permits it.
+    default: "false"
+  dry-run:
+    description: Run the whole decision, policy and capacity included, without minting.
+    default: "false"
+  explain:
+    description: Log every candidate cell and why it was or was not chosen.
+    default: "false"
+  export-kubeconfig:
+    description: >-
+      Set KUBECONFIG for the rest of the job. Turn it off to leave the
+      environment alone and read the kubeconfig output instead.
+    default: "true"
+  version:
+    description: Release of the client to install.
+    default: v0.2.0
+  client-path:
+    description: >-
+      Path to a cellcast binary to use instead of downloading one. For testing
+      an unreleased build.
+    default: ""
+
+outputs:
+  cell:
+    description: The cell the hub chose.
+    value: ${{ steps.place.outputs.cell }}
+  source:
+    description: >-
+      hub, cache, or pinned. Anything but hub means the hub did not answer and
+      no credential was minted.
+    value: ${{ steps.place.outputs.source }}
+  kubeconfig:
+    description: >-
+      Path to the kubeconfig written for the chosen cell. Empty on a dry run and
+      on a fallback, because neither mints a credential.
+    value: ${{ steps.place.outputs.kubeconfig }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install the cellcast client
+      if: inputs.client-path == ''
+      shell: bash
+      env:
+        CELLCAST_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        dest="$RUNNER_TEMP/cellcast-client"
+        mkdir -p "$dest"
+        cd "$dest"
+
+        case "$RUNNER_OS" in
+          Linux) os=linux ;;
+          macOS) os=darwin ;;
+          *) echo "::error::cellcast publishes client archives for Linux and macOS runners, not $RUNNER_OS"; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "::error::cellcast publishes no client archive for $RUNNER_ARCH"; exit 1 ;;
+        esac
+
+        base="https://github.com/ethan-kane-ops/cellcast/releases/download/$CELLCAST_VERSION"
+        archive="cellcast_${CELLCAST_VERSION#v}_${os}_${arch}.tar.gz"
+
+        curl -fsSL --retry 3 -o "$archive" "$base/$archive"
+        curl -fsSL --retry 3 -o checksums.txt "$base/checksums.txt"
+
+        # The keyless signature covers checksums.txt, which covers every
+        # archive, so checking it is checking the download. Only when cosign is
+        # already installed: an action that installed it would be deciding for
+        # the caller how their runner gets its tools, and on a self-hosted
+        # runner that is somebody's policy rather than a convenience.
+        if command -v cosign > /dev/null 2>&1; then
+          curl -fsSL --retry 3 -o checksums.txt.bundle "$base/checksums.txt.bundle"
+          cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
+            --certificate-identity "https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/$CELLCAST_VERSION" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+        fi
+
+        if command -v sha256sum > /dev/null 2>&1; then
+          grep " $archive\$" checksums.txt | sha256sum -c -
+        else
+          grep " $archive\$" checksums.txt | shasum -a 256 -c -
+        fi
+
+        tar -xzf "$archive" cellcast
+
+    - name: Place the workload
+      id: place
+      shell: bash
+      # Passed through the environment rather than interpolated into the script.
+      # An input can carry anything a caller's workflow can compute, and an
+      # expression pasted into a shell is how that becomes command execution on
+      # the runner.
+      env:
+        CELLCAST_HUB_URL: ${{ inputs.hub }}
+        CELLCAST_WORKLOAD: ${{ inputs.workload }}
+        CELLCAST_AUDIENCE: ${{ inputs.audience }}
+        CELLCAST_TTL: ${{ inputs.ttl }}
+        CELLCAST_KUBECONFIG: ${{ inputs.kubeconfig }}
+        CELLCAST_ON_UNAVAILABLE: ${{ inputs.on-unavailable }}
+        CELLCAST_DARK: ${{ inputs.dark }}
+        CELLCAST_DRY_RUN: ${{ inputs.dry-run }}
+        CELLCAST_EXPLAIN: ${{ inputs.explain }}
+        CELLCAST_EXPORT_KUBECONFIG: ${{ inputs.export-kubeconfig }}
+        CELLCAST_CLIENT_PATH: ${{ inputs.client-path }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::no identity token endpoint on this runner. The job needs permissions: id-token: write"
+          exit 1
+        fi
+
+        bin="$CELLCAST_CLIENT_PATH"
+        if [ -z "$bin" ]; then
+          bin="$RUNNER_TEMP/cellcast-client/cellcast"
+        fi
+
+        kubeconfig="$CELLCAST_KUBECONFIG"
+        if [ -z "$kubeconfig" ]; then
+          kubeconfig="$RUNNER_TEMP/cellcast.kubeconfig"
+        fi
+
+        # The token exists as a file for one command and is removed whatever
+        # happens next. It is never an argument: on a shared runner the process
+        # list is readable by every other job on the machine.
+        umask 077
+        token_file="$(mktemp)"
+        trap 'rm -f "$token_file"' EXIT
+
+        token="$(curl -fsSL --retry 3 \
+          -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${CELLCAST_AUDIENCE}" | jq -r '.value')"
+        if [ -z "$token" ] || [ "$token" = "null" ]; then
+          echo "::error::the runner issued no identity token for audience $CELLCAST_AUDIENCE"
+          exit 1
+        fi
+        # Belt and braces. Nothing here prints it, and this is what catches the
+        # step that one day does.
+        echo "::add-mask::$token"
+        printf '%s' "$token" > "$token_file"
+
+        args=(place
+          --hub "$CELLCAST_HUB_URL"
+          --workload "$CELLCAST_WORKLOAD"
+          --token-file "$token_file"
+          --kubeconfig "$kubeconfig"
+          --on-unavailable "$CELLCAST_ON_UNAVAILABLE"
+          --json)
+        if [ -n "$CELLCAST_TTL" ]; then
+          args+=(--ttl "$CELLCAST_TTL")
+        fi
+        if [ "$CELLCAST_DARK" = "true" ]; then
+          args+=(--dark)
+        fi
+        if [ "$CELLCAST_DRY_RUN" = "true" ]; then
+          args+=(--dry-run)
+        fi
+        if [ "$CELLCAST_EXPLAIN" = "true" ]; then
+          args+=(--explain)
+        fi
+
+        # One call, whatever was asked for. Placing twice to get a table as well
+        # as a decision would mint twice, and the second decision is not
+        # necessarily the first one.
+        result="$("$bin" "${args[@]}")"
+
+        if [ "$CELLCAST_EXPLAIN" = "true" ]; then
+          jq '.' <<< "$result"
+        fi
+
+        cell="$(jq -r '.cell' <<< "$result")"
+        source="$(jq -r '.source' <<< "$result")"
+        written="$(jq -r '.kubeconfig // ""' <<< "$result")"
+
+        {
+          echo "cell=$cell"
+          echo "source=$source"
+          echo "kubeconfig=$written"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ "$CELLCAST_EXPORT_KUBECONFIG" = "true" ] && [ -n "$written" ]; then
+          echo "KUBECONFIG=$written" >> "$GITHUB_ENV"
+        fi
+
+        # A fallback answers with a cell and never with a credential, so the
+        # deploy step after this one has nothing to authenticate with. Said here
+        # rather than left for kubectl to discover.
+        if [ "$source" != "hub" ]; then
+          echo "::warning::the hub did not answer; $cell came from the $source and no credential was minted"
+        fi
+        echo "cellcast placed \`$CELLCAST_WORKLOAD\` on \`$cell\` (source: $source)" >> "$GITHUB_STEP_SUMMARY"

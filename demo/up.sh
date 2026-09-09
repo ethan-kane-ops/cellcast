@@ -30,6 +30,17 @@ for cell in $cells; do
     issuer_flags="$issuer_flags --oidc-issuer=$(cat "$work/$cell.issuer")=generic"
 done
 
+# Issuers beyond the three cells, as space-separated "url=provider" pairs. The
+# integration workflow sets this to GitHub's issuer so that a real Actions token
+# can reach this hub. Empty for the recording, where nothing presents one.
+#
+# The provider after the "=" selects which claims are extracted, and so what a
+# policy can match on. The cells get "generic" because a Kubernetes service
+# account token carries nothing else worth matching.
+for extra in ${CELLCAST_EXTRA_ISSUERS:-}; do
+    issuer_flags="$issuer_flags --oidc-issuer=$extra"
+done
+
 echo "==> starting the hub on $hub_addr"
 # --oidc-ca-file is what makes this possible without a publicly-trusted issuer.
 # Each cell signs its own certificate, so the hub cannot fetch any cell's keys

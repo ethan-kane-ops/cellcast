@@ -992,6 +992,51 @@ install:
     mise reshim 2>/dev/null || true
     @echo "installed → $(which cellcast 2>/dev/null || go env GOBIN)/cellcast"
 
+# --- Integration --------------------------------------------------------------
+#
+# The claim the project is pitched on is that cellcast attaches to a pipeline
+# somebody already has. These two recipes are the halves of that claim a
+# workflow cannot state for itself: the fleet it runs against, and the check
+# that the app reached the cell cellcast named rather than simply reaching one.
+#
+# The fleet is the demo's, deliberately. A second three-cell builder would drift
+# from the first, and the shape is already the one that makes the point: the
+# emptiest cell in the estate is the one policy refuses.
+
+# Build the demo fleet and start a hub that also trusts GitHub Actions
+integration-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ./demo/setup.sh
+    # Applied before the hub is asked anything, and applied unedited, so an
+    # example that has drifted from the schema fails here rather than failing
+    # for whoever copied it.
+    KUBECONFIG=demo/.work/euw1.kubeconfig \
+        kubectl apply -f examples/integrations/github-actions/policy.yaml
+    CELLCAST_EXTRA_ISSUERS="https://token.actions.githubusercontent.com=github" ./demo/up.sh
+
+# Check the sample app reached the named cell and no other
+integration-check cell:
+    #!/usr/bin/env bash
+    # Both halves. That the app is in the cell cellcast chose proves the
+    # credential worked; that it is in neither of the others proves the
+    # credential was scoped to one cell, which is the part a single positive
+    # check would miss entirely.
+    set -euo pipefail
+    found=""
+    for cell in euw1 use1 apse1; do
+        if KUBECONFIG="demo/.work/$cell.kubeconfig" \
+            kubectl -n apps get deployment sample-app > /dev/null 2>&1; then
+            found="$found $cell"
+        fi
+    done
+    found="${found# }"
+    if [ "$found" != "{{ cell }}" ]; then
+        echo "sample-app is in [$found]; cellcast placed it on {{ cell }}" >&2
+        exit 1
+    fi
+    echo "sample-app is in {{ cell }} and nowhere else"
+
 # --- Demo ---------------------------------------------------------------------
 #
 # The recording the site embeds. It runs against three real kind clusters with

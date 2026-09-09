@@ -2,6 +2,7 @@ package apitest
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +19,39 @@ import (
 // quietly reducing what this test checks.
 var exampleKinds = []string{"Cluster", "PlacementPolicy", "TrustConfig"}
 
+// exampleManifests returns every Kubernetes manifest under examples/, including
+// the ones in the integration subdirectories.
+//
+// Only .yaml files. The CI pipeline files beside them are .yml on purpose: a
+// GitHub workflow and a Buildkite pipeline are YAML that no API server has an
+// opinion about, and handing one to this test would fail on its first document.
+func exampleManifests(t *testing.T, root string) []string {
+	t.Helper()
+
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".yaml") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		out = append(out, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking examples/: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatal("examples/ holds no manifests, so this test checked nothing")
+	}
+	return out
+}
+
 // TestTheExamplesAreAcceptedByTheAPIServer is the difference between an example
 // somebody can apply and an example somebody has to debug.
 //
@@ -32,27 +66,20 @@ func TestTheExamplesAreAcceptedByTheAPIServer(t *testing.T) {
 
 	// Relative to the package, like the chart paths in this suite.
 	dir := filepath.Join("..", "..", "examples")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("reading examples/: %v", err)
-	}
 
 	var seen []string
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".yaml") {
-			continue
-		}
-		t.Run(entry.Name(), func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+	for _, name := range exampleManifests(t, dir) {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(dir, name))
 			if err != nil {
-				t.Fatalf("reading %s: %v", entry.Name(), err)
+				t.Fatalf("reading %s: %v", name, err)
 			}
 
 			var count int
 			for _, doc := range splitDocs(string(raw)) {
 				obj := &unstructured.Unstructured{}
 				if err := yaml.Unmarshal([]byte(doc), obj); err != nil {
-					t.Fatalf("parsing a document in %s: %v\n%s", entry.Name(), err, doc)
+					t.Fatalf("parsing a document in %s: %v\n%s", name, err, doc)
 				}
 				if obj.GetKind() == "" {
 					continue
@@ -72,11 +99,11 @@ func TestTheExamplesAreAcceptedByTheAPIServer(t *testing.T) {
 				// here without the test having to invent them.
 				if err := c.Create(context.Background(), obj, client.DryRunAll); err != nil {
 					t.Errorf("the API server refused %s %s from examples/%s: %v",
-						obj.GetKind(), obj.GetName(), entry.Name(), err)
+						obj.GetKind(), obj.GetName(), name, err)
 				}
 			}
 			if count == 0 {
-				t.Errorf("examples/%s holds no objects, so it checked nothing", entry.Name())
+				t.Errorf("examples/%s holds no objects, so it checked nothing", name)
 			}
 		})
 	}

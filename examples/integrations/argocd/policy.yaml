@@ -1,0 +1,35 @@
+# The policy the PreSync hook is a gate against.
+#
+# One cell, named by label. That is what turns "where should this workload go"
+# into "may it still go here": there is only one answer available, so the
+# placement either returns this cell or refuses, and the hook's exit code means
+# what the sync needs it to mean.
+#
+# The issuer is the cell's own service account issuer, because the caller is a
+# pod in that cell rather than a CI platform. Every cell has a different one,
+# so this policy is per cell, alongside the Argo instance that syncs into it.
+apiVersion: cellcast.io/v1alpha1
+kind: PlacementPolicy
+metadata:
+  name: argocd-euw1
+  namespace: cellcast-system
+spec:
+  subjects:
+    - issuer: https://oidc.euw1.example.com
+      # Required, not optional. A Kubernetes service account token carries
+      # almost nothing a policy can match on, so an issuer-only selector here
+      # would permit every workload in the cluster, the agent included.
+      subject: system:serviceaccount:apps:cellcast-presync
+
+  permittedCells:
+    matchLabels:
+      region: euw1
+
+  strategy: LeastLoaded
+
+  tokenTTL:
+    # The hook never mints, so this bounds nothing it does. It is here because
+    # the same policy governs anything else this identity asks for later, and a
+    # policy with no ceiling is one the operator has not thought about.
+    default: 15m
+    max: 30m

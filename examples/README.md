@@ -76,6 +76,12 @@ cellcast place --workload checkout-api --dry-run --explain
 before minting. `--explain` prints every cell and why it was or was not chosen,
 which is how a policy edit gets reviewed rather than guessed at.
 
+## Pipeline integrations
+
+[`integrations/`](integrations/) holds the callers: a composite GitHub Action,
+an Argo CD PreSync hook and a Buildkite pipeline step, each with the
+`PlacementPolicy` it needs. The fleet here is what they are pointed at.
+
 ## Related
 
 - [Placement policy](../docs/placement-policy.md) for the full field reference.
