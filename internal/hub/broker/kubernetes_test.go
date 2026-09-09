@@ -303,3 +303,40 @@ func TestConnectErrorsCarryNoCredentialMaterial(t *testing.T) {
 		t.Errorf("error leaked credential material: %v", err)
 	}
 }
+
+// TestTheKubernetesProviderRegistersUnderTheKindTheCRDNames covers the wiring
+// between the provider and the registry that looks it up.
+//
+// New keys the registry on Kind(), and Mint resolves a provider from the
+// TrustConfig's spec.provider. A Kind() that did not match the enum the CRD
+// validates would leave every mint failing with "provider not implemented",
+// and nothing outside a live cluster would notice.
+func TestTheKubernetesProviderRegistersUnderTheKindTheCRDNames(t *testing.T) {
+	provider := NewKubernetesProvider(nil)
+
+	if got := provider.Kind(); got != cellcastv1alpha1.TrustProviderKubernetes {
+		t.Errorf("Kind() = %q, want %q", got, cellcastv1alpha1.TrustProviderKubernetes)
+	}
+
+	b := New(nil, "cellcast-system", time.Hour, nil, provider)
+	if _, ok := b.providers[cellcastv1alpha1.TrustProviderKubernetes]; !ok {
+		t.Errorf("a broker built with the Kubernetes provider has no provider for %q",
+			cellcastv1alpha1.TrustProviderKubernetes)
+	}
+}
+
+// TestTheMintingFloorIsTheOneTheAPIServerEnforces keeps the number the broker
+// reasons about equal to the one the cluster will actually accept.
+//
+// Verified against a real API server rather than read from documentation: a
+// TokenRequest under 600 seconds is refused outright. A floor set lower here
+// would be discovered in the deploy path, by a pipeline asking for five minutes
+// and getting an error instead of a credential.
+func TestTheMintingFloorIsTheOneTheAPIServerEnforces(t *testing.T) {
+	if KubernetesMinTTL != 10*time.Minute {
+		t.Errorf("KubernetesMinTTL = %s, want the ten minutes TokenRequest enforces", KubernetesMinTTL)
+	}
+	if got := NewKubernetesProvider(nil).MinTTL(); got != KubernetesMinTTL {
+		t.Errorf("MinTTL() = %s, want %s", got, KubernetesMinTTL)
+	}
+}
