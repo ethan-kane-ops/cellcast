@@ -1,5 +1,16 @@
 # cellcast
 
+[![CI](https://github.com/ethan-kane-ops/cellcast/actions/workflows/ci.yml/badge.svg)](https://github.com/ethan-kane-ops/cellcast/actions/workflows/ci.yml)
+[![e2e](https://github.com/ethan-kane-ops/cellcast/actions/workflows/e2e.yml/badge.svg)](https://github.com/ethan-kane-ops/cellcast/actions/workflows/e2e.yml)
+[![Release](https://github.com/ethan-kane-ops/cellcast/actions/workflows/release.yml/badge.svg)](https://github.com/ethan-kane-ops/cellcast/actions/workflows/release.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/ethan-kane-ops/cellcast/badge)](https://securityscorecards.dev/viewer/?uri=github.com/ethan-kane-ops/cellcast)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ethan-kane-ops/cellcast.svg)](https://pkg.go.dev/github.com/ethan-kane-ops/cellcast)
+[![golangci-lint](https://img.shields.io/badge/linted%20by-golangci--lint-00ADD8?logo=go&logoColor=white)](https://golangci-lint.run)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-%E2%89%A5%201.28-blue.svg)](https://kubernetes.io)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://ethan-kane-ops.github.io/cellcast/)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/cellcast)](https://artifacthub.io/packages/search?repo=cellcast)
+
 **Multi-cluster deployment placement oracle and short-lived credential broker.**
 
 A deploy pipeline asks two questions: which cluster does this workload go to, and what credential
