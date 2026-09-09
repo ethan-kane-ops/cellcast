@@ -991,3 +991,45 @@ install:
     go install -trimpath -ldflags '{{ldflags}}' ./cmd/cellcast
     mise reshim 2>/dev/null || true
     @echo "installed → $(which cellcast 2>/dev/null || go env GOBIN)/cellcast"
+
+# --- Demo ---------------------------------------------------------------------
+#
+# The recording the site embeds. It runs against three real kind clusters with
+# real agents rather than a stub, because the whole claim being made is that the
+# placement and the credential are real, and a recording of a stub cannot show
+# that. The scenario lives in demo/ so it can be rerun when the output format
+# moves.
+
+# Build the three-cell demo fleet and start the hub and agents
+demo-setup:
+    ./demo/setup.sh
+    ./demo/up.sh
+
+# Restart the hub and agents against a fleet that is already built
+demo-up:
+    ./demo/up.sh
+
+# Stop the hub and agents, leaving the clusters up for another take
+demo-stop:
+    ./demo/down.sh --keep-clusters
+
+# Run the demo scenario in this terminal
+demo:
+    ./demo/demo-cast.sh
+
+# Record the demo scenario as an asciinema cast
+demo-cast out="cellcast.cast":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v asciinema > /dev/null || { echo "asciinema not installed" >&2; exit 1; }
+    rm -f {{ out }}
+    # 96 columns is what the site's player and its text fallback are sized for.
+    asciinema rec {{ out }} \
+        --window-size 96x30 \
+        --idle-time-limit 2 \
+        --command ./demo/demo-cast.sh
+    @echo "recorded {{ out }} → copy it to the site's public/casts/"
+
+# Stop the hub and agents and delete the demo clusters
+demo-down:
+    ./demo/down.sh
