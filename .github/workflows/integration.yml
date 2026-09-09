@@ -75,6 +75,18 @@ jobs:
 
       - run: just integration-check ${{ steps.cellcast.outputs.cell }}
 
+      # The half of the action the step above skips. It used the build in bin/,
+      # so nothing here has yet downloaded a published archive or checked it
+      # against the release's checksums. A dry run, which decides everything and
+      # mints nothing.
+      - name: Place again with the published client
+        uses: ./.github/actions/place
+        with:
+          hub: http://127.0.0.1:18080
+          workload: checkout-api
+          dry-run: "true"
+          export-kubeconfig: "false"
+
       - name: Tear down the fleet
         if: always()
         run: just demo-down

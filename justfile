@@ -345,6 +345,26 @@ release-version tag:
         rm -f "$f.bak"
         echo "$f -> version $bare, appVersion $tag"
     done
+    # The README's verification block is the one command an adopter copies
+    # verbatim, and a superseded tag in it verifies fine, which is the worst
+    # way for it to be wrong. Each pattern names where a release number appears
+    # rather than rewriting every triple in the file: a Go version is also
+    # three numbers with dots in it.
+    sed -i.bak -E \
+        -e "s|^v[0-9]+\\.[0-9]+\\.[0-9]+\\.|$tag.|" \
+        -e "s|(cellcast-hub:)v[0-9]+\\.[0-9]+\\.[0-9]+|\\1$tag|g" \
+        -e "s|(refs/tags/)v[0-9]+\\.[0-9]+\\.[0-9]+|\\1$tag|g" \
+        -e "s|(charts/cellcast:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1$bare|g" \
+        README.md
+    rm -f README.md.bak
+    echo "README.md -> verifies $tag"
+    # The GitHub Action installs a release by number, and that number is what a
+    # caller who pins nothing gets. The pattern is deliberately narrow: it is
+    # the only default in the file that looks like a version.
+    action=".github/actions/place/action.yml"
+    sed -i.bak -E "s|^([[:space:]]*default: )v[0-9]+\\.[0-9]+\\.[0-9]+.*$|\\1$tag|" "$action"
+    rm -f "$action.bak"
+    echo "$action -> installs $tag"
     # The charts' READMEs carry the version in a badge, so they go stale on
     # every release unless they are regenerated here. A contract test holds
     # them to Chart.yaml, which is how that was found.

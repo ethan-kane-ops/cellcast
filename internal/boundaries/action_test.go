@@ -18,6 +18,7 @@ type compositeAction struct {
 	Inputs map[string]struct {
 		Description string `json:"description"`
 		Required    bool   `json:"required"`
+		Default     string `json:"default"`
 	} `json:"inputs"`
 	Outputs map[string]struct {
 		Description string `json:"description"`
@@ -69,5 +70,35 @@ func TestEveryActionInputSaysWhatItIsFor(t *testing.T) {
 		if strings.TrimSpace(output.Description) == "" {
 			t.Errorf("output %s has no description", name)
 		}
+	}
+}
+
+func TestTheActionInstallsTheVersionTheChartsDeclare(t *testing.T) {
+	// The default is what a caller who pins nothing gets, and it is the one
+	// version number the release flow could plausibly forget. Left behind, the
+	// action quietly installs an old client against a new hub, which from
+	// inside somebody else's workflow looks like anything but a version
+	// problem.
+	action := placeAction(t)
+	want := chartYAML(t, "cellcast").AppVersion
+
+	if got := action.Inputs["version"].Default; got != want {
+		t.Errorf("the action installs %s by default and the charts declare %s; run `just release-version`", got, want)
+	}
+}
+
+func TestTheActionsSigningIdentityIsTheOneTheDocsName(t *testing.T) {
+	// The action verifies the release's signature against an identity written
+	// into it. If that drifts from the one the README tells an adopter to
+	// expect, one of the two is checking nothing, and the action is the copy
+	// nobody reads.
+	raw := readRepoFile(t, filepath.Join(".github", "actions", "place", "action.yml"))
+	identity := "https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml"
+
+	if !strings.Contains(raw, identity) {
+		t.Errorf("the action does not verify against %s, which is the identity the README names", identity)
+	}
+	if !strings.Contains(readRepoFile(t, "README.md"), identity) {
+		t.Errorf("README.md no longer names %s; the action is verifying against an identity nothing documents", identity)
 	}
 }

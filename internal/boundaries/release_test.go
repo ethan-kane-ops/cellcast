@@ -549,3 +549,32 @@ func TestTheImageRunsAsTheUserTheChartsExpect(t *testing.T) {
 		}
 	}
 }
+
+// releaseTagInReadme matches the tag the verification examples name.
+var releaseTagInReadme = regexp.MustCompile(`refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)`)
+
+func TestTheReadmeVerifiesTheReleaseTheChartsDeclare(t *testing.T) {
+	// The verification block is the one command an adopter copies verbatim, and
+	// a superseded tag in it verifies perfectly well. That is the worst way for
+	// it to be wrong: the reader checks a release they are not running and gets
+	// a green tick for it.
+	want := chartYAML(t, "cellcast").AppVersion
+	readme := readRepoFile(t, "README.md")
+
+	for _, ref := range []string{
+		"ghcr.io/ethan-kane-ops/cellcast-hub:" + want,
+		"refs/tags/" + want,
+	} {
+		if !strings.Contains(readme, ref) {
+			t.Errorf("README.md does not name %s; run `just release-version`", ref)
+		}
+	}
+
+	// The other direction, because the check above passes as soon as one line
+	// has been updated and says nothing about the three below it.
+	for _, found := range releaseTagInReadme.FindAllStringSubmatch(readme, -1) {
+		if found[1] != want {
+			t.Errorf("README.md tells a reader to verify %s while the charts declare %s", found[1], want)
+		}
+	}
+}
