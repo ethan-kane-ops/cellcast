@@ -70,9 +70,8 @@ and anything that crosses one is in scope. In particular:
 
 ## Supported Versions
 
-Only the latest minor release line receives security updates. Nothing is
-published yet, so there is no supported line: the first tagged release starts
-that clock, and the table below describes the policy from then on.
+Only the latest minor release line receives security updates. Today that is
+`v0.1.x`.
 
 | Version | Supported |
 |---|---|
@@ -118,6 +117,3 @@ Images are also reproducible from their tag. The base images are pinned by
 digest, the build runs with `-trimpath`, and the timestamps come from the commit
 rather than the build clock, so rebuilding a tag from source produces the same
 bytes. See [Releasing](docs/releasing.md#reproducible-builds).
-
-Nothing is published yet. Until the first tag there is nothing to verify, and
-pinning by digest is the only assurance available.

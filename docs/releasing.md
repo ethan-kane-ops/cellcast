@@ -24,10 +24,10 @@ The chart `version` fields are that string without the leading `v`, because Helm
 requires bare semver there.
 
 ```
-tag           v0.3.0
-appVersion    v0.3.0     (also the default image tag)
-version       0.3.0
-image tag     v0.3.0
+tag           v0.1.0
+appVersion    v0.1.0     (also the default image tag)
+version       0.1.0
+image tag     v0.1.0
 ```
 
 Helm lets a chart version and an appVersion move independently, and for a chart packaged
@@ -35,7 +35,7 @@ separately from the thing it installs that indirection earns its keep. It does n
 One tag cuts the images and both charts from one commit, so a chart version that did not
 match would name a release nothing else in the project has heard of.
 
-`just release-version v0.3.0` writes all four numbers and regenerates the changelog.
+`just release-version v0.1.0` writes all four numbers and regenerates the changelog.
 A contract test holds the relationship, so a hand edit that breaks it fails `just
 check` rather than reaching a registry.
 
@@ -43,10 +43,10 @@ check` rather than reaching a registry.
 
 ```bash
 just release-check              # the whole pipeline, publishing nothing
-just release-version v0.3.0     # chart versions and CHANGELOG.md
-git commit -am "chore(release): v0.3.0"
-git tag -a v0.3.0 -m "v0.3.0"
-just release v0.3.0
+just release-version v0.1.0     # chart versions and CHANGELOG.md
+git commit -am "chore(release): v0.1.0"
+git tag -a v0.1.0 -m "v0.1.0"
+just release v0.1.0
 ```
 
 `just release` refuses to start unless the working tree is clean, the tag exists, the
@@ -62,7 +62,7 @@ artifact a person reads, and it should not appear before the things it describes
 Nothing about pushing three images, two charts and a GitHub release is atomic, so decide
 in advance what a half-finished release means.
 
-Before anyone has been told the release exists, re-run `just release v0.3.0`. Every step
+Before anyone has been told the release exists, re-run `just release v0.1.0`. Every step
 is safe to repeat: the images and charts overwrite the same tag, and goreleaser is
 configured with `mode: replace` so it rewrites the GitHub release rather than failing on
 one that already exists.
@@ -88,7 +88,7 @@ Individual pieces, when something in there fails:
 just image cellcast-hub          # one image, this machine's architecture, loaded locally
 just images-check                # every image, every architecture, output discarded
 just chart-package               # both charts into dist/charts
-just release-notes v0.3.0        # what the GitHub release will say
+just release-notes v0.1.0        # what the GitHub release will say
 just image-bases                 # current digests for the base images the Dockerfile pins
 ```
 
@@ -113,7 +113,7 @@ commit. That suffix means its bytes are not reproducible by anybody else.
 
 ```
 $ cellcast version
-v0.3.0 (commit 4f2a1c9, built 2026-09-08T16:57:05+01:00, go1.26.8, darwin/arm64)
+v0.1.0 (commit 4f2a1c9, built 2026-09-08T16:57:05+01:00, go1.26.8, darwin/arm64)
 ```
 
 ## What the release signs, and what that proves
@@ -130,8 +130,8 @@ The consequence is that "it is signed" stops being a useful statement, because a
 anything with a valid identity. Verification has to name the expected identity:
 
 ```bash
-cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 \
-  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.3.0 \
+cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.1.0 \
+  --certificate-identity https://github.com/ethan-kane-ops/cellcast/.github/workflows/release.yml@refs/tags/v0.1.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -156,7 +156,7 @@ while the builder knows every module it linked.
 
 ```bash
 just verify-attestations cellcast-hub   # build one and read the predicates back
-docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/ethan-kane-ops/cellcast-hub:v0.1.0 --format '{{ json .SBOM }}'
 ```
 
 The archives get their own SBOM from syft, one per archive, published beside it.

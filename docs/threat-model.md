@@ -88,7 +88,7 @@ size cellcast's per-spoke RBAC as tightly as their deploys allow, and should not
 | Per-cell RBAC scoping documented and minimal by default | Partial: the boundary is the service account named in the `TrustConfig`. What that account may do in the spoke is the operator's to set |
 | Audit record for every mint, so a compromise is reconstructable | Implemented: one record per mint carrying the caller, the cell, the scope and a digest of the token, and one per refusal (docs/audit.md) |
 | Distroless non-root image, read-only root filesystem, no shell | Implemented: `gcr.io/distroless/static-debian12:nonroot`, uid 65532, and both charts set the pod and container security contexts |
-| Signed images and SBOM so the running binary is the reviewed one | Implemented in the release pipeline: cosign keyless signatures, an SPDX SBOM and SLSA provenance on every image. Nothing is published yet |
+| Signed images and SBOM so the running binary is the reviewed one | Implemented in the release pipeline: cosign keyless signatures, an SPDX SBOM and SLSA provenance on every image |
 
 **Residual risk.** Detection depends on the audit trail reaching somewhere the hub cannot rewrite.
 The records are written to stdout and the adopter's log pipeline owns them from there, so a hub

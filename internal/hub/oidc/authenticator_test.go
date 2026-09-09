@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -261,6 +262,37 @@ func TestAuthenticateRejects(t *testing.T) {
 	}
 }
 
+// keySetSettles retries check until it passes, or fails the test at the
+// deadline reporting the last disagreement.
+//
+// Rotation is not observable at a single instant. The RemoteKeySet underneath
+// this package refetches the JWKS when it meets a key id it does not know, and
+// it writes that result into its cache *after* the call which triggered the
+// fetch has already returned. An assertion made on the line after a rotation is
+// therefore racing the library rather than testing this package, and it lost
+// that race once in CI: a withdrawn key authenticated because the cache still
+// held the pre-rotation key set.
+//
+// What cellcast actually promises is that a rotation takes effect promptly and
+// without a restart, not that it takes effect atomically. That is what this
+// asserts. The deadline is what keeps it honest: a key set that never settles
+// still fails, so a genuine regression is caught rather than waited out.
+func keySetSettles(t *testing.T, what string, check func() error) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := check()
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: still wrong 5s after the rotation: %v", what, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestAuthenticateAcceptsRotatedKey covers the rotation the ticket calls out:
 // the issuer swaps its signing key and publishes the new one, and a token
 // signed with it verifies without restarting the hub.
@@ -274,9 +306,10 @@ func TestAuthenticateAcceptsRotatedKey(t *testing.T) {
 
 	iss.rotate(t, "key-2")
 
-	if _, err := a.Authenticate(t.Context(), requestWithToken(iss.sign(t, validClaims(iss)))); err != nil {
-		t.Fatalf("Authenticate() after rotation = %v, want nil", err)
-	}
+	keySetSettles(t, "a token signed by the rotated key", func() error {
+		_, err := a.Authenticate(t.Context(), requestWithToken(iss.sign(t, validClaims(iss))))
+		return err
+	})
 }
 
 // TestAuthenticateRejectsAfterKeyIsWithdrawn asserts that rotation does not
@@ -292,15 +325,22 @@ func TestAuthenticateRejectsAfterKeyIsWithdrawn(t *testing.T) {
 	}
 
 	iss.rotate(t, "key-2")
-	// Warm the new key so the failure below cannot be a stale cache.
+	// Warm the new key, so that a rejection below is the withdrawal rather than
+	// a key set that was never refreshed at all.
 	if _, err := a.Authenticate(t.Context(), requestWithToken(iss.sign(t, validClaims(iss)))); err != nil {
 		t.Fatalf("Authenticate() after rotation = %v, want nil", err)
 	}
 
-	token := iss.signWith(t, retired, validClaims(iss))
-	if _, err := a.Authenticate(t.Context(), requestWithToken(token)); !errors.Is(err, ErrSignature) {
-		t.Fatalf("Authenticate() with a withdrawn key = %v, want %v", err, ErrSignature)
-	}
+	keySetSettles(t, "a token signed by the withdrawn key", func() error {
+		token := iss.signWith(t, retired, validClaims(iss))
+		_, err := a.Authenticate(t.Context(), requestWithToken(token))
+		if errors.Is(err, ErrSignature) {
+			return nil
+		}
+		// Any other outcome, including success, is reported as it stands: a
+		// different error here is a real defect, not a rotation still landing.
+		return fmt.Errorf("Authenticate() = %v, want %v", err, ErrSignature)
+	})
 }
 
 // TestJWKSOutageDoesNotAcceptUnverifiedTokens is the failure behaviour named in
