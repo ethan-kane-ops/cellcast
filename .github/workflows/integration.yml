@@ -85,11 +85,30 @@ jobs:
       # so nothing here has yet downloaded a published archive or checked it
       # against the release's checksums. A dry run, which decides everything and
       # mints nothing.
+      # The only step that exercises the published archive: the download, the
+      # checksum and the cosign verification the action does when no
+      # client-path is given.
+      #
+      # The version is resolved rather than left to the action's default,
+      # because on the pull request that prepares a release that default is the
+      # tag being prepared, and no release exists for it yet. Asking for the
+      # latest published one keeps this checking a real artifact on every run.
+      - name: Find the latest published release
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "installing the client from $tag"
+
       - name: Place again with the published client
         uses: ./.github/actions/place
         with:
           hub: http://127.0.0.1:18080
           workload: checkout-api
+          version: ${{ steps.published.outputs.tag }}
           dry-run: "true"
           export-kubeconfig: "false"
 
