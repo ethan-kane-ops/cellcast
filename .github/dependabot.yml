@@ -1,0 +1,55 @@
+# Dependency updates.
+#
+# Every workflow pins its actions to a commit SHA and a contract test enforces
+# it. A pin nobody moves is a pin that rots: it keeps the bugs and the
+# vulnerabilities the pinned commit shipped with for as long as it is left
+# alone. Dependabot is what makes pinning sustainable, because it rewrites the
+# SHA and the version comment together and the pin stays a pin.
+version: 2
+
+updates:
+  # The module graph. controller-runtime and the k8s.io modules have to move
+  # together or the build breaks, which is most of why these are grouped rather
+  # than opened one at a time.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    # chore(deps), because cliff.toml already routes that scope into the
+    # changelog's Dependencies section. The default prefix lands bumps in Build.
+    commit-message:
+      prefix: chore
+      include: scope
+    open-pull-requests-limit: 5
+    groups:
+      # One pull request rather than one per module. Every one of these runs
+      # the full gate, and thirty green pipelines nobody reads individually is
+      # how an unreviewed bump gets merged.
+      go-modules:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # The actions the six workflows pin. A major bump arrives on its own, because
+  # that is the one that changes an action's inputs.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # The base image digests the Dockerfile pins. `just image-bases` prints the
+  # current ones for a refresh by hand, which is still the fallback when a
+  # digest has to move between scheduled runs.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope

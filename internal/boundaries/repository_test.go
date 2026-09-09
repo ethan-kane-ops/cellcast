@@ -93,11 +93,6 @@ var (
 )
 
 func TestEveryWorkflowPinsItsActionsAndScopesItsToken(t *testing.T) {
-	// A tripwire rather than a check on today's tree. CI is dormant, so this
-	// skips; the first workflow anybody adds is the one that would otherwise
-	// ship with a write-all token and floating action tags, and find out from
-	// an OSSF Scorecard report published alongside the launch.
-	//
 	// A tag is not a pin. `actions/checkout@v4` resolves to whatever that tag
 	// points at today, which is a third party's write access to this repository
 	// on every run.
@@ -141,5 +136,24 @@ func TestEveryWorkflowPinsItsActionsAndScopesItsToken(t *testing.T) {
 
 	if live == 0 {
 		t.Skip("every workflow is commented out; this activates with the first live one")
+	}
+}
+
+func TestSomethingRaisesThePinsThisRepositoryHolds(t *testing.T) {
+	// The pinning test above is half a policy. A commit SHA does not move on
+	// its own, so a repository that pins everything and configures nothing to
+	// raise the pins has frozen its dependencies at whatever was current the
+	// day each one was added, vulnerabilities included. That is a worse
+	// position than floating tags, because it looks deliberate.
+	//
+	// Each ecosystem here is something this repository pins by hand: the module
+	// graph, the action SHAs the test above enforces, and the base image
+	// digests in the Dockerfile.
+	config := readRepoFile(t, filepath.Join(".github", "dependabot.yml"))
+
+	for _, ecosystem := range []string{"gomod", "github-actions", "docker"} {
+		if !strings.Contains(config, "package-ecosystem: "+ecosystem) {
+			t.Errorf("nothing updates the %s dependencies; they are pinned and abandoned", ecosystem)
+		}
 	}
 }
