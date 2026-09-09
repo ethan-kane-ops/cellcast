@@ -41,18 +41,45 @@ check` rather than reaching a registry.
 
 ## Cutting a release
 
+Three commands, and a merge in the middle.
+
 ```bash
-just release-check              # the whole pipeline, publishing nothing
-just release-version v0.1.0     # chart versions and CHANGELOG.md
-git commit -am "chore(release): v0.1.0"
-git tag -a v0.1.0 -m "v0.1.0"
-just release v0.1.0
+just release-preview            # what the next version would be, and its notes
+just release-prepare            # opens the release pull request
+#  ... review and merge it, then:
+git switch main && git pull
+just release-tag                # tags the merged commit and pushes the tag
 ```
+
+`just release-preview` writes nothing. The version comes from the commits rather than
+from memory: `cliff.toml` sets `features_always_bump_minor` and
+`breaking_always_bump_major`, so the conventional-commit prefixes the commit hook already
+enforces are what decide it. Pass `patch`, `minor`, `major` or an explicit `vX.Y.Z` to
+override.
+
+`just release-prepare` cuts a branch, sets both charts, regenerates the chart READMEs and
+the changelog, runs `just check`, and opens the pull request. It stops there because
+`main` requires one, and because the tag has to name the commit that reached `main`
+rather than the branch it arrived on.
+
+`just release-tag` reads the version back out of `Chart.yaml`, so it cannot tag one
+number while the charts declare another. Pushing that tag is the last thing done from a
+laptop.
+
+### What the tag starts
+
+The tag triggers `.github/workflows/release.yml`, which runs `just release <tag>`. That
+is not a preference. A keyless signature carries the identity of whoever authenticated,
+and the identity every published `cosign verify` command names is that workflow's, so a
+release cut by hand signs as a person and then fails its own `just verify`.
 
 `just release` refuses to start unless the working tree is clean, the tag exists, the
 tag points at `HEAD`, and both charts already declare it. Then it runs `just check-all`
 and `just verify-e2e` before publishing anything, because a broken credential broker
 cannot be fixed forward: by the time it is noticed, the bad image has been pulled.
+
+`just release-check` runs every step of it locally and publishes nothing. Run it after
+any change to the `Dockerfile`, either `Chart.yaml`, or `.goreleaser.yaml`.
 
 Publishing order is images, then charts, then the GitHub release. The release is the
 artifact a person reads, and it should not appear before the things it describes exist.

@@ -190,6 +190,7 @@ script, so what CI checks and what a contributor runs locally cannot drift.
 | `e2e.yml` | push, PR | the four kind suites, in parallel |
 | `codeql.yml` | push, PR, weekly | static analysis over the Go source |
 | `scorecard.yml` | push to main, weekly | OSSF Scorecard, published |
+| `docs.yml` | docs changes | `just docs-build`, and publishes to Pages from `main` |
 | `release.yml` | a `v*` tag | `just release` |
 
 Two rules hold for anything added here:

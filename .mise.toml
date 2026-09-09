@@ -7,5 +7,8 @@ helm-docs = "latest"
 # is part of the toolchain rather than something a release host might have.
 syft = "latest"
 go = "1.26"
+# The docs site is built with `just docs-build`, and CI runs that same recipe
+# rather than a second pip invocation that could resolve differently.
+uv = "latest"
 golangci-lint = "latest"
 just = "latest"

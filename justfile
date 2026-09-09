@@ -352,6 +352,100 @@ release-version tag:
     git cliff --tag "$tag" -o CHANGELOG.md
     echo "changelog regenerated; review it, commit, then tag $tag"
 
+# Show the version the next release would take, and what its notes would say
+release-preview bump="auto":
+    #!/usr/bin/env bash
+    # Writes nothing and touches no branch.
+    #
+    # The number comes from the commits, not from somebody's memory: cliff.toml
+    # sets features_always_bump_minor and breaking_always_bump_major, so the
+    # conventional-commit prefixes the commit-msg hook already enforces are what
+    # decide it. `auto` reads them; patch, minor and major override.
+    set -euo pipefail
+    echo "next: $(git cliff --bump {{bump}} --bumped-version)"
+    echo "── notes ──"
+    git cliff --bump {{bump}} --unreleased
+
+# Open the pull request that sets the release version and changelog
+release-prepare bump="auto":
+    #!/usr/bin/env bash
+    # Half of the release. This one stops at the pull request, because `main`
+    # requires one and because the tag has to name the commit that reached
+    # `main` rather than the branch it arrived on. `just release-tag` is the
+    # other half, and it runs after the merge.
+    set -euo pipefail
+    fail() { echo "$1" >&2; exit 1; }
+
+    [ -z "$(git status --porcelain)" ] || fail "working tree is dirty; a release commit must be reviewable"
+    [ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || fail "run this from main; the release branch is cut here"
+    git fetch -q origin main
+    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "main is behind origin; pull first"
+
+    case "{{bump}}" in
+        v[0-9]*)                tag="{{bump}}" ;;
+        auto|patch|minor|major) tag="$(git cliff --bump {{bump}} --bumped-version)" ;;
+        *) fail "usage: just release-prepare [auto|patch|minor|major|vX.Y.Z]" ;;
+    esac
+    case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+    if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+        fail "tag $tag already exists"
+    fi
+
+    git switch -c "release/$tag"
+    just release-version "$tag"
+    # After the bump, not before: release-version rewrites both Chart.yaml files
+    # and regenerates the chart READMEs, and a contract test holds those to each
+    # other. Checking first would check the previous release.
+    just check
+    git add -A
+    git commit -m "chore(release): $tag"
+    git push
+    body=$(printf '%s\n' \
+        "Sets both charts to $tag, and regenerates the changelog and the chart READMEs." \
+        "" \
+        "Merging this publishes nothing. The tag is what does, and it is applied once this is on main.")
+    gh pr create --title "chore(release): $tag" --body "$body"
+    echo
+    echo "merge that, then: git switch main && git pull && just release-tag"
+
+# Tag the release commit on main and push it, which starts the release workflow
+release-tag:
+    #!/usr/bin/env bash
+    # The trigger, and the last thing done from a laptop. Everything after this
+    # happens in the release workflow, which is not a preference: keyless
+    # signatures carry the identity of whoever authenticated, and the identity
+    # every published verify command names is that workflow's. A tag applied
+    # here and a release cut here are not the same thing.
+    #
+    # The version is read from the chart rather than passed in, so this cannot
+    # tag one number while the charts declare another.
+    set -euo pipefail
+    fail() { echo "$1" >&2; exit 1; }
+
+    [ -z "$(git status --porcelain)" ] || fail "working tree is dirty"
+    [ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || fail "a release tag belongs on main"
+    git fetch -q origin main
+    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "main is behind origin; pull first"
+
+    tag=$(grep -E '^appVersion:' charts/cellcast/Chart.yaml | sed -E 's/^appVersion: *"?([^"]*)"?/\1/')
+    [ -n "$tag" ] || fail "charts/cellcast/Chart.yaml declares no appVersion"
+    if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+        fail "tag $tag already exists; the release for it has already been cut"
+    fi
+    # The guard the release itself will apply, applied before the tag exists so
+    # that a mismatch costs nothing to fix.
+    for c in {{chart_names}}; do
+        got=$(grep -E '^appVersion:' "charts/$c/Chart.yaml" | sed -E 's/^appVersion: *"?([^"]*)"?/\1/')
+        [ "$got" = "$tag" ] || fail "charts/$c declares appVersion $got, not $tag; run 'just release-prepare $tag'"
+    done
+
+    echo "tagging $(git rev-parse --short HEAD) as $tag"
+    git tag -a "$tag" -m "$tag"
+    git push origin "refs/tags/$tag"
+    echo
+    echo "release workflow started: https://github.com/{{owner}}/cellcast/actions/workflows/release.yml"
+    echo "it runs check-all and the end-to-end suite before publishing anything."
+
 # Print the release notes for one tag
 release-notes tag=version:
     #!/usr/bin/env bash
