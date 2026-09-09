@@ -1,5 +1,5 @@
-# Local verification layer. CI is dormant until the repository goes public
-# (ENG-188), so these hooks and `just check` are what actually gate a commit.
+# Local verification layer. These hooks and `just check` gate a commit before
+# it is pushed; CI runs the same recipes again.
 #
 # Install with `just hooks`.
 repos:

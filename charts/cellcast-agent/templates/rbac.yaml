@@ -1,6 +1,6 @@
 {{- if .Values.rbac.create }}
 # The whole of what the agent is granted in the cell it runs in. It is
-# deliberately short enough to read in full before installing it.
+# short enough to read in full before installing it.
 #
 # What the agent CANNOT do matters more than what it can:
 #   * It cannot read Secrets, ConfigMaps, or any workload spec beyond resource
@@ -17,7 +17,7 @@ metadata:
   labels:
     {{- include "cellcast-agent.labels" . | nindent 4 }}
 # Cluster-scoped because capacity is a cluster-level fact: the agent has to see
-# every node and every pod to compute it. Read-only, and `get` is deliberately
+# every node and every pod to compute it. Read-only, and `get` is
 # absent because the agent only ever lists and watches.
 rules:
   - apiGroups: [""]

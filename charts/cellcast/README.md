@@ -19,10 +19,10 @@ helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
 ```
 
 The issuer is not optional in practice. Without one the hub authenticates
-nobody and refuses every API request, which is the correct state for a broker
-that cannot tell who is asking, and is not a working install.
+nobody and refuses every API request. That is the correct state for a broker
+that cannot tell who is asking, and it is not a working install.
 
-## Things worth knowing before you install
+## Before installing
 
 **The CRDs are in `templates/`, not `crds/`.** Helm installs a `crds/`
 directory once and never upgrades it, which means a schema change would need a
@@ -39,15 +39,14 @@ endpoint removal can propagate, and only then drains within
 their sum or the kubelet interrupts the drain. The chart refuses to render if it
 does not.
 
-**`updateStrategy.rollingUpdate.maxUnavailable` is `0` on purpose.** A new
+**`updateStrategy.rollingUpdate.maxUnavailable` is `0`.** A new
 replica starts with an empty capacity index and refuses placements until the
 fleet has reported to it. Surging before terminating is what keeps a rollout
 from being a window in which deploys fail.
 
 **Metrics are unauthenticated.** The endpoint discloses cell names, policy names
 and refusal counts, which an authenticated caller could already list through the
-API. Reaching it should be a NetworkPolicy decision; `networkPolicy.enabled`
-is where that lives.
+API. Reaching it is a NetworkPolicy decision: `networkPolicy.enabled`.
 
 ## Values
 
@@ -98,7 +97,7 @@ is where that lives.
 | podDisruptionBudget.maxUnavailable | int | `1` | Pods that may be unavailable during a voluntary disruption. Expressed as maxUnavailable rather than minAvailable so that a single-replica development install can still be drained. |
 | podDisruptionBudget.minAvailable | string | `""` | Minimum available pods. Mutually exclusive with maxUnavailable. |
 | updateStrategy.type | string | `"RollingUpdate"` |  |
-| updateStrategy.rollingUpdate.maxUnavailable | int | `0` | Zero, deliberately. A new replica has to be ready, which means warm, before an old one goes away, or a rollout is a window in which placements are refused. |
+| updateStrategy.rollingUpdate.maxUnavailable | int | `0` | Zero. A new replica has to be ready, which means warm, before an old one goes away, or a rollout is a window in which placements are refused. |
 | updateStrategy.rollingUpdate.maxSurge | int | `1` |  |
 | terminationGracePeriodSeconds | int | `40` | Grace period for a terminating pod. It must exceed drainDelay plus shutdownTimeout, or the kubelet's SIGKILL lands mid-drain. The chart refuses to render if it does not. |
 | resources.requests.cpu | string | `"50m"` |  |
@@ -108,7 +107,7 @@ is where that lives.
 | affinity | object | `{}` | Pod affinity rules. Left empty because topologySpreadConstraints above already spreads across nodes; set this for zone rules or co-scheduling. |
 | nodeSelector | object | `{}` | Node selector for hub pods. |
 | tolerations | list | `[]` | Tolerations for hub pods. |
-| priorityClassName | string | `""` | PriorityClass for hub pods. A service in the deploy critical path is worth naming here. |
+| priorityClassName | string | `""` | PriorityClass for hub pods. Name one for a service in the deploy critical path. |
 | podAnnotations | object | `{}` | Extra annotations for hub pods. |
 | podLabels | object | `{}` | Extra labels for hub pods. |
 | podSecurityContext.runAsNonRoot | bool | `true` |  |

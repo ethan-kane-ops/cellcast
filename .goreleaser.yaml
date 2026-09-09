@@ -1,10 +1,9 @@
 # goreleaser builds one artifact: the client binary.
 #
-# The hub and the agent are deliberately absent. They are servers that run in a
-# cluster and ship as images built by the Dockerfile; a tarball of the hub
-# invites somebody to run the credential broker as a host process outside every
-# control the charts apply. The split is asserted by
-# internal/boundaries/release_test.go rather than left to this comment.
+# The hub and the agent are absent. They are servers that run in a cluster and
+# ship as images built by the Dockerfile; a tarball of the hub invites somebody
+# to run the credential broker as a host process outside every control the
+# charts apply. internal/boundaries/release_test.go asserts the split.
 version: 2
 
 project_name: cellcast

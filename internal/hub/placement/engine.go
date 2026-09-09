@@ -19,8 +19,8 @@ import (
 
 // Placement outcomes that callers distinguish.
 //
-// They are separate errors because they call for different operator action and,
-// under ENG-175, different client behaviour. Collapsing them into one "no
+// They are separate errors because they call for different operator action and
+// different client behaviour. Collapsing them into one "no
 // placement" would make an authorization refusal indistinguishable from a
 // fleet-wide capacity blackout, and those must never be handled the same way.
 var (
@@ -38,9 +38,9 @@ var (
 	ErrNoEligibleCells = errors.New("no permitted cell is currently accepting placements")
 
 	// ErrCapacityUnknown means every permitted, eligible cell has stale or
-	// missing capacity. Distinct on purpose (docs/architecture.md ADR-002): the
+	// missing capacity. Distinct (docs/architecture.md ADR-002): the
 	// hub refuses to guess, and the client's declared fallback stance decides
-	// what happens next (ENG-175). It is never resolved by picking one.
+	// what happens next. It is never resolved by picking one.
 	ErrCapacityUnknown = errors.New("no permitted cell has usable capacity")
 
 	// ErrDarkNotPermitted means the caller asked for a dark cell under a policy
@@ -77,7 +77,7 @@ type Request struct {
 // Candidate is one cell's journey through the filter.
 //
 // Every registered cell appears exactly once, admitted or not, so `--explain`
-// (ENG-114) can show why a cell the caller expected was not chosen. A rejection
+// can show why a cell the caller expected was not chosen. A rejection
 // nobody can read is a rejection somebody works around.
 type Candidate struct {
 	Cell string
@@ -134,7 +134,7 @@ const (
 // Confidence reports how much of the permitted fleet the decision could see.
 //
 // Only capacity exclusions count. A draining or dark cell was excluded by a
-// deliberate operator action and its absence is not a gap in the hub's view;
+// an operator action, and its absence is not a gap in the hub's view;
 // a cell whose agent stopped reporting is exactly that gap.
 func (d *Decision) Confidence() Confidence {
 	for _, c := range d.Candidates {
@@ -164,7 +164,7 @@ type Engine struct {
 	log      *slog.Logger
 
 	// cursors carry round-robin position per policy. In memory and per replica
-	// on purpose: a shared cursor would need consensus on the deploy critical
+	// a shared cursor would need consensus on the deploy critical
 	// path, and cellcast is advisory (ADR-006). Rotation across a multi-replica
 	// hub is therefore approximate, which is the correct trade for a hint.
 	mu      sync.Mutex
@@ -207,7 +207,7 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 
 	policy, ambiguous, err := selectPolicy(policies.Items, id)
 	if err != nil {
-		// The refusal returned to the caller is deliberately bare, so the
+		// The refusal returned to the caller is bare, so the
 		// detail an operator needs to fix the policy goes here instead.
 		e.log.WarnContext(ctx, "placement refused: no policy matches this caller",
 			slog.String("issuer", id.Issuer),

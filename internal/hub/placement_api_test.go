@@ -277,9 +277,10 @@ func TestPlacementRefusals(t *testing.T) {
 	}
 }
 
-// TestAuthorizationRefusalsAreNotRetryable pins the status split ENG-175
-// depends on. A caller told it may not reach a cell must not be told to wait
-// and try again, and a fleet-wide capacity blackout must not look permanent.
+// TestAuthorizationRefusalsAreNotRetryable pins the status split the client's
+// fallback stance depends on. A caller told it may not reach a cell must not be
+// told to wait and try again, and a fleet-wide capacity blackout must not look
+// permanent.
 func TestAuthorizationRefusalsAreNotRetryable(t *testing.T) {
 	permanent := []error{placement.ErrNoPolicy, placement.ErrDarkNotPermitted, placement.ErrNoPermittedCells}
 	transient := []error{placement.ErrNoEligibleCells, placement.ErrCapacityUnknown}
@@ -475,8 +476,8 @@ func TestPlacementNamesTheSubjectItDecidedFor(t *testing.T) {
 	}
 }
 
-// TestUnavailableReasonsAreNotInterchangeable pins a split ENG-175 needs and
-// ENG-114 did not make. Both of these are 503s and they call for opposite
+// TestUnavailableReasonsAreNotInterchangeable pins a split the placement API
+// did not originally make. Both of these are 503s and they call for opposite
 // client behaviour: a hub that cannot decide may be answered by a declared
 // fallback, and a hub that cannot mint may never be.
 func TestUnavailableReasonsAreNotInterchangeable(t *testing.T) {

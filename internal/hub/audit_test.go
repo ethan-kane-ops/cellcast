@@ -92,7 +92,7 @@ func only(t *testing.T, records []map[string]any, event string) map[string]any {
 	return found[0]
 }
 
-// TestAFullMintIsAuditedWithNoTokenMaterial is ENG-176's done-when at the HTTP
+// TestAFullMintIsAuditedWithNoTokenMaterial checks the trail at the HTTP
 // boundary. The same assertion runs against a real API server and a real token
 // in TestLiveEndToEnd.
 func TestAFullMintIsAuditedWithNoTokenMaterial(t *testing.T) {

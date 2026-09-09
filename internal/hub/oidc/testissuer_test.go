@@ -19,8 +19,7 @@ import (
 //
 // It serves a real discovery document and a real JWKS over TLS, and signs real
 // RS256 tokens, so the tests exercise the same code path a GitHub Actions token
-// would. The deferred acceptance criterion on ENG-172 (a live GitHub Actions
-// job) is met through this fixture until ENG-185.
+// would, without needing a live CI job to produce one.
 type testIssuer struct {
 	server *httptest.Server
 
@@ -88,7 +87,7 @@ func (i *testIssuer) rotate(t *testing.T, kid string) {
 	i.published = []signingKey{next}
 }
 
-// signWith signs claims using a key that is deliberately not in the published
+// signWith signs claims using a key that is not in the published
 // JWKS, standing in for a token signed by an authority the issuer disowns.
 func (i *testIssuer) signWith(t *testing.T, key signingKey, claims map[string]any) string {
 	t.Helper()

@@ -7,8 +7,8 @@ cellcast answers two questions for a deploy pipeline that already exists:
 
 It does not deploy anything. It does not propagate manifests, own a GitOps loop, or sit in the
 data path of a running application. Every existing tool in this space (Open Cluster Management,
-Karmada, Rancher Fleet) answers question 1 only if you first adopt its control plane and its
-propagation model. cellcast is a queryable oracle you bolt onto the pipeline you already have.
+Karmada, Rancher Fleet) answers question 1 only once its control plane and propagation model have
+been adopted. cellcast is a queryable oracle attached to a pipeline that already exists.
 
 ## Non-goals
 
@@ -21,8 +21,8 @@ Stated up front because the security argument depends on them:
 
 It holds trust configuration and mints on demand. If the hub process is compromised, the attacker
 gains the ability to mint within the operator's policy ceiling. They do not gain a vault to drain.
-That distinction is the entire security argument, and [the threat model](threat-model.md) tests it
-honestly rather than asserting it.
+That distinction is the security argument, and [the threat model](threat-model.md) states its limits
+rather than asserting it holds.
 
 ## System shape
 
@@ -71,31 +71,30 @@ One request, in order. Each step can reject, and the order is load-bearing.
 
 1. **Authenticate.** The caller presents the workload identity JWT its CI platform already issues.
    The hub validates it against the issuer's JWKS. There is no shared secret anywhere in this
-   chain. (ENG-172)
+   chain.
 2. **Filter by permission.** The authenticated claims resolve to a `PlacementPolicy`, which
    expresses the permitted cells as a label selector over the `Cluster` registry. No matching
-   policy means rejection, never a fallback to "any cell". (ENG-173)
+   policy means rejection, never a fallback to "any cell".
 3. **Filter by eligibility.** From the permitted set, drop cells that are `DRAINING`, cells whose
    capacity is `Unknown`, and cells that are `DARK` unless the caller explicitly asked for dark.
-   (ENG-111, ENG-112)
 4. **Score.** Of the survivors, pick one: least-loaded by default, round-robin as an alternative,
-   chosen by policy rather than by the caller. Ties break deterministically. (ENG-173)
+   chosen by policy rather than by the caller. Ties break deterministically.
 5. **Mint.** Request a short-lived credential scoped to the chosen cell and the workload's
-   namespace boundary, with a TTL resolved from policy. Return it. Forget it. (ENG-113)
+   namespace boundary, with a TTL resolved from policy. Return it. Forget it.
 
 Steps 2 and 3 are the filter phase; step 4 is the optimisation phase. Running them in the other
 order is the bug that routes a dev pipeline into the least-loaded production cluster in another
 region.
 
 `--explain` renders steps 2 through 4 as a table so a surprising placement is legible without a
-debug build. `--dry-run` runs 1 through 4 and stops before 5. (ENG-114)
+debug build. `--dry-run` runs 1 through 4 and stops before 5.
 
 A refusal carries a machine-readable `reason` alongside its message, and the status code separates
 refusals a caller must not retry from ones that may clear on their own. `NoPolicy` and
 `DarkNotPermitted` are 403 and never become a yes. `NoPermittedCells` is 409, because retrying cannot
 fix a selector that matches nothing. `NoEligibleCells` and `CapacityUnknown` are 503, because a
-draining cell comes back and an agent starts reporting again. ENG-175 builds the client's fallback
-stance on that split, and a client must never have to match on prose to find it.
+draining cell comes back and an agent starts reporting again. The client's fallback stance is built
+on that split, so a client never has to match on prose to find it.
 
 ## Decision records
 
@@ -156,11 +155,11 @@ deploy in the estate. So:
 
 - `Unknown` cells are excluded from scoring. They are never treated as empty.
 - If every candidate is `Unknown`, placement fails closed with a distinct error rather than guessing.
-- Staleness is a first-class metric with a documented alert. (ENG-178)
+- Staleness is a first-class metric with a documented alert.
 
-**Implemented in ENG-111** as `internal/hub/capacity`, which knows nothing about Kubernetes, HTTP or
-policy: it is a bounded map with an injectable clock, which is what makes the staleness guard
-testable without a cluster. Four decisions in it are load-bearing:
+**Implemented** as `internal/hub/capacity`, which knows nothing about Kubernetes, HTTP or policy: a
+bounded map with an injectable clock, which is what makes the staleness guard testable without a
+cluster. Four decisions in it are load-bearing:
 
 - **Health is computed at read time, never written by the prune loop.** A stalled or crashed sweeper
   must not be able to leave a stale entry looking fresh, which is the failure mode that turns the
@@ -192,17 +191,15 @@ validates the signature against the issuer's JWKS, enforces `iss` against an all
 to this cellcast instance, checks `exp` and `nbf` with bounded clock skew, and extracts provider
 specific claims behind an interface (GitHub Actions, Buildkite, more additive).
 
-**Consequences.** No shared secret exists anywhere in the chain. This is the point: the CI credential
-problem is not solved by moving the secret to a better hiding place, it is solved by removing the
-secret. The cost is that cellcast is only as trustworthy as the CI platform's issuer, which is a
-dependency worth stating plainly rather than hiding.
+**Consequences.** No shared secret exists anywhere in the chain. Moving a CI credential to a better
+hiding place does not solve the problem; removing it does. The cost is that cellcast is only as
+trustworthy as the CI platform's issuer, which is a dependency stated plainly rather than hidden.
 
 **Rejected.** Static bearer tokens reintroduce exactly the long-lived shared secret this project
 exists to eliminate. mTLS is defensible but requires the adopter to run a certificate lifecycle for
 ephemeral CI runners, which is a larger operational burden than the problem it replaces.
 
-v0.1 authenticates pipelines only. Human callers are a separate design problem and are explicitly
-out of scope.
+Pipelines authenticate; human callers are a separate design problem and are out of scope.
 
 ---
 
@@ -211,29 +208,29 @@ out of scope.
 **Context.** The credential returned to the pipeline is the thing that makes cellcast useful and the
 thing that makes it dangerous.
 
-**Decision.** cellcast holds trust configuration and mints on demand. v0.1 implements Kubernetes
-`TokenRequest` only. AWS STS `AssumeRole` lands in v0.2 behind the same trust-provider interface,
-which is designed for both from day one.
+**Decision.** cellcast holds trust configuration and mints on demand. Kubernetes `TokenRequest` is
+the only implementation. AWS STS `AssumeRoleWithWebIdentity` sits behind the same trust-provider
+interface, which was designed for both, and is [under
+consideration](https://github.com/ethan-kane-ops/cellcast/blob/main/ROADMAP.md) rather than built.
 
 TTL is policy, not a constant. It resolves from the target cell's `env` label: production short,
 development longer, with a hard ceiling the operator sets. A caller may request a shorter TTL than
 policy allows. A caller may never request a longer one.
 
-**Consequences.** `TokenRequest` demos end to end on kind with no cloud account, which keeps the
-recorded demo reproducible. Shipping one provider first gets the broker semantics right before a
-second implementation calcifies them.
+**Consequences.** `TokenRequest` runs end to end on kind with no cloud account, which keeps the
+demo reproducible. Shipping one provider first settles the broker semantics before a second
+implementation calcifies them.
 
 **Rejected.** Stored kubeconfigs handed to callers, in any form. A single global 15-minute TTL was
 the original plan and is the wrong default in both directions at once: too long for production, too
 short for a slow dev deploy.
 
-#### Implemented in ENG-113
+#### As implemented
 
 **The production default is 10 minutes, not the 5 this record originally specified.** The Kubernetes
-`TokenRequest` API rejects any `expirationSeconds` below 600 outright: *"may not specify a duration
-less than 10 minutes"*. Five minutes was never achievable and the number stood here because nobody
-had tried it. AWS STS `AssumeRole` has a 15-minute floor of its own, so the constraint is not a
-Kubernetes quirk to be engineered around in v0.2; it gets worse. A provider therefore declares its
+`TokenRequest` API rejects any `expirationSeconds` below 600: *"may not specify a duration less than
+10 minutes"*. Five minutes was never achievable. AWS STS has a 15-minute floor of its own, so the
+constraint is not a Kubernetes quirk that a second provider would remove. A provider declares its
 floor and the broker reasons about it.
 
 The resolved bounds, narrowest layer last:
@@ -280,13 +277,13 @@ registry.
 Scoring strategy is chosen by policy, not by the request. A caller must not be able to pick the
 strategy that lands it in the cell it wants.
 
-**Consequences.** This is the confused-deputy defence, and it is the difference between a scheduling
-toy and something with an authorization model. Deny by default: a caller with no matching policy is
-rejected cleanly. Policy lives in Git, is reviewable in a pull request, and is auditable through the
-API server, because policy that nobody can diff is policy that drifts.
+**Consequences.** This is the confused-deputy defence, and it is what gives the system an
+authorization model rather than a scheduling heuristic. Deny by default: a caller with no matching
+policy is rejected cleanly. Policy lives in Git, is reviewable in a pull request, and is auditable
+through the API server, because policy that nobody can diff is policy that drifts.
 
-**Implemented in ENG-173** as `internal/hub/placement`. Three filter stages run in a fixed order,
-and a cell is recorded at the first one that refuses it:
+**Implemented** as `internal/hub/placement`. Three filter stages run in a fixed order, and a cell is
+recorded at the first one that refuses it:
 
 | Stage | Refuses |
 | --- | --- |
@@ -296,7 +293,7 @@ and a cell is recorded at the first one that refuses it:
 
 Permission is first so that a rejection can never disclose the state or utilisation of a cell the
 caller may not reach. Every registered cell appears in the trace exactly once with its verdict, which
-is what `--explain` (ENG-114) renders.
+is what `--explain` renders.
 
 **Overlapping policies resolve to the most specific.** A policy constraining `{repository,
 environment}` beats one constraining `{repository}`, because that is what an operator writes when
@@ -306,10 +303,10 @@ answer is stable, and logged so the ambiguity is visible rather than silently re
 **Targeting a dark cell without permission is refused, not downgraded.** Silently turning a QA smoke
 test into an ordinary placement lands it on a live cell, which is the opposite of what was asked for.
 
-**Four distinguishable refusals**, because they call for different operator action and, under
-ENG-175, different client behaviour: no matching policy, policy permits no registered cell, no
-permitted cell is accepting, and no permitted cell has usable capacity. Collapsing them would make an
-authorization refusal indistinguishable from a fleet-wide capacity blackout.
+**Four distinguishable refusals**, because they call for different operator action and different
+client behaviour: no matching policy, policy permits no registered cell, no permitted cell is
+accepting, and no permitted cell has usable capacity. Collapsing them would make an authorization
+refusal indistinguishable from a fleet-wide capacity blackout.
 
 ---
 
@@ -342,12 +339,11 @@ with someone else's production traffic.
 **Token minting never falls back.** A cached placement is a cached decision, never a cached
 credential. The client re-mints or fails.
 
-**What that costs, said plainly.** Minting runs through the hub, so a hub that cannot be reached
-cannot issue a credential either. A fallback therefore returns a cell and nothing else. It is worth
-having for two kinds of pipeline: one that only needs the cell name (`--dry-run`, to pick a values
-file or a target it already holds access to), and one that keeps a break-glass credential for
-exactly this. A pipeline with neither cannot deploy through a hub outage, and `--on-unavailable`
-will not change that. Claiming otherwise would be selling the cache as something it is not.
+**What that costs.** Minting runs through the hub, so a hub that cannot be reached cannot issue a
+credential either. A fallback therefore returns a cell and nothing else. That serves two kinds of
+pipeline: one that needs only the cell name (`--dry-run`, to pick a values file or a target it
+already holds access to), and one that keeps a break-glass credential for this situation. A pipeline
+with neither cannot deploy through a hub outage, and `--on-unavailable` will not change that.
 
 **Which failures a stance may answer.** The classification lives in `internal/refusal`, imported by
 both the hub and the client so the two cannot drift apart:
@@ -369,8 +365,8 @@ when something downstream has to act on it.
 made. `source` is `hub`, `cache` or `pinned`. `confidence` is `high` when every permitted, eligible
 cell reported fresh capacity and was ranked; `degraded` when at least one was excluded because its
 capacity was stale or had never arrived; `stale` for a replayed decision; `none` for a pinned cell.
-A drained or dark cell does not degrade a decision: it was excluded by an operator on purpose, and
-counting it would make the signal meaningless during any planned maintenance.
+A drained or dark cell does not degrade a decision, because an operator excluded it deliberately.
+Counting it would make the signal meaningless during any planned maintenance.
 
 **Two details that are not obvious and matter more than the rest of the feature.** A fallback
 deletes the kubeconfig at the target path, because a credential left by an earlier run is a live
@@ -417,10 +413,9 @@ Transitioning a cell to `DRAINING` must not fail placements already issued. Beca
 the CRD, `kubectl patch` is a legitimate operator interface and every transition is visible in the
 API server audit log.
 
-**Implemented in ENG-112.** The semantics above live on the `ClusterState` type itself
-(`AcceptsPlacement`, `ServesProductionTraffic`) rather than in the hub, because darkgate (ENG-92)
-consumes the same values from a different repository and a second copy of the table is how the two
-drift apart. The `ClusterReconciler` publishes the hub's view as
+**Implemented.** The semantics above live on the `ClusterState` type itself (`AcceptsPlacement`,
+`ServesProductionTraffic`) rather than in the hub, so a consumer outside this repository reads the
+rules from the API types instead of keeping a second copy of the table to drift from. The `ClusterReconciler` publishes the hub's view as
 `status.conditions[AcceptingPlacements]` and `status.stateSince`, so "why is nothing landing here"
 and "how long has this been draining" are both answered by `kubectl get cluster`.
 
@@ -501,25 +496,25 @@ fails on any new one, rather than by a rule in this document (docs/threat-model.
 a dry run places and never mints, and a mint fails against a cell that placement legitimately chose.
 Collapsing them would make "every token issued" a query over records that mostly are not tokens.
 
-**The Events view is deliberately lossy.** Kubernetes aggregates and spam-filters events, so a busy
+**The Events view is lossy by design.** Kubernetes aggregates and spam-filters events, so a busy
 hub will have some collapsed or dropped. Making that view complete would mean an API server write per
 deploy across the estate, in the critical path. The JSON trail is authoritative; the Events exist so
 an operator already looking at a cell can see who has been deploying to it.
 
 **The Prometheus counters ride the same record.** Every fact a placement or mint metric needs is
 already on an audit.Record, so the metrics view is a second `Notifier` rather than a second pass over
-the placement handler. One instrumentation point cannot disagree with itself, and a refusal that is
-audited is therefore counted by construction (docs/metrics.md).
+the placement handler. One instrumentation point cannot disagree with itself, so a refusal that is
+audited is also counted (docs/metrics.md).
 
 **Rejected.** A database or any bespoke sink, for the reasons above. Also rejected: auditing only
-successes, which produces a log that cannot answer the question a refused pipeline is actually
-asking; and emitting one combined record per request, which conflates a decision with a credential.
+successes, which produces a log that cannot answer a refused pipeline's question; and emitting one
+combined record per request, which conflates a decision with a credential.
 
 ---
 
 ### ADR-011: the API path runs N replicas, and only the controllers elect
 
-**Status:** accepted (ENG-179)
+**Status:** accepted
 
 **Context.** cellcast is in the deploy critical path, so a single replica is a single point of
 failure for every deploy in the estate. But the hub is two programs in one process. The API answers
@@ -573,10 +568,10 @@ that makes this service easy to scale, which is that deciding does not write.
 **Rejected: sharing the capacity index between replicas.** Gossip or a shared cache would make
 replicas agree. It would also give the hub a distributed system to be wrong about, in exchange for
 agreement on a number that is advisory and stale by construction. ADR-002 already decided that
-capacity is not worth durability; it is not worth consensus either.
+capacity does not warrant durability. It does not warrant consensus either.
 
-**Consequence.** Losing the lease stops the process, and that is deliberate: whichever half fails
-takes the other down, so a partial failure surfaces as a restart. Under an API server partition
+**Consequence.** Losing the lease stops the process, so whichever half fails takes the other down
+and a partial failure surfaces as a restart. Under an API server partition
 only the leader exits; followers stay in their acquisition loop and keep serving from cache. The
 restarted replica cannot sync, so it stays unready and out of the Service until the partition
 clears.
@@ -609,7 +604,7 @@ token is rejected, which is the invariant that keeps ADR-004 true.
 **`PlacementPolicy`** maps authenticated caller claims to a permitted label selector, a scoring
 strategy, and TTL bounds.
 
-Capacity is deliberately not a resource. It lives in memory per ADR-002.
+Capacity is not a resource. It lives in memory, per ADR-002.
 
 ## Failure behaviour
 
@@ -630,10 +625,3 @@ Capacity is deliberately not a resource. It lives in memory per ADR-002.
 | Hub replica still warming up | Ready, so agents can reach it, but every placement is refused with `PlacementUnavailable` until it is warm (ADR-011) |
 | Hub replica being rolled | Reports unready, keeps serving for `--drain-delay`, then drains in-flight requests (ADR-011) |
 | Leader loses its lease | That replica exits and restarts; the others keep serving placements from cache (ADR-011) |
-
-## Related tickets
-
-Every decision here has an implementing ticket: ENG-193 (foundation), ENG-110 (registry), ENG-111
-(capacity), ENG-112 (state), ENG-113 (broker), ENG-114 (placement API and client), ENG-172 (OIDC),
-ENG-173 (policy), ENG-174 (agent), ENG-175 (advisory mode), ENG-176 (audit trail), ENG-177 (test harness), ENG-178
-(metrics), ENG-179 (multi-replica HA).

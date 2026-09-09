@@ -3,8 +3,8 @@
 cellcast answers one question for a deploy pipeline: **which of my clusters
 should this go to, and what credential may I use to get there?**
 
-It is a placement oracle and a credential broker, and it is deliberately not a
-deploy engine. Your pipeline keeps whatever it already uses to apply manifests.
+It is a placement oracle and a credential broker, and not a deploy engine. The
+pipeline keeps whatever it already uses to apply manifests.
 
 ```console
 $ cellcast place --workload checkout-api --ttl 15m
@@ -16,10 +16,10 @@ kubeconfig written to cellcast.kubeconfig (0600, as apps/deployer)
 ## What it replaces
 
 The long-lived kubeconfig sitting in a CI secret. Every pipeline that deploys to
-a cluster has one, nobody defends it, and rotating it across an estate is a
-project. cellcast replaces it with a credential minted at the moment of the
-deploy, scoped to one namespace and one service account in one cell, that
-expires before the build log finishes uploading.
+a cluster has one, and rotating them across an estate is a project of its own.
+cellcast replaces it with a credential minted at the moment of the deploy,
+scoped to one namespace and one service account in one cell, expiring before the
+build log finishes uploading.
 
 The pipeline authenticates with the OIDC token its CI platform already issues.
 No secret is stored anywhere.
@@ -41,9 +41,6 @@ was excluded, and a hash of the token issued. Never the token.
 
 ## What happens when cellcast is down
 
-This is the first question worth an answer for anything in the deploy critical
-path, so it is answered explicitly rather than discovered.
-
 A placement is a recommendation, not a command, and the pipeline declares up
 front what should happen when there is no answer:
 
@@ -64,3 +61,4 @@ make the flag a way around the policy engine.
 - **[Architecture](architecture.md)**: the system shape and eleven decision records, each with the alternatives that were rejected.
 - **[Threat model](threat-model.md)**: trust boundaries, the threats, and the risks explicitly accepted.
 - **[Placement policy](placement-policy.md)**: writing a policy, and seeing what it does before relying on it.
+- **[Extending](extending.md)**: adding a CI platform the hub does not know, or a second way to mint.

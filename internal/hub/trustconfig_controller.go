@@ -41,7 +41,7 @@ type TrustConfigReconciler struct {
 	Client client.Client
 
 	// Secrets reads credential material and must be uncached. The controller
-	// only ever checks for a key's presence, and it deliberately does not hold
+	// only ever checks for a key's presence, and does not hold
 	// the value it read (docs/threat-model.md T-08).
 	Secrets client.Reader
 

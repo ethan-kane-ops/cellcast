@@ -28,8 +28,8 @@ const KubernetesMinTTL = 10 * time.Minute
 // mintTimeout bounds a single minting call.
 //
 // Minting sits in the deploy critical path, so an unreachable spoke has to fail
-// quickly and let the caller act on its declared fallback stance (ENG-175)
-// rather than holding the pipeline open until something else times out.
+// quickly and let the caller act on its declared fallback stance rather than
+// holding the pipeline open until something else times out.
 const mintTimeout = 15 * time.Second
 
 // KubernetesProvider mints through a cell's TokenRequest API.

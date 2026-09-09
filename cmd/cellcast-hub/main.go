@@ -159,11 +159,10 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		return err
 	}
 
-	// GetAPIReader for credential Secrets, GetClient for everything else. The
-	// split is the point: trust configuration is cached because it is read on
-	// every mint and changes rarely, while the material that authenticates the
-	// hub to a spoke is fetched at the moment it is used and not retained
-	// (docs/threat-model.md T-08).
+	// GetAPIReader for credential Secrets, GetClient for everything else. Trust
+	// configuration is cached because it is read on every mint and changes
+	// rarely; the material that authenticates the hub to a spoke is fetched at
+	// the moment it is used and not retained (docs/threat-model.md T-08).
 	connector := broker.NewSecretConnector(mgr.GetAPIReader(), cfg.Namespace, mgr.GetConfig())
 	minter := broker.New(
 		mgr.GetClient(), cfg.Namespace, cfg.TokenTTLCeiling, log,
@@ -174,7 +173,7 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 
 	// Registered with controller-runtime's registry, which is what the
 	// manager's metrics endpoint already serves. A second listener would mean a
-	// fourth port on a process that is deliberately parsimonious with them.
+	// fourth port on a process that keeps them to a minimum.
 	hubMetrics, err := metrics.New(ctrlmetrics.Registry)
 	if err != nil {
 		return fmt.Errorf("registering metrics: %w", err)

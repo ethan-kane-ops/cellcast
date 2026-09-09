@@ -96,7 +96,7 @@ func DefaultConfig() Config {
 		// checks in three times inside it, so a replica that is still cold at
 		// the deadline is not waiting on timing, it is waiting on something
 		// that is broken.
-		WarmupTimeout: capacity.DefaultStaleness,
+		WarmupTimeout:     capacity.DefaultStaleness,
 		LogLevel:          "info",
 		LogFormat:         "json",
 		CapacityStaleness: capacity.DefaultStaleness,

@@ -1,7 +1,7 @@
 # Default values for the cellcast reporter agent.
 #
 # This chart installs into a cell, not into the hub cluster. It is separate from
-# the hub chart on purpose: bundling them would make every spoke carry the hub's
+# the hub chart: bundling them would make every spoke carry the hub's
 # CRDs and RBAC for something it never runs.
 #
 # Two values have no usable default and must be set: `cellName` and

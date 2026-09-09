@@ -84,9 +84,8 @@ type Option func(*Server)
 
 // WithAuthenticator replaces the fail-closed default authenticator.
 //
-// ENG-172 supplies the OIDC implementation. Until then the default rejects
-// every caller, which is the correct behaviour for a broker with no way to
-// identify who is asking.
+// The default rejects every caller, which is the correct behaviour for a broker
+// with no way to identify who is asking.
 func WithAuthenticator(a Authenticator) Option {
 	return func(s *Server) { s.authn = a }
 }
@@ -104,7 +103,7 @@ func WithClusterClient(c client.Client) Option {
 //
 // Separate from the cluster client because the two have opposite durability
 // stories: the registry is etcd-backed and survives a restart, the capacity
-// index is deliberately lost on one (docs/architecture.md ADR-002).
+// index is lost on one (docs/architecture.md ADR-002).
 func WithCapacityRegistry(c *capacity.Registry) Option {
 	return func(s *Server) { s.capacity = c }
 }
@@ -122,7 +121,7 @@ func WithCacheSync(fn func(context.Context) bool) Option {
 // WithEventRecorder attaches the Kubernetes Events view of the audit trail.
 //
 // Without it the trail is written to the log only. The narrow events interface
-// rather than controller-runtime's is deliberate: the only thing the hub does
+// rather than controller-runtime's: the only thing the hub does
 // with a recorder is call Eventf, and a one-method dependency is one a test can
 // stand in for without a broadcaster.
 func WithEventRecorder(rec events.EventRecorder) Option {
@@ -366,7 +365,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 // writeError writes a JSON error response.
 //
-// The message is deliberately coarse. A caller learns that it was rejected, not
+// The message is coarse. A caller learns that it was rejected, not
 // which cells exist or why a policy did not match; that detail goes to the hub
 // log and the audit trail, which are readable by the operator rather than by
 // the caller.

@@ -1,7 +1,7 @@
 # Audit trail
 
-Every placement decision and every issued credential is recorded. This document says what a record
-holds, where it goes, and how to answer the questions a security review actually asks from it.
+Every placement decision and every issued credential is recorded. What a record holds, where it goes,
+and how to answer a security review's questions from it.
 
 ## Where records go
 
@@ -18,7 +18,7 @@ kubectl -n cellcast-system logs deploy/cellcast-hub | jq -c 'select(.msg == "aud
 ```
 
 The trail is **not** levelled by `--log-level`. A hub started with `--log-level=error` still emits
-every record, because a security log that a verbosity flag can silence is not a security log.
+every record: a verbosity flag must not be able to silence it.
 
 ## The two records
 
@@ -35,8 +35,8 @@ mint can fail against a cell that placement legitimately chose, and that is a fa
 rather than in the request.
 
 A refusal is recorded with the same fields as a success, including the candidate table showing every
-registered cell and which filter stage rejected it. A trail that only holds what worked is not a
-trail.
+registered cell and which filter stage rejected it. A trail holding only what worked answers half the
+questions asked of it.
 
 ## What a record holds
 
@@ -93,8 +93,8 @@ header and the segment boundaries move, so "just a prefix" is not a fixed amount
 [the threat model](threat-model.md), T-05.
 
 `internal/hub/audit` enforces this structurally rather than by convention. The record type has no
-field that can carry credential material, and a test classifies every field and fails on any new one
-until somebody has thought about it.
+field that can carry credential material, and a test classifies every field, failing on any new one
+until it has been classified.
 
 ## Worked example: which pipeline deployed to prod-eu-1 last Tuesday
 
@@ -130,7 +130,7 @@ That is the answer: two repositories deployed to `prod-eu-1` on the 1st, three t
 each holding a credential scoped to the `deployer` service account in `apps` for fifteen minutes or
 less.
 
-**What was refused, which is the half the question usually forgets:**
+**What was refused:**
 
 ```bash
 jq -r 'select(.msg == "audit" and .outcome == "refused")
@@ -170,10 +170,10 @@ Events:
   Warning  MintFailed        4m     cellcast-hub   could not mint a credential for repo:acme/billing:ref:refs/heads/main: MintFailed
 ```
 
-**This view is deliberately lossy and the JSON trail is the authoritative one.** Kubernetes Events
-are aggregated, spam-filtered and expire on the cluster's own schedule, so a busy hub will have some
-of these collapsed or dropped. Making them complete would mean an API server write on every deploy
-in the estate, in the critical path. Use them to orient; answer the question from the log.
+**This view is lossy and the JSON trail is the authoritative one.** Kubernetes Events are aggregated,
+spam-filtered and expire on the cluster's own schedule, so a busy hub will have some of these
+collapsed or dropped. Making them complete would mean an API server write on every deploy in the
+estate, in the critical path. Use them to orient; answer the question from the log.
 
 Dry runs produce no Event. A refused placement produces none either, because it never reached a cell
 to hang one on; it is in the JSON trail like everything else.

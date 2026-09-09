@@ -32,7 +32,7 @@ func (sc *stateChange) validate() (cellcastv1alpha1.ClusterState, error) {
 		return state, nil
 	case "":
 		// An omitted state is not read as "reset to the default". Draining a
-		// cell and un-draining it are both deliberate acts and both have to be
+		// cell and un-draining it are both operator acts and both have to be
 		// spelled out, because the request that gets this wrong is the one
 		// issued from a script during an incident.
 		return "", errors.New("state is required and must be one of LIVE, DARK, DRAINING")

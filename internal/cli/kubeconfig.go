@@ -57,7 +57,7 @@ func writeKubeconfig(path string, cell string, cred *Credential) error {
 		}
 	}
 
-	// O_EXCL is deliberate. Writing through an existing path would follow a
+	// O_EXCL matters here. Writing through an existing path would follow a
 	// symlink an earlier job left behind, which on a shared runner is how a
 	// credential ends up somewhere the next job can read it. A stale file is
 	// removed first so a rerun still works, but the create itself never

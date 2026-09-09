@@ -29,7 +29,7 @@ type Bounds struct {
 
 // envBounds are the built-in defaults, keyed by the cell's `env` label.
 //
-// Production is deliberately at the provider floor rather than below it: see
+// Production sits at the provider floor rather than below it: see
 // ErrTTLBelowProviderFloor and docs/architecture.md ADR-004, which originally
 // specified five minutes and could not have it.
 var envBounds = map[string]Bounds{

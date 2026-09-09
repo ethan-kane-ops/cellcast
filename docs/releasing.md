@@ -10,9 +10,9 @@ A tag publishes five things, and every one of them is cut from the same commit.
 | `cellcast` and `cellcast-agent` charts | `oci://ghcr.io/ethan-kane-ops/charts` | `helm package` |
 | `cellcast` client archives and checksums | the GitHub release, and the Homebrew tap | goreleaser |
 
-The client is on that list twice on purpose. A person installs it with `brew install`
-or by unpacking an archive. A pipeline step that has no package manager, such as an
-Argo CD PreSync hook, runs the image instead. The hub and the agent are the other way
+The client is on that list twice. A person installs it with `brew install` or by
+unpacking an archive; a pipeline step with no package manager, such as an Argo CD
+PreSync hook, runs the image instead. The hub and the agent are the other way
 round and ship only as images: they hold trust configuration and mint credentials, and
 a tarball of the hub would look like a supported way to run the broker outside every
 control the chart applies.
@@ -30,10 +30,10 @@ version       0.3.0
 image tag     v0.3.0
 ```
 
-Helm lets a chart version and an appVersion move independently, and for a chart
-packaged separately from the thing it installs that indirection earns its keep. It does
-not here: one tag cuts the images and both charts from one commit, so a chart version
-that did not match would name a release nothing else in the project has heard of.
+Helm lets a chart version and an appVersion move independently, and for a chart packaged
+separately from the thing it installs that indirection earns its keep. It does not here.
+One tag cuts the images and both charts from one commit, so a chart version that did not
+match would name a release nothing else in the project has heard of.
 
 `just release-version v0.3.0` writes all four numbers and regenerates the changelog.
 A contract test holds the relationship, so a hand edit that breaks it fails `just
@@ -51,9 +51,8 @@ just release v0.3.0
 
 `just release` refuses to start unless the working tree is clean, the tag exists, the
 tag points at `HEAD`, and both charts already declare it. Then it runs `just check-all`
-and `just verify-e2e` before it publishes anything at all, because a credential broker
-that shipped broken is not something to fix forward: by the time you notice, the bad
-image has been pulled.
+and `just verify-e2e` before publishing anything, because a broken credential broker
+cannot be fixed forward: by the time it is noticed, the bad image has been pulled.
 
 Publishing order is images, then charts, then the GitHub release. The release is the
 artifact a person reads, and it should not appear before the things it describes exist.
@@ -69,15 +68,15 @@ configured with `mode: replace` so it rewrites the GitHub release rather than fa
 one that already exists.
 
 Once the tag has been announced, or anything has pulled it, stop overwriting and cut a
-patch tag instead. A tag whose contents changed after somebody pulled it is worse than a
-version number nobody used, and this project's whole answer to "what am I running" is
-that a digest names the same bytes tomorrow.
+patch tag instead. A tag whose contents changed after somebody pulled it costs more than
+a skipped version number, and the answer to "what am I running" rests on a digest naming
+the same bytes tomorrow.
 
 ## Rehearsing it
 
 `just release-check` runs every build the real thing runs and publishes none of it.
-It is the local stand-in for a release workflow, and it is worth running before you
-tag rather than after.
+It is the local stand-in for a release workflow, and it belongs before the tag rather
+than after.
 
 ```bash
 just release-check
@@ -95,8 +94,8 @@ just image-bases                 # current digests for the base images the Docke
 
 ## Reproducible builds
 
-Two builds of one commit produce identical bytes, and you can check that rather than
-believing it:
+Two builds of one commit produce identical bytes, which is checkable rather than
+claimed:
 
 ```bash
 just build && shasum -a 256 bin/cellcast
@@ -110,7 +109,7 @@ commit's own timestamp rather than the wall clock, which is the usual reason a
 "reproducible" release turns out not to be.
 
 The version a binary reports carries a `-dirty` suffix when the tree was not exactly a
-commit. That suffix is the signal that its bytes are not reproducible by anybody else.
+commit. That suffix means its bytes are not reproducible by anybody else.
 
 ```
 $ cellcast version
@@ -125,10 +124,10 @@ release.
 
 Keyless means there is no key. The signer authenticates over OIDC, Fulcio issues a certificate
 valid for a few minutes, and the signature plus that certificate go into Rekor, a public
-transparency log. Nothing to rotate, nothing to steal, and nothing to lose.
+transparency log. Nothing to rotate, nothing to steal.
 
-The consequence people miss is that "it is signed" stops being a useful statement. Anyone can
-sign anything with a valid identity. Verification has to name the identity you expect:
+The consequence is that "it is signed" stops being a useful statement, because anyone can sign
+anything with a valid identity. Verification has to name the expected identity:
 
 ```bash
 cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 \
@@ -139,8 +138,8 @@ cosign verify ghcr.io/ethan-kane-ops/cellcast-hub:v0.3.0 \
 Those two values live in the justfile as `sign_workflow` and `sign_issuer`. `just verify <tag>`
 runs the command above against every published artifact, `just release` runs `just verify` as its
 last step, and a contract test holds the documented command to the same pair. A verify command
-that has drifted from the signer is worse than no signature: it teaches people that a failure is
-normal.
+that has drifted from the signer teaches people that a verification failure is normal, which is
+worse than shipping no signature.
 
 ### SBOM and provenance
 
@@ -151,9 +150,9 @@ Each image carries two attestations, produced by BuildKit during the build:
 | `https://spdx.dev/Document` | the SBOM, the packages actually compiled in |
 | `https://slsa.dev/provenance/v1` | build provenance: source, build arguments, base images |
 
-Generating them during the build rather than by scanning the finished image matters here. These
-images hold one stripped static binary and nothing else, so a scanner looking at the result has
-almost nothing to go on, while the builder knows every module it linked.
+Generating them during the build rather than by scanning the finished image matters here: these
+images hold one stripped static binary and nothing else, so a scanner has almost nothing to read,
+while the builder knows every module it linked.
 
 ```bash
 just verify-attestations cellcast-hub   # build one and read the predicates back
@@ -172,20 +171,19 @@ helm install cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast \
   --set image.digest=sha256:...
 ```
 
-## Why there is no workflow
+## What the workflow does, and what it does not
 
-CI is dormant until the repository goes public. Rather than a release that exists only
-inside a workflow file, the pipeline is these recipes: `just release-check` rehearses
-it and `just release` performs it, both from a laptop. When the workflow lands it calls
-the same two recipes, which means the pipeline was rehearsable long before there was
+`.github/workflows/release.yml` installs the toolchain, logs in to GHCR and runs
+`just release <tag>`. It holds no release logic of its own. The pipeline is the recipes,
+which is why it could be rehearsed with `just release-check` long before there was
 anywhere to run it.
 
-One part genuinely cannot be done from a laptop, and it is deliberate that it fails
-rather than degrades. The identity in `sign_workflow` is the release workflow's, so a
-release cut by hand signs with whoever ran it and then fails its own `just verify`. That
-is the correct outcome. Signing with a maintainer's personal identity would produce
-artifacts that verify against a different command from the one the README gives, and the
-first release must not be the one that teaches people to ignore a verification failure.
+One part cannot be done from a laptop, and it fails rather than degrades. The identity in
+`sign_workflow` is that workflow's, so a release cut by hand signs as whoever ran it and
+then fails its own `just verify`. That is the correct outcome: signing with a personal
+identity would produce artifacts that verify only against a command nobody published, and
+the first release must not be the one that teaches people to ignore a verification failure.
 
-In practice that means the first tag waits for the workflow, which waits for the
-repository to be public.
+**The workflow's path is part of the contract.** Renaming or moving that file changes the
+signing identity and invalidates every `cosign verify` command in this repository, with
+nothing to catch it.

@@ -5,13 +5,13 @@ import "fmt"
 // RefusedError carries the reasoning behind a refusal.
 //
 // The sentinel errors above say what happened. This says why, and it exists
-// because the audit trail (ENG-176) has to record a refusal with the same
+// because the audit trail has to record a refusal with the same
 // detail as a success: which policy governed the attempt, which cells were
 // considered, and which filter stage rejected each one. Without it a refused
 // placement is audited as a bare error string, and "why was my deploy refused"
 // has no answer that does not involve a debug build.
 //
-// It is an error rather than a second return value on purpose. A Decision
+// It is an error rather than a second return value. A Decision
 // returned alongside an error is a Decision somebody eventually uses, and every
 // field on it would be a cell the caller was not permitted to reach.
 type RefusedError struct {

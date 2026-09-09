@@ -1,7 +1,6 @@
 # Getting started
 
-A hub and two cells, one command per cluster, then a placement that explains
-itself.
+A hub and two cells, one command per cluster, then a placement.
 
 ## What you need
 
@@ -10,7 +9,7 @@ itself.
   also be a cell.
 - `helm` and `kubectl`.
 - A CI platform that issues OIDC tokens (GitHub Actions, GitLab, Buildkite), or
-  any OIDC issuer you control.
+  any other OIDC issuer under your control.
 
 !!! warning "Each cell needs its own service account issuer"
 
@@ -97,7 +96,7 @@ cluster.cellcast.io/prod-euw1   eks        LIVE    True        https://prod-euw1
 ```
 
 `READY: False` on the `TrustConfig` means the hub could not find the Secret or
-the service account it names. That is worth fixing now rather than during a
+the service account it names. Fixing it here costs less than finding it during a
 deploy.
 
 ## 3. Install the agent in each cell
@@ -113,10 +112,10 @@ helm install cellcast-agent oci://ghcr.io/ethan-kane-ops/charts/cellcast-agent \
 hub is scoring the cell.
 
 Until a cell reports, it has no capacity, so it is **excluded** from scoring
-rather than treated as empty. That is deliberate: a naive least-loaded ranking
-reads a missing entry as zero load, which is the best possible score, so the
-first cluster to break badly enough that its agent stopped reporting would
-become the target for every deploy in the estate.
+rather than treated as empty. A naive least-loaded ranking reads a missing entry
+as zero load, which is the best possible score, so the first cluster to break
+badly enough that its agent stopped reporting would become the target for every
+deploy in the estate.
 
 ## 4. Say who may deploy where
 
@@ -159,11 +158,11 @@ dev-euw1    no        permission  cell is not permitted by this caller's policy 
 ```
 
 `--dry-run` runs the whole decision and stops before minting, and `--explain`
-shows every cell and why it was or was not chosen. Run this before the first
-real deploy: it is how you find out that a policy permits more than you meant,
-while it still costs nothing.
+shows every cell and why it was or was not chosen. Running it before the first
+real deploy is how a policy that permits more than intended gets caught while it
+still costs nothing.
 
-Drop both flags and cellcast writes a kubeconfig your existing deploy step uses:
+Drop both flags and cellcast writes a kubeconfig for the existing deploy step:
 
 ```console
 $ cellcast place --hub https://cellcast.example.com --workload checkout-api --ttl 15m

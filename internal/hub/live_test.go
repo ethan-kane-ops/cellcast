@@ -124,9 +124,9 @@ func TestLiveEndToEnd(t *testing.T) {
 		}
 	})
 
-	// ENG-176's done-when, against a token a real API server issued rather than
-	// a fixture. It runs after the deploy subtest because it reads that
-	// subtest's kubeconfig.
+	// The audit assertion against a token a real API server issued rather than a
+	// fixture. It runs after the deploy subtest because it reads that subtest's
+	// kubeconfig.
 	t.Run("the mint is audited and the trail holds no token material", func(t *testing.T) {
 		token := tokenFromKubeconfig(t, kubeconfig)
 

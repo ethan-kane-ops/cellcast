@@ -1,7 +1,7 @@
 // Package agent implements the in-cluster capacity reporter.
 //
 // The agent runs in every registered cell, which makes it the largest attack
-// surface in the system by instance count. It deliberately contains no minting
+// surface in the system by instance count. It contains no minting
 // code: that lives only in the hub binary (docs/architecture.md ADR-007,
 // docs/threat-model.md T-07). It holds no credential of its own either. The
 // only thing it presents to the hub is the ServiceAccount token the kubelet

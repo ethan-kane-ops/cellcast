@@ -31,7 +31,7 @@ func NewLogger(cfg Config) *slog.Logger {
 
 // NewAuditLogger builds the logger the audit trail is written through.
 //
-// Separate from NewLogger, and deliberately not levelled by --log-level. Audit
+// Separate from NewLogger, and not levelled by --log-level. Audit
 // records are emitted at Info, so sharing a handler would mean a hub started
 // with --log-level=error silently dropped its entire audit trail. A security
 // log that a verbosity flag can silence is not a security log.

@@ -56,7 +56,7 @@ const (
 
 // All is every reason the contract defines.
 //
-// Exported so a test can assert each one has been classified deliberately. A
+// Exported so a test can assert each one has been classified. A
 // new reason that nobody classified would fall through Optimisation's default
 // and be treated as an authorization refusal, which is the safe answer but not
 // necessarily the right one.

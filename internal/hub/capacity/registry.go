@@ -7,7 +7,7 @@
 // blindness, during which affected cells are Unknown and therefore excluded
 // rather than mis-scored.
 //
-// This package deliberately knows nothing about Kubernetes, HTTP or policy. It
+// This package knows nothing about Kubernetes, HTTP or policy. It
 // is a bounded map with a clock, and keeping it that way is what makes the
 // staleness guard testable without a cluster.
 package capacity
@@ -80,7 +80,7 @@ type Report struct {
 	CPUMilliAllocatable int64
 	// CPUMilliCommitted is the sum of pod CPU requests, in millicores.
 	//
-	// Requests rather than usage on purpose: the scheduler places on requests,
+	// Requests rather than usage: the scheduler places on requests,
 	// so requests are what determines whether the next deploy fits. A cell can
 	// be at 20% CPU usage and completely unschedulable.
 	CPUMilliCommitted int64
@@ -293,7 +293,7 @@ func (r *Registry) Snapshot() map[string]Entry {
 
 // entryLocked derives the read-time view of a stored report.
 //
-// Health is computed here rather than written by the prune loop on purpose. A
+// Health is computed here rather than written by the prune loop. A
 // stalled or crashed sweeper must not be able to leave a stale entry looking
 // fresh, which is the failure mode that turns the staleness guard into
 // decoration.
@@ -363,9 +363,9 @@ func (r *Registry) Prune() []string {
 
 // Run prunes on a ticker until ctx is cancelled.
 //
-// The log line on a cell going Unknown is the alert surface until ENG-178 adds
-// metrics. A cell dropping out of scoring silently is the failure the whole
-// staleness guard exists to make visible, so it must not be visible only to
+// A cell going Unknown is logged as well as metered. A cell dropping out of
+// scoring silently is the failure the whole staleness guard exists to make
+// visible, so it must not be visible only to
 // whoever is reading a placement trace at the time.
 func (r *Registry) Run(ctx context.Context, log *slog.Logger) {
 	ticker := time.NewTicker(r.opts.PruneInterval)

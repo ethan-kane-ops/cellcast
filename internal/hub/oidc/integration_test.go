@@ -21,9 +21,8 @@ import (
 // RS256 token from a real issuer, over real HTTP, through the authentication
 // middleware, into the registration handler, and out to the registry.
 //
-// This is the criterion ENG-172 defers from a live GitHub Actions job to a
-// fixture issuer while the repository is private. Nothing here is stubbed
-// except the issuer and the API server.
+// A fixture issuer stands in for a live CI provider. Nothing else here is
+// stubbed except the API server.
 func TestEndToEndPipelineRegistersACluster(t *testing.T) {
 	iss := newTestIssuer(t)
 

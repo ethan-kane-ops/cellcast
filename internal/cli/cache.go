@@ -31,9 +31,9 @@ const (
 
 // cachedDecision is one remembered placement.
 //
-// It holds a decision and never a credential. That is the whole of ADR-006's
-// last line: the client re-mints or fails, so there is nothing here worth
-// stealing and nothing here that can be replayed as access.
+// It holds a decision and never a credential (ADR-006). The client re-mints or
+// fails, so there is nothing here worth stealing and nothing that can be
+// replayed as access.
 type cachedDecision struct {
 	Hub          string `json:"hub"`
 	Workload     string `json:"workload"`

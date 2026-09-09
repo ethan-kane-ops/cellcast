@@ -79,7 +79,7 @@ func (s stance) fallsBack() bool { return s.lastKnown || s.cell != "" }
 // caller's stance at all.
 //
 // This is the fail-closed-on-authorization half of ADR-006, and it sits above
-// the stance on purpose: a caller cannot buy its way past a refusal by
+// the stance: a caller cannot buy its way past a refusal by
 // declaring a fallback. The stance only ever chooses between failing and
 // guessing among cells the hub had already agreed this caller may reach.
 func fallbackAllowed(err error) bool {

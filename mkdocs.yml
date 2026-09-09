@@ -57,6 +57,7 @@ nav:
   - Pipeline Integration: pipeline-integration.md
   - Development:
       - Working on cellcast: development.md
+      - Extending: extending.md
       - Releasing: releasing.md
 
 markdown_extensions:

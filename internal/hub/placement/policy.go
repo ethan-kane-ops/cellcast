@@ -7,7 +7,7 @@
 // least-loaded production cluster the first time production is quiet
 // (docs/architecture.md ADR-005, docs/threat-model.md T-03).
 //
-// This is the confused-deputy defence. Authentication (ENG-172) proves who is
+// This is the confused-deputy defence. Authentication proves who is
 // asking and says nothing about what they may ask for.
 package placement
 

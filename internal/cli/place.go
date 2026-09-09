@@ -56,7 +56,7 @@ and never passed as a command argument, because a shared CI runner exposes both
 to every other job on the machine.
 
 The caller's identity token is read from the CELLCAST_TOKEN environment variable
-or from --token-file. There is deliberately no --token flag.
+or from --token-file. There is no --token flag.
 
 A placement is a recommendation, not a command. If the hub cannot be reached,
 --on-unavailable says what should happen: fail, reuse the last known cell for
@@ -353,9 +353,8 @@ func writeFallbackNotice(out *lineWriter, res *result, opts *placeOptions) {
 
 // writeCandidateTable renders why each cell was or was not chosen.
 //
-// This is the answer to "why did my deploy land there", and it is the reason
-// --explain exists. A rejection nobody can read is a rejection somebody works
-// around.
+// This is what --explain exists for: a rejection nobody can read is a rejection
+// somebody works around.
 func writeCandidateTable(out *lineWriter, candidates []Candidate) {
 	tw := tabwriter.NewWriter(out.w, 0, 0, 2, ' ', 0)
 	table := &lineWriter{w: tw}

@@ -2,14 +2,14 @@
 
 # One Dockerfile for all three binaries; BINARY selects which one.
 #
-# One file rather than three because the build flags are a correctness concern,
-# not a per-image preference: -trimpath and the version stamping have to be
-# identical across the hub and the agent or the reproducibility claim on the tag
-# is only true of whichever image was built last.
+# One file rather than three because the build flags are a correctness concern
+# rather than a per-image preference: -trimpath and the version stamping have to
+# be identical across the hub and the agent, or the reproducibility claim on the
+# tag holds only for whichever image was built last.
 
 # Pinned by digest, not by tag. A tag is a moving target, and "reproducible
 # builds" that resolve their own compiler at build time are not reproducible.
-# Both digests are refreshed deliberately; `just image-bases` prints the current
+# Both digests are refreshed by hand; `just image-bases` prints the current
 # ones for the two tags below.
 ARG GO_IMAGE=golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
@@ -21,9 +21,9 @@ ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c8918
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 
 # GOTOOLCHAIN=local turns a base image older than go.mod into a build failure
-# instead of a silent toolchain download. The download would work, and the
+# instead of a silent toolchain download. The download would succeed, and the
 # resulting image would have been compiled by a toolchain nothing in this
-# repository pins. That is the failure this whole file exists to prevent.
+# repository pins.
 ENV GOTOOLCHAIN=local \
     CGO_ENABLED=0
 

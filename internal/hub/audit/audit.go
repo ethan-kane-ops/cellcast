@@ -1,8 +1,8 @@
 // Package audit records what the hub decided and what it issued.
 //
 // A credential broker with no audit trail is unadoptable. The first question in
-// any security review is "show me every token this thing has ever minted, and
-// who asked for it", and this package is the answer to it.
+// any security review is "show me every token this thing has minted, and who
+// asked for it".
 //
 // Two properties are load-bearing.
 //
@@ -13,8 +13,7 @@
 //
 // It cannot be turned off by a log level. Records are written through a logger
 // whose handler admits everything it is given, so a hub started with
-// --log-level=error still produces a complete trail. A security log that a
-// verbosity flag can silence is not a security log.
+// --log-level=error still produces a complete trail.
 package audit
 
 import (
@@ -57,13 +56,13 @@ const (
 	// OutcomeGranted means the hub did the thing that was asked of it.
 	OutcomeGranted Outcome = "granted"
 
-	// OutcomeDryRun means a decision was reached and deliberately not acted on.
+	// OutcomeDryRun means a decision was reached and not acted on.
 	// Distinct from granted so that "which pipeline deployed here" is not
 	// answered with a list of pipelines that only asked.
 	OutcomeDryRun Outcome = "dry-run"
 
 	// OutcomeRefused means the hub declined. Recorded with the same fields as a
-	// success, because a trail that only holds what worked is not a trail.
+	// success, so that a refusal is as answerable as a grant.
 	OutcomeRefused Outcome = "refused"
 )
 
@@ -131,9 +130,8 @@ type Record struct {
 	// from the chosen cell's spec. Present on a mint record whenever the cell
 	// was readable, including one that then failed to mint.
 	Provider string
-	// Env is the chosen cell's env label. It is on the record because it is not
-	// decoration: the label selects the built-in TTL bounds, so it is part of
-	// why the lifetime below is the lifetime it is.
+	// Env is the chosen cell's env label. The label selects the built-in TTL
+	// bounds, so it is part of why the granted lifetime is what it is.
 	Env string
 	// Namespace and ServiceAccount are the scope the credential was issued
 	// against, which is the blast radius of the token this record describes.
@@ -183,8 +181,8 @@ type Auditor struct {
 //
 // Any number of notifiers may be attached, including none, and a nil one is
 // skipped. The log is not optional and there is no constructor that omits it:
-// an auditor that writes nowhere would let the hub run with the appearance of
-// an audit trail and none of the substance.
+// an auditor writing nowhere would let the hub run without a trail while
+// looking as though it had one.
 func New(log *slog.Logger, notifiers ...Notifier) *Auditor {
 	return &Auditor{log: log, notifiers: notifiers}
 }
@@ -279,8 +277,7 @@ func appendNonEmpty(attrs []slog.Attr, kv ...string) []slog.Attr {
 //
 // A prefix of the token would correlate just as well and is forbidden. A JWT's
 // leading bytes are its header and the segment boundaries move, so "just a
-// prefix" is not a fixed amount of the secret, and every leak of this kind
-// began as a debug line somebody thought was short enough to be safe.
+// prefix" is not a fixed amount of the secret.
 func HashToken(token string) string {
 	if token == "" {
 		return ""

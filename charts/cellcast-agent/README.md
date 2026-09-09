@@ -21,13 +21,13 @@ helm install cellcast-agent oci://ghcr.io/ethan-kane-ops/charts/cellcast-agent \
 accepts capacity for a cell only from the identity that registration names, so a
 wrong name here is a rejected report rather than a misattributed one.
 
-## The identity, which is the part that goes wrong
+## The identity
 
 The agent authenticates with a projected ServiceAccount token carrying
 cellcast's own audience, not the default token mounted at
 `/var/run/secrets/kubernetes.io/serviceaccount`. The default one is minted for
 the API server, and a hub that accepted it would be accepting a credential
-minted for somebody else.
+issued to a different audience.
 
 The hub matches on both claims in the cell's `spec.reporter`:
 
@@ -39,9 +39,9 @@ spec:
 ```
 
 The issuer is the load-bearing half. Every spoke runs this chart under the same
-ServiceAccount name, so the subject is byte-identical in every cell in the
-fleet; binding on the subject alone would let the development cell's agent
-report capacity for the production one. Read the issuer this cluster uses with:
+ServiceAccount name, so the subject is byte-identical across the fleet, and
+binding on the subject alone would let the development cell's agent report
+capacity for the production one. Read the issuer this cluster uses with:
 
 ```console
 kubectl get --raw /.well-known/openid-configuration | grep issuer

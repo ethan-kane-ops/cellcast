@@ -1,8 +1,7 @@
 # Security Policy
 
-cellcast issues credentials for production clusters. A vulnerability here is not
-a bug in a tool that watches a cluster; it is a way to obtain access to one. The
-policy below is written accordingly.
+cellcast issues credentials for production clusters. A vulnerability here is a
+route to cluster access rather than a defect in a tool that only observes.
 
 ## Reporting a Vulnerability
 
@@ -16,7 +15,7 @@ When submitting a report, please include:
 
 - **Affected component**: hub, agent, client, or chart. The hub is the only one
   that can mint, so a finding there is more serious by default.
-- **Description**: what the vulnerability is and its impact, stated as what an
+- **Description**: what the vulnerability is, and its impact stated as what an
   attacker ends up holding.
 - **Reproduction**: step-by-step instructions, including the `Cluster`,
   `PlacementPolicy` and `TrustConfig` manifests, and the claims of the token
@@ -49,8 +48,8 @@ and anything that crosses one is in scope. In particular:
   policy's own ceiling.
 - **Credential disclosure.** Token material reaching a log line, an audit
   record, a metric label, a Kubernetes Event, or an error returned to a caller.
-  The audit record has a test asserting no field can hold it; a way around that
-  is a finding.
+  A test asserts that no field of the audit record can hold it; a way around
+  that is a finding.
 - **Confused deputy in capacity ingest.** Any way for one cell's agent to
   publish capacity for a different cell, which steers real deploys.
 - **Privilege escalation through the charts.** RBAC in either chart that grants
@@ -71,12 +70,14 @@ and anything that crosses one is in scope. In particular:
 
 ## Supported Versions
 
-Only the latest minor release line receives security updates.
+Only the latest minor release line receives security updates. Nothing is
+published yet, so there is no supported line: the first tagged release starts
+that clock, and the table below describes the policy from then on.
 
 | Version | Supported |
 |---|---|
-| v0.2.x | Yes |
-| < v0.2 | No |
+| Latest minor | Yes |
+| Anything older | No |
 
 Pre-1.0, the API and the CRD schema may change between minor versions.
 
@@ -84,19 +85,22 @@ Pre-1.0, the API and the CRD schema may change between minor versions.
 
 `govulncheck` runs over the source and over the built binaries. It reports only
 advisories reachable through the call graph rather than every advisory touching
-a dependency, so a non-empty result is a thing to act on rather than a list to
+a dependency, so a non-empty result names something to fix rather than a list to
 triage. It runs in `just check-all`, which `just release` runs, so a release
 cannot ship a known reachable vulnerability.
 
-CodeQL and OSSF Scorecard are computed against a public repository and are not
-running yet. The repository-side properties they look at are in place and held
-by tests: base images pinned by digest rather than tag, no compiled artefact
-anywhere in the tree, a private reporting route in this file, a declared licence
-that matches the one the charts advertise, signed releases, and fuzz targets
-over every parser that reads bytes somebody else chose. What is left is
-repository settings and the workflows themselves, and the first workflow added
-will be checked for a scoped token and commit-pinned actions before it can pass
-`just check`.
+CodeQL analyses the source on every push and weekly. OSSF Scorecard runs against
+`main` and publishes its result. Both are computed against a public repository,
+so neither produces a score until the repository is one.
+
+The repository-side properties they inspect are already in place and held by
+tests: base images pinned by digest rather than tag, no compiled artefact in the
+tree, a private reporting route in this file, a declared licence matching the one
+the charts advertise, a release that signs everything it publishes, and fuzz
+targets over every parser that reads untrusted input. Every workflow declares a
+scoped token and pins each action to a commit rather than a tag, which
+`just check` enforces: a tag can be moved, and moving it hands a third party
+write access on the next run.
 
 ## Release integrity
 
@@ -107,9 +111,8 @@ README under **Verifying what you install**.
 
 Keyless means the signature is tied to an identity rather than to a key, so a
 signature on its own proves nothing: verification has to name the expected
-signer. The release runs that same verification against what it just published
-and fails if the identity does not match, which is the difference between a
-signature and a decoration.
+signer. The release runs that verification against what it has just published
+and fails if the identity does not match.
 
 Images are also reproducible from their tag. The base images are pinned by
 digest, the build runs with `-trimpath`, and the timestamps come from the commit
@@ -118,6 +121,3 @@ bytes. See [Releasing](docs/releasing.md#reproducible-builds).
 
 Nothing is published yet. Until the first tag there is nothing to verify, and
 pinning by digest is the only assurance available.
-
-Checking what you are about to run matters more here than on most projects: that
-image is the one that will hold your clusters' trust configuration.

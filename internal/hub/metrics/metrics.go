@@ -138,7 +138,7 @@ func (m *Metrics) ObservePlacement(outcome string, d time.Duration) {
 
 // SetWarm records whether this replica can score a placement.
 //
-// Per replica and deliberately not aggregated: the number that matters is the
+// Per replica and not aggregated: the number that matters is the
 // minimum across the Deployment, because one cold replica in a Service of three
 // refuses a third of the estate's deploys while the average still looks fine.
 func (m *Metrics) SetWarm(warm bool) {

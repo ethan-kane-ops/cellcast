@@ -5,9 +5,9 @@ security-relevant, and the second one means a compromise here is a compromise of
 the registry, bounded only by policy. This document states what that bound actually is.
 
 **Status of this document.** Written before implementation, as the design contract the code is held
-to. Every mitigation below names its implementing ticket, or is listed explicitly as a risk accepted
-for v0.1. Statuses are updated as tickets land: `Planned` means the control does not exist yet, and
-`Implemented` means it is in the code with a test that names this threat.
+to. Every mitigation below is either implemented or listed as an accepted risk. `Implemented` means
+the control is in the code with a test that names this threat. `Planned` means it does not exist
+yet.
 
 ## Scope
 
@@ -24,7 +24,7 @@ cannot trust cellcast, and that is a real limitation rather than a caveat to bur
 Ranked by what an attacker actually wants:
 
 1. **The ability to mint.** cellcast's own credentials against registered clusters. This is the
-   crown jewel and the reason the tool is worth attacking.
+   reason the tool is worth attacking at all.
 2. **Minted tokens in flight.** Short-lived and scoped, but live.
 3. **The registry.** Knowing every cluster in an estate, its endpoint, and its environment labels is
    reconnaissance worth having on its own.
@@ -80,15 +80,15 @@ size cellcast's per-spoke RBAC as tightly as their deploys allow, and should not
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| Policy ceiling on TTL that no request can raise | ENG-113 | Implemented |
-| Hub-wide `--token-max-ttl` no policy can exceed | ENG-113 | Implemented |
-| Credential lifetime checked against the ceiling on the way back, not only on the way out | ENG-113 | Implemented |
-| Per-cell RBAC scoping documented and minimal by default | ENG-113, ENG-180 | Partial: the boundary is the service account named in the TrustConfig; the chart that sets it up is ENG-180 |
-| Audit record for every mint, so a compromise is reconstructable | ENG-176 | Implemented: one record per mint carrying the caller, the cell, the scope and a digest of the token, and one per refusal (docs/audit.md) |
-| Distroless non-root image, read-only root filesystem, no shell | ENG-180 | Planned |
-| Signed images and SBOM so the running binary is the reviewed one | ENG-182 | Planned (v1.0) |
+| Control | Status |
+| --- | --- |
+| Policy ceiling on TTL that no request can raise | Implemented |
+| Hub-wide `--token-max-ttl` no policy can exceed | Implemented |
+| Credential lifetime checked against the ceiling on the way back, not only on the way out | Implemented |
+| Per-cell RBAC scoping documented and minimal by default | Partial: the boundary is the service account named in the `TrustConfig`. What that account may do in the spoke is the operator's to set |
+| Audit record for every mint, so a compromise is reconstructable | Implemented: one record per mint carrying the caller, the cell, the scope and a digest of the token, and one per refusal (docs/audit.md) |
+| Distroless non-root image, read-only root filesystem, no shell | Implemented: `gcr.io/distroless/static-debian12:nonroot`, uid 65532, and both charts set the pod and container security contexts |
+| Signed images and SBOM so the running binary is the reviewed one | Implemented in the release pipeline: cosign keyless signatures, an SPDX SBOM and SLSA provenance on every image. Nothing is published yet |
 
 **Residual risk.** Detection depends on the audit trail reaching somewhere the hub cannot rewrite.
 The records are written to stdout and the adopter's log pipeline owns them from there, so a hub
@@ -105,21 +105,21 @@ is the primary remote attack and the JWT parser is the most exposed code in the 
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| Issuer allowlist checked before any attacker-influenced parsing | ENG-172 | Implemented |
-| Issuer compared literally, never by prefix or suffix | ENG-172 | Implemented |
-| Full signature verification against the issuer's JWKS | ENG-172 | Implemented |
-| Explicit algorithm allowlist; `alg: none` and algorithm confusion rejected | ENG-172 | Implemented |
-| `aud` bound to this specific cellcast instance | ENG-172 | Implemented |
-| `exp`, `nbf` and `iat` enforced with a bounded, configured clock skew | ENG-172 | Implemented |
-| A token with no `exp` is refused rather than treated as non-expiring | ENG-172 | Implemented |
-| JWKS cached, with key rotation handled by refetch on an unknown key id | ENG-172 | Implemented |
-| JWKS unavailability never degrades to accepting unverified tokens | ENG-172 | Implemented |
-| Token size bounded before any decoding | ENG-172 | Implemented |
-| Fuzz targets over every pre-verification parse | ENG-184 | Implemented: `peekIssuer`, `bearerToken`, `standardClaims` and claim extraction per provider, in `internal/hub/oidc/fuzz_test.go` |
-| Structured rejection reasons, logged | ENG-172 | Implemented |
-| Rejection reasons metered | ENG-178 | Planned (v0.2) |
+| Control | Status |
+| --- | --- |
+| Issuer allowlist checked before any attacker-influenced parsing | Implemented |
+| Issuer compared literally, never by prefix or suffix | Implemented |
+| Full signature verification against the issuer's JWKS | Implemented |
+| Explicit algorithm allowlist; `alg: none` and algorithm confusion rejected | Implemented |
+| `aud` bound to this specific cellcast instance | Implemented |
+| `exp`, `nbf` and `iat` enforced with a bounded, configured clock skew | Implemented |
+| A token with no `exp` is refused rather than treated as non-expiring | Implemented |
+| JWKS cached, with key rotation handled by refetch on an unknown key id | Implemented |
+| JWKS unavailability never degrades to accepting unverified tokens | Implemented |
+| Token size bounded before any decoding | Implemented |
+| Fuzz targets over every pre-verification parse | Implemented: `peekIssuer`, `bearerToken`, `standardClaims` and claim extraction per provider, in `internal/hub/oidc/fuzz_test.go` |
+| Structured rejection reasons, logged | Implemented |
+| Rejection reasons metered | Implemented: `cellcast_auth_rejections_total` by reason, with an alert on the ratio |
 
 **What the fuzz targets assert, which is more than "it does not crash".** Claim extraction must
 never emit a claim the provider does not declare, and must never flatten a JSON object or array into
@@ -143,7 +143,7 @@ does not pre-warm keys, because the underlying key set exposes no refresh hook. 
 extra fetch on the first request after a rotation, not a rejected request.
 
 **Replay, stated plainly.** A valid caller JWT replayed inside its own validity window **will** mint
-again. cellcast does not maintain a nonce or `jti` replay cache in v0.1. The exposure is bounded by
+again. cellcast does not maintain a nonce or `jti` replay cache. The exposure is bounded by
 the CI issuer's token lifetime (five to ten minutes for the platforms targeted) and by the fact that
 capturing the token requires already being on the runner, at which point the attacker can request a
 fresh one anyway. Accepted risk, listed below. If this changes, a `jti` cache is the fix and it
@@ -166,14 +166,14 @@ asking. It says nothing about what they may ask for.
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| Filter-then-score: permission is evaluated before any scoring | ENG-173 | Implemented |
-| `PlacementPolicy` maps authenticated claims to a permitted label selector | ENG-173 | Implemented |
-| Deny by default; no matching policy is a clean rejection, never "any cell" | ENG-173 | Implemented |
-| Scoring strategy chosen by policy, not by the caller | ENG-173 | Implemented |
-| e2e test asserting a dev token cannot reach a prod-labelled cell | ENG-177 | Planned |
-| `--explain` renders the filter step separately so a rejection is legible | ENG-114 | Planned |
+| Control | Status |
+| --- | --- |
+| Filter-then-score: permission is evaluated before any scoring | Implemented |
+| `PlacementPolicy` maps authenticated claims to a permitted label selector | Implemented |
+| Deny by default; no matching policy is a clean rejection, never "any cell" | Implemented |
+| Scoring strategy chosen by policy, not by the caller | Implemented |
+| e2e test asserting a dev token cannot reach a prod-labelled cell | Implemented: `just verify-e2e`, where the least-loaded cell in the fixture is one the caller may not reach |
+| `--explain` renders the filter step separately so a rejection is legible | Implemented |
 
 **The subtle failure.** Scoring before filtering produces a working system that passes its happy-path
 tests and routes a dev deploy into the least-loaded production cluster the first time production is
@@ -181,10 +181,10 @@ quiet. The ordering in
 [ADR-005](architecture.md#adr-005-placement-is-filter-then-score-and-policy-is-a-crd) is the control,
 and it is enforced by the e2e test above rather than by comments.
 
-`TestDevPipelineCannotReachAProdCell` pins it at the engine level: the prod cell is deliberately the
-emptiest in the fleet, so a score-then-filter implementation returns it. The test asserts both the
-rejection and the stage it happened at, because being refused late means the cell's capacity was
-consulted first. The full token-to-decision path is ENG-177's, per the table above.
+`TestDevPipelineCannotReachAProdCell` pins it at the engine level: the prod cell is the emptiest in
+the fleet, so a score-then-filter implementation returns it. The test asserts both the rejection and
+the stage it happened at, because being refused late means the cell's capacity was consulted first.
+`just verify-e2e` runs the same shape over the full token-to-decision path against a real cluster.
 
 **A second, quieter way this control fails.** A policy constraining `repo` against an authenticator
 emitting `repository` matches nothing, and a policy that matches nothing is a deny-all that looks
@@ -204,16 +204,16 @@ attacker's cluster. That is exfiltration of both workload and token.
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| Registration is a `Cluster` CRD write, gated by the hub cluster's own RBAC | ENG-110 | Implemented |
-| Creating a `Cluster` is an operator-level action, documented as privileged | ENG-110, ENG-186 | Implemented in code; operator docs pending ENG-186 |
-| Registration writes trust configuration only; a payload carrying a static token is rejected | ENG-110 | Implemented |
-| Registration is refused outright if it carries a credential, rather than stripping the field | ENG-110 | Implemented |
-| The `cellcast.io/` label namespace is reserved, so a registrant cannot forge a label a policy trusts | ENG-110 | Implemented |
-| New cells are not scorable until an authenticated agent reports capacity | ENG-111, ENG-174 | Implemented |
-| Registration and state transitions are visible in the API server audit log | ENG-110, ENG-112 | Implemented |
-| State changes write `spec.state` only, so a stale read cannot revert an endpoint or label | ENG-112 | Implemented |
+| Control | Status |
+| --- | --- |
+| Registration is a `Cluster` CRD write, gated by the hub cluster's own RBAC | Implemented |
+| Creating a `Cluster` is an operator-level action, documented as privileged | Implemented in code, and stated under **Documented consequence** below |
+| Registration writes trust configuration only; a payload carrying a static token is rejected | Implemented |
+| Registration is refused outright if it carries a credential, rather than stripping the field | Implemented |
+| The `cellcast.io/` label namespace is reserved, so a registrant cannot forge a label a policy trusts | Implemented |
+| New cells are not scorable until an authenticated agent reports capacity | Implemented |
+| Registration and state transitions are visible in the API server audit log | Implemented |
+| State changes write `spec.state` only, so a stale read cannot revert an endpoint or label | Implemented |
 
 **Registration does not probe the endpoint.** `POST /api/v1/clusters` validates the endpoint's shape
 and stores it. It does not connect to it to check reachability or certificate validity. Probing
@@ -238,28 +238,26 @@ and it happens by accident rather than by attack.
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| The client never prints token material to stdout or stderr | ENG-114 | Implemented |
-| Default output path is a kubeconfig written to a file with restrictive permissions | ENG-114 | Implemented: 0600, created with O_EXCL so an existing symlink is never followed |
-| Token never appears in a process argument, where any user on the runner can read it | ENG-114 | Implemented: there is no `--token` flag, and a test asserts there never is one |
-| `--json` output carries the decision with the token stripped | ENG-114 | Implemented |
-| GitHub Actions integration registers the value as a mask before use | ENG-185 | Planned (v1.0) |
-| Audit records log a hash for correlation, never the token or any prefix of it | ENG-176 | Implemented: `audit.Record` has no field that can hold token material, and a test classifies every field so a new one fails until somebody has thought about it |
-| Short TTL resolved from policy limits the value of a leaked token | ENG-113 | Implemented |
-| The credential type redacts its own token under `%v`, `String()` and `slog` | ENG-113 | Implemented |
+| Control | Status |
+| --- | --- |
+| The client never prints token material to stdout or stderr | Implemented |
+| Default output path is a kubeconfig written to a file with restrictive permissions | Implemented: 0600, created with O_EXCL so an existing symlink is never followed |
+| Token never appears in a process argument, where any user on the runner can read it | Implemented: there is no `--token` flag, and a test asserts there never is one |
+| `--json` output carries the decision with the token stripped | Implemented |
+| GitHub Actions integration registers the value as a mask before use | Planned: the purpose-built integrations are not shipped |
+| Audit records log a hash for correlation, never the token or any prefix of it | Implemented: `audit.Record` has no field that can hold token material, and a test classifies every field so a new one fails until somebody has thought about it |
+| Short TTL resolved from policy limits the value of a leaked token | Implemented |
+| The credential type redacts its own token under `%v`, `String()` and `slog` | Implemented |
 
 **Note for reviewers.** The usual way this control fails is a debug log line added later by someone
-who did not read this document. A test asserting that no token material appears in any log output is
-worth more than the rule itself, and ENG-176 added two: one at the HTTP boundary against a sentinel
-token, and one in `TestLiveEndToEnd` against a token a real API server issued, which is the stronger
-of the pair because a sentinel only proves the handler does not copy a string it was handed.
+who did not read this document, so there are two tests rather than a rule: one at the HTTP boundary
+against a sentinel token, and one in `TestLiveEndToEnd` against a token a real API server issued.
+The second is the stronger, because a sentinel only proves the handler does not copy a string it was
+handed.
 
-ENG-113 takes the same view one step further and makes the mistake unavailable rather than
-forbidden. `broker.Credential` implements `String` and `slog.LogValue` so that printing one, wrapping
-it in an error, or logging it with `slog.Any` emits `Token:[redacted]`. A reviewer no longer has to
-notice the difference between a safe log line and an unsafe one, because there is no unsafe one to
-notice.
+The type system carries the rest. `broker.Credential` implements `String` and `slog.LogValue`, so
+printing one, wrapping it in an error, or logging it with `slog.Any` emits `Token:[redacted]`. There
+is no unsafe log line for a reviewer to spot.
 
 ---
 
@@ -270,19 +268,19 @@ every deploy in the estate, which is a worse outage than the problem cellcast so
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| Advisory by default: a placement is a recommendation, not a gate | ENG-175 | Planned |
-| Client-side decision cache with TTL, so a short outage is invisible | ENG-175 | Planned |
-| Explicitly declared fallback stance per caller, never implicit | ENG-175 | Planned |
-| Fail closed on authorization, fail open on optimisation | ENG-175 | Planned |
-| Rate limiting per authenticated caller identity | ENG-172 | Planned |
-| Unauthenticated requests rejected before expensive work | ENG-172 | Planned |
-| Multi-replica stateless API path with a PodDisruptionBudget | ENG-179 | Planned (v0.2) |
-| Agent heartbeats jittered to avoid a synchronised herd | ENG-174 | Planned |
-| Capacity index bounded, and reports for unregistered cells refused | ENG-111 | Implemented |
-| Capacity report payloads size-bounded before decoding | ENG-111 | Implemented |
-| Fuzz targets over the placement and registration request bodies | ENG-184 | Implemented: both handlers, asserting the status set, that every response is JSON, and that a refusal carries a reason the client contract defines |
+| Control | Status |
+| --- | --- |
+| Advisory by default: a placement is a recommendation, not a gate | Implemented |
+| Client-side decision cache with TTL, so a short outage is invisible | Implemented: `--on-unavailable last-known`, bounded by `--cache-ttl` |
+| Explicitly declared fallback stance per caller, never implicit | Implemented |
+| Fail closed on authorization, fail open on optimisation | Implemented: no stance answers an authorization refusal |
+| Unauthenticated requests rejected before expensive work | Implemented: authentication is middleware over the whole API surface, and rejections are counted before a handler runs |
+| Multi-replica stateless API path with a PodDisruptionBudget | Implemented: see [ADR-011](architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) |
+| Agent heartbeats jittered to avoid a synchronised herd | Implemented: full jitter on the first heartbeat, plus or minus 10% after that |
+| Rate limiting per authenticated caller identity | Planned |
+| Capacity index bounded, and reports for unregistered cells refused | Implemented |
+| Capacity report payloads size-bounded before decoding | Implemented |
+| Fuzz targets over the placement and registration request bodies | Implemented: both handlers, asserting the status set, that every response is JSON, and that a refusal carries a reason the client contract defines |
 
 **Fallback never extends to credentials.** A cached placement is a cached decision. The client
 re-mints or fails. A cached credential would reintroduce exactly the long-lived secret this project
@@ -298,17 +296,17 @@ therefore attract or repel deploys.
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| The agent binary does not contain minting code at all, enforced by a build-graph test | ENG-193 | Implemented |
-| Agent RBAC limited to `list` and `watch` on nodes and pods, plus one named Lease | ENG-174 | Implemented |
-| Agent authenticates with its own projected ServiceAccount token, not a shared secret | ENG-174 | Implemented |
-| An agent can only report capacity for the cell whose registration names it | ENG-174 | Implemented |
-| A cell that names no reporter accepts no reports at all | ENG-174 | Implemented |
-| A malformed or negative report is refused, never clamped into a plausible value | ENG-111 | Implemented |
-| A refused report leaves the previous good one in place | ENG-111 | Implemented |
-| Staleness measured by the hub's clock, never the agent's | ENG-111 | Implemented |
-| Fuzz target over the capacity arithmetic an agent drives | ENG-184 | Implemented: whatever `Validate` accepts scores as a real number in range, so a crafted report can never produce a NaN that makes every comparison in the scorer false and hands the placement to whichever cell was first |
+| Control | Status |
+| --- | --- |
+| The agent binary does not contain minting code at all, enforced by a build-graph test | Implemented |
+| Agent RBAC limited to `list` and `watch` on nodes and pods, plus one named Lease | Implemented |
+| Agent authenticates with its own projected ServiceAccount token, not a shared secret | Implemented |
+| An agent can only report capacity for the cell whose registration names it | Implemented |
+| A cell that names no reporter accepts no reports at all | Implemented |
+| A malformed or negative report is refused, never clamped into a plausible value | Implemented |
+| A refused report leaves the previous good one in place | Implemented |
+| Staleness measured by the hub's clock, never the agent's | Implemented |
+| Fuzz target over the capacity arithmetic an agent drives | Implemented: whatever `Validate` accepts scores as a real number in range, so a crafted report can never produce a NaN that makes every comparison in the scorer false and hands the placement to whichever cell was first |
 
 **How the binding works.** `Cluster.spec.reporter` names an `issuer` and a `subject`, both compared
 literally against the authenticated caller. The agent presents a projected ServiceAccount token with
@@ -337,7 +335,7 @@ see. Treating the absent field as a wildcard is what left this open before.
 
 **Residual risk.** A compromised agent can still lie about its own cell's utilisation and attract
 deploys to a cluster the attacker already controls. That is a strictly smaller win than T-04, because
-the attacker must already own a registered production cluster. Not separately mitigated in v0.1.
+the attacker must already own a registered production cluster. Not separately mitigated.
 
 ---
 
@@ -355,14 +353,14 @@ is the same win as T-01 by a different route rather than a new one.
 
 **Mitigations.**
 
-| Control | Ticket | Status |
-| --- | --- | --- |
-| `inCluster` configuration stores nothing at all, and is what the demo uses | ENG-113 | Implemented |
-| Credential Secrets are read uncached, straight from the API server, at the moment of use | ENG-113 | Implemented |
-| The hub never holds a resident map of spoke credentials, and needs no `watch` on Secrets | ENG-113 | Implemented |
-| Client construction is per mint with no pooling, so nothing retains the material | ENG-113 | Implemented |
-| A parse failure on a kubeconfig never puts its contents in an error or a log | ENG-113 | Implemented |
-| The spoke identity is scoped to `create` on `serviceaccounts/token` for named accounts | ENG-180 | Planned |
+| Control | Status |
+| --- | --- |
+| `inCluster` configuration stores nothing at all, and is what the demo uses | Implemented |
+| Credential Secrets are read uncached, straight from the API server, at the moment of use | Implemented |
+| The hub never holds a resident map of spoke credentials, and needs no `watch` on Secrets | Implemented |
+| Client construction is per mint with no pooling, so nothing retains the material | Implemented |
+| A parse failure on a kubeconfig never puts its contents in an error or a log | Implemented |
+| The spoke identity is scoped to `create` on `serviceaccounts/token` for named accounts | Operator-configured: cellcast's charts install the hub and the agent, not the RBAC the hub holds in another cluster |
 
 **Residual risk.** A `secretRef` configuration is a stored credential, and calling it anything else
 would be dishonest. It is bounded by the RBAC the operator grants it in the spoke, and the intended
@@ -370,25 +368,24 @@ shape of that grant is the ability to mint for specific service accounts and not
 not an administrative credential. The configuration that stores nothing is `inCluster`, and it only
 covers cells in the hub's own cluster. Replacing `secretRef` with ServiceAccount token federation,
 where the spoke trusts the hub cluster's issuer and no material is stored for the multi-cluster case
-either, is v0.2 work and is listed as an accepted risk below.
+either, is listed as an accepted risk below.
 
 ---
 
-## Accepted risks for v0.1
+## Accepted risks
 
 Listed so nobody has to discover them by reading code.
 
 | Risk | Why accepted | Revisit |
 | --- | --- | --- |
 | A caller JWT replayed inside its validity window mints twice | Bounded by the issuer's short token lifetime; capture requires runner access, which already permits requesting a fresh token | If an adopter's issuer uses long-lived tokens |
-| The metrics endpoint is unauthenticated | It exposes cell names, policy names, per-cell utilisation and refusal counts, all of which an authenticated caller can already read through `GET /api/v1/clusters`. Reaching the port is a network decision rather than an identity one | ENG-180 ships the NetworkPolicy and ServiceMonitor; revisit if a caller exists that is not operator-controlled |
+| The metrics endpoint is unauthenticated | It exposes cell names, policy names, per-cell utilisation and refusal counts, all of which an authenticated caller can already read through `GET /api/v1/clusters`. Reaching the port is a network decision rather than an identity one | The chart ships a NetworkPolicy and a ServiceMonitor. Revisit if a caller exists that is not operator-controlled |
 | The audit trail is only as durable as the log pipeline collecting it | cellcast writes to stdout and owns no sink, so retention and immutability are the adopter's existing decisions rather than a second set of ours to get wrong | If an adopter needs a tamper-evident trail, which is a shipping problem rather than a cellcast one |
-| Single hub replica | Mitigated by advisory mode rather than by availability | ENG-179, v0.2 |
-| Unsigned artifacts | Repo is private and pre-release; nothing is distributed yet | ENG-182, before the ENG-188 public flip |
+| No published artifacts to verify | The release pipeline signs everything it publishes and verifies its own signatures, but has never run: keyless signing has to carry the release workflow's identity, which needs the repository public | At the first tagged release |
 | A compromised agent can misreport its own capacity | Requires already owning a registered cluster | If capacity attestation becomes worth its complexity |
-| Human callers unsupported | Pipelines only in v0.1; a human path is a separate design problem | Post-v1.0 |
+| Human callers unsupported | Pipelines only; a human path is a separate design problem | Post-v1.0 |
 | Any authenticated caller can enumerate the fleet | `GET /api/v1/clusters` is unfiltered and `--explain` names cells the caller may not reach. Cell names and endpoints are not secrets, and withholding them from `--explain` alone would hide the answer to "why did my deploy land there" without withholding anything a caller could not already list | When a caller exists that is not operator-controlled; filtering both by policy is the fix, not filtering one |
-| A cell outside the hub's cluster needs a stored kubeconfig for the hub to mint through | Bounded by the spoke RBAC granted to it, which is minting rights rather than administrative access; `inCluster` stores nothing and covers the demo | v0.2, replacing it with ServiceAccount token federation to the spoke (T-08) |
+| A cell outside the hub's cluster needs a stored kubeconfig for the hub to mint through | Bounded by the spoke RBAC granted to it, which is minting rights rather than administrative access; `inCluster` stores nothing and covers the demo | When ServiceAccount token federation to the spoke replaces it (T-08) |
 
 ## Explicitly not defended against
 
@@ -401,5 +398,6 @@ Listed so nobody has to discover them by reading code.
 
 ## Reporting a vulnerability
 
-See `SECURITY.md` once the repository is public (ENG-186, ENG-188). Until then, this is a private
-repository with a single maintainer.
+Privately, through a GitHub Security Advisory. The route, the response targets and what a useful
+report contains are in
+[SECURITY.md](https://github.com/ethan-kane-ops/cellcast/blob/main/SECURITY.md).

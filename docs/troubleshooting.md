@@ -1,12 +1,12 @@
 # Troubleshooting
 
-Almost every cellcast problem is one of five things, and the refusal reason tells
-you which. Start there.
+Almost every cellcast problem shows up as a refusal, and the refusal reason says
+which one.
 
 ## Read the reason, not the message
 
 Every refusal carries a machine-readable `reason`. The prose beside it is for a
-human reading a build log and may change; the reason will not.
+human reading a build log and may change. The reason will not.
 
 ```console
 $ cellcast place --workload checkout-api --json | jq -r '.reason'
@@ -24,10 +24,10 @@ NoPolicy
 | `MintUnavailable` / `MintFailed` | The decision was made and the credential was not | The cell's `TrustConfig` |
 | `InvalidRequest` | The request itself was malformed | The client's arguments |
 
-The two that look alike and are not: `PlacementUnavailable` may be answered by
-your `--on-unavailable` stance, because the caller was already found to be
-permitted. `NoPolicy` may never be, because a fallback that got past an
-authorization refusal would make the flag a way around the policy engine.
+Two of them look alike and are not. `PlacementUnavailable` may be answered by an
+`--on-unavailable` stance, because the caller was already found to be permitted.
+`NoPolicy` may never be: a fallback that got past an authorization refusal would
+make the flag a route around the policy engine.
 
 ## The hub refuses everything with 401
 
@@ -39,8 +39,8 @@ $ kubectl -n cellcast-system logs deploy/cellcast | grep -i oidc
 ```
 
 A hub with no trusted issuer authenticates nobody. It is healthy, it is ready,
-and it will authorize nothing. The `CellcastNoAuthenticator` alert exists for
-exactly this, because nothing else about the deployment looks wrong.
+and it authorizes nothing. Nothing else about the deployment looks wrong, which
+is why `CellcastNoAuthenticator` is one of the shipped alerts.
 
 If issuers **are** configured, the rejection reason says which check failed:
 
@@ -55,8 +55,9 @@ sum by (reason) (rate(cellcast_auth_rejections_total[5m]))
 | `Expired` | A clock problem, or a token minted much earlier in the pipeline |
 | `Signature` | The key is not in the issuer's JWKS |
 
-A run of `Expired` is a clock or a retry loop. A run of `IssuerNotAllowed` is
-somebody presenting tokens this hub was not configured to accept.
+A run of `Expired` is a clock problem or a retry loop. A run of
+`IssuerNotAllowed` is somebody presenting tokens this hub was not configured to
+accept.
 
 ## A cell never gets placements
 
@@ -110,7 +111,7 @@ $ kubectl -n cellcast-system logs deploy/cellcast | grep warming
 ```
 
 If it names a cell, that cell's agent is the problem and the section above
-applies. If this persists past a heartbeat interval on a fleet that is otherwise
+applies. If it persists past a heartbeat interval on a fleet that is otherwise
 reporting, the replica cannot reach the API server to list the registry.
 
 ## A deploy landed on the wrong cell
@@ -121,10 +122,10 @@ Ask the hub why, without deploying anything:
 $ cellcast place --workload checkout-api --dry-run --explain
 ```
 
-The candidate table shows every cell and the stage at which it dropped out. If
-the cell you expected shows `permission`, the policy does not permit it. If it
-shows `capacity`, its agent is not reporting and the cell was excluded rather
-than ranked badly.
+The candidate table shows every cell and the stage at which it dropped out. A
+cell showing `permission` is one the policy does not permit. A cell showing
+`capacity` has an agent that is not reporting, so it was excluded rather than
+ranked badly.
 
 For a deploy that already happened, the audit record has the same table, keyed
 by `request_id`. See the [audit trail reference](audit.md).
@@ -148,9 +149,8 @@ Error: terminationGracePeriodSeconds (20) must exceed hub.drainDelay (5s) plus
 hub.shutdownTimeout (20s); the kubelet would kill the pod mid-drain
 ```
 
-Working as intended. Those two run in sequence and the kubelet has to
-accommodate their sum. Raise `terminationGracePeriodSeconds`, or lower one of
-the other two.
+Those two run in sequence and the kubelet has to accommodate their sum. Raise
+`terminationGracePeriodSeconds`, or lower one of the other two.
 
 ## The chart installs and the pods crash-loop
 

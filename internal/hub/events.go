@@ -16,7 +16,7 @@ import (
 // concern, so that `kubectl describe cluster prod-euw1` tells the operator who
 // has been deploying there without leaving the terminal.
 //
-// This view is deliberately lossy and the JSON trail is the authoritative one.
+// This view is lossy and the JSON trail is the authoritative one.
 // client-go's event machinery aggregates repeats and applies a per-object spam
 // filter, so a hub placing hundreds of deploys an hour will have some of these
 // collapsed or dropped. That is the right trade: Events are a convenience for a

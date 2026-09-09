@@ -95,10 +95,10 @@ type placementResponse struct {
 
 // handlePlacement serves POST /api/v1/placement.
 //
-// This is the whole product in one handler: authenticate, filter by permission,
-// filter by eligibility, score, mint. The order is the security control and it
-// is enforced by the engine rather than here; what this function owns is
-// turning each outcome into a status and a reason a client can act on.
+// The whole request in one handler: authenticate, filter by permission, filter
+// by eligibility, score, mint. The order is the security control and the engine
+// enforces it, not this function. What this function owns is turning each
+// outcome into a status and a reason a client can act on.
 func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -235,7 +235,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.DryRun {
-		// Stops before minting, deliberately after everything else. A dry run
+		// Stops before minting, and after everything else. A dry run
 		// that skipped the policy or capacity lookups would answer a different
 		// question from the one the real call asks.
 		writeJSON(w, http.StatusOK, resp)
@@ -323,7 +323,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 // explain renders the candidate table, marking the winner.
 //
 // Every registered cell appears, including ones the caller's policy refused.
-// That is a disclosure and it is deliberate: the same caller can already list
+// That is a disclosure, and an accepted one: the same caller can already list
 // the fleet through GET /api/v1/clusters, so withholding it here would hide the
 // answer to "why did my deploy not land where I expected" without withholding
 // anything an attacker could not already read.
@@ -391,7 +391,7 @@ func placementRefusal(err error) (int, refusal.Reason) {
 
 // refusalMessage is the prose half of a refusal.
 //
-// Coarse on purpose. A caller learns that it was refused and whether retrying
+// Coarse. A caller learns that it was refused and whether retrying
 // could help; which cells exist and which policy was consulted go to the hub
 // log, which the operator reads and the caller does not.
 func refusalMessage(reason refusal.Reason) string {

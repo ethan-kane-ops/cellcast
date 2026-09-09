@@ -197,7 +197,7 @@ type load struct {
 
 // run sends placements through the pool until ctx is cancelled.
 //
-// Keep-alives are off deliberately. A pooled connection to a replica that has
+// Keep-alives are off. A pooled connection to a replica that has
 // since shut down fails for reasons that have nothing to do with endpoint
 // timing, and Go does not retry a POST; without this the test would measure
 // connection reuse rather than the drain.
@@ -295,7 +295,7 @@ func rollUnderLoad(t *testing.T, drainDelay time.Duration) (failures, sent int64
 	return l.failures.Load(), l.sent.Load(), firstErr
 }
 
-// TestARollingUpdateDropsNoPlacements is ENG-179's acceptance criterion.
+// TestARollingUpdateDropsNoPlacements is the acceptance criterion for ADR-011.
 //
 // The hub replaces one replica with another while placements are in flight and
 // nothing fails. A deploy failing because cellcast was being upgraded is the

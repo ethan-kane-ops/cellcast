@@ -1,7 +1,7 @@
 # Metrics
 
-cellcast sits in the deploy critical path for a whole estate, so the first thing an adopter asks is
-what it costs and the second is how they would know it broke. This document answers both.
+cellcast sits in the deploy critical path for a whole estate. What it costs every deploy, and how an
+operator would know it broke.
 
 ## The endpoint
 
@@ -14,10 +14,10 @@ process-wide registry. There is no fourth port and no second registry.
 
 **The endpoint is unauthenticated.** What it discloses is cell names, policy names, per-cell
 utilisation and refusal counts. None of that is credential material and none of it is anything an
-authenticated caller cannot already read through `GET /api/v1/clusters`, but reaching the port should
-still be a deliberate decision: bind it to the pod network only and let a NetworkPolicy say who may
-scrape it. ENG-180's chart ships that policy along with the `ServiceMonitor`. Recorded as an accepted
-risk in [the threat model](threat-model.md).
+authenticated caller cannot already read through `GET /api/v1/clusters`, but reaching the port is still a
+decision to make: bind it to the pod network only and let a NetworkPolicy say who may scrape it. The
+hub chart ships that policy along with the `ServiceMonitor`. Recorded as an accepted risk in [the
+threat model](threat-model.md).
 
 ## What is exported
 
@@ -42,7 +42,7 @@ point cannot disagree with itself.
 `outcome` is `granted`, `refused` or `dry-run`. `reason` on a placement is the refusal taxonomy the
 caller received, so an operator and a pipeline are reading the same word for the same event.
 
-### Four that are not what you would guess
+### Four definitions that are not obvious
 
 **`cellcast_cluster_capacity_ratio` disappears when a cell goes stale.** It is not held at its last
 value and it is not zeroed. A stale ratio is a number a dashboard reads as current and the placement
@@ -55,7 +55,7 @@ rather than leaving an old series to be read as still true.
 
 **`cellcast_capacity_staleness_window_seconds` exists so an alert never hardcodes a threshold.** The
 window is `--capacity-staleness`, which an operator can change. A rule written against this metric
-retunes itself; one written against `180` does not, and nobody remembers to.
+retunes itself; one written against `180` has to be found and edited.
 
 **`cellcast_hub_warm` only ever goes up.** It flips to `1` the first time a replica's capacity index
 covers the fleet and stays there. Capacity going stale afterwards is the placement engine's problem
@@ -89,8 +89,8 @@ staleness and state, then credentials issued and their lifetimes.
 
 ## Alerts
 
-`config/prometheus/prometheusrule.yaml` is a `PrometheusRule` with four alerts. It needs the
-Prometheus Operator CRDs; ENG-180 templates it into the chart.
+`config/prometheus/prometheusrule.yaml` is a `PrometheusRule` with five alerts. It needs the
+Prometheus Operator CRDs, and the hub chart templates it in.
 
 | Alert | Severity | Fires when |
 | --- | --- | --- |
@@ -105,7 +105,7 @@ that has never reported has no staleness series for a threshold to exceed.
 
 `CellcastNoAuthenticator` is the one unambiguous alert in the set. A hub started with no
 `--oidc-issuer` refuses every caller, passes its own health checks, and stops every deploy in the
-estate. Nothing else here is a certainty; that one is.
+estate. Every other rule here describes a condition that may be benign.
 
 ## Scraping it by hand
 

@@ -118,7 +118,7 @@ type authRejection interface {
 
 // rejectionReason classifies an authentication failure for the metric label.
 //
-// The error string is deliberately not used: it is unbounded and would make the
+// The error string is not used: it is unbounded and would make the
 // label cardinality a function of what an issuer put in a message.
 func rejectionReason(err error) string {
 	var reason authRejection

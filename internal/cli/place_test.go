@@ -186,7 +186,7 @@ func TestDryRunWritesNoFile(t *testing.T) {
 	}
 }
 
-// TestThereIsNoTokenFlag pins a deliberate omission.
+// TestThereIsNoTokenFlag pins an omission.
 //
 // A token in a flag is a token in the process table, readable by every other
 // user on a shared runner. Somebody will eventually try to add this for

@@ -150,7 +150,7 @@ podDisruptionBudget:
 updateStrategy:
   type: RollingUpdate
   rollingUpdate:
-    # -- Zero, deliberately. A new replica has to be ready, which means warm,
+    # -- Zero. A new replica has to be ready, which means warm,
     # before an old one goes away, or a rollout is a window in which placements
     # are refused.
     maxUnavailable: 0
@@ -184,8 +184,8 @@ affinity: {}
 nodeSelector: {}
 # -- Tolerations for hub pods.
 tolerations: []
-# -- PriorityClass for hub pods. A service in the deploy critical path is worth
-# naming here.
+# -- PriorityClass for hub pods. Name one for a service in the deploy critical
+# path.
 priorityClassName: ""
 
 # -- Extra annotations for hub pods.

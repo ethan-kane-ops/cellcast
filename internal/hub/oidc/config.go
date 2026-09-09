@@ -4,8 +4,8 @@
 // The caller presents the OIDC JWT its platform already issues. cellcast
 // verifies it against the issuer's published keys and maps the claims to an
 // identity the policy engine can authorize. No shared secret exists anywhere in
-// the chain, which is the point: the credential problem is not solved by moving
-// a secret closer to the pipeline, it is solved by there not being one.
+// the chain: moving a credential closer to the pipeline does not solve the
+// problem, and removing it does.
 //
 // This package is the trusted computing base for authentication. It is separate
 // from internal/hub so that the code deciding who may ask for a credential is
@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// Default bounds. All are deliberately conservative: this is the code path an
+// Default bounds. All are conservative: this is the code path an
 // unauthenticated attacker reaches first.
 const (
 	// DefaultClockSkew is how far the hub's clock may disagree with the
@@ -45,7 +45,7 @@ const (
 // supportedAlgorithms is the signing algorithm allowlist.
 //
 // Asymmetric only, and checked against the token header before any key is
-// fetched. Symmetric algorithms are absent on purpose: accepting HS256 next to
+// fetched. Symmetric algorithms are absent: accepting HS256 next to
 // RS256 is the classic algorithm-confusion bug, where an attacker signs a token
 // using the issuer's *public* key as an HMAC secret. "none" is absent for the
 // obvious reason and is rejected explicitly rather than by omission.

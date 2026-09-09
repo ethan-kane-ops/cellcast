@@ -39,8 +39,8 @@ body:
         this request and paste it. It carries the policy that matched and every
         cell that was considered, which is usually the whole answer.
 
-        It never contains token material by construction, so it is safe to paste
-        as-is. See docs/audit.md for how to find it.
+        It cannot contain token material, so it is safe to paste as-is. See
+        docs/audit.md for how to find it.
       render: json
 
   - type: textarea

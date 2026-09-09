@@ -8,9 +8,9 @@ of failure for every deploy in the estate. The hub runs N replicas by default.
 The hub is two programs in one process. The API answers placements and mints;
 the controllers write `Cluster` status and emit Events.
 
-Running N of the first is the point. Running N of the second means three
-replicas fighting over the same status subresource and emitting every event
-three times, so a lease covers the controllers alone.
+Running N of the first is the reason for the exercise. Running N of the second
+means three replicas fighting over the same status subresource and emitting
+every event three times, so a lease covers the controllers alone.
 
 This works because nothing in the decision path writes. Placement reads the
 informer cache, which every replica keeps synced whether or not it holds the
@@ -18,19 +18,19 @@ lease, and ranks the survivors on a capacity index that is per-replica and
 rebuilt from heartbeats. A follower answers a placement exactly as well as the
 leader does.
 
-## Replicas disagree about capacity, and that is fine
+## Replicas disagree about capacity
 
 Agents heartbeat through the Service, so each report lands on whichever replica
 the load balancer chose. Two replicas asked the same question in the same second
 can pick different cells.
 
-Placement is advisory, so a marginally worse cell is a worse cell rather than a
-wrong one. Sharing the index between replicas would buy agreement on a number
-that is stale by construction, in exchange for a distributed system to be wrong
-about.
+That is acceptable. Placement is advisory, so a marginally worse cell is a worse
+cell rather than a wrong one, and sharing the index between replicas would buy
+agreement on a number that is already stale, at the cost of a distributed system
+to be wrong about.
 
-What is **not** acceptable is a replica with no capacity at all, which is the
-next section.
+A replica with **no** capacity at all is a different matter, and is the next
+section.
 
 ## Readiness means the replica can actually answer
 
@@ -59,8 +59,8 @@ anyway, logs that it did, and names the cells it never heard from:
 
 It keeps refusing placements until it is warm, with `PlacementUnavailable`
 rather than `CapacityUnknown`. The two resolve differently: the first is a
-property of the replica the caller reached and clears itself, so a retry is
-worth making.
+property of the replica the caller reached and clears on its own, so a retry
+may succeed.
 
 Warmth latches. Capacity going stale later is the placement engine's problem and
 it already has an answer. If warmth could fall back, readiness would follow it,
@@ -98,7 +98,7 @@ So the hub:
 The rollout uses `maxUnavailable: 0`, so a new replica is ready, which means
 warm, before an old one goes away.
 
-## What the chart gives you
+## What the chart sets
 
 | Value | Default | What it protects |
 |---|---|---|
@@ -109,7 +109,7 @@ warm, before an old one goes away.
 | `hub.leaderElection.enabled` | `true` | Three replicas writing the same status |
 
 `ScheduleAnyway` rather than `DoNotSchedule` so a single-node development
-cluster still runs. Change it to `DoNotSchedule` where the estate can satisfy it.
+cluster still runs. Set it to `DoNotSchedule` on an estate that can satisfy it.
 
 ## Failure behaviour
 

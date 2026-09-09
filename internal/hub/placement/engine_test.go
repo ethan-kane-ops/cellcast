@@ -99,7 +99,7 @@ func newEngine(t *testing.T, index *capacity.Registry, objs ...client.Object) *E
 
 // TestDevPipelineCannotReachAProdCell is the reason this package exists.
 //
-// The prod cell is deliberately the least loaded in the fleet, so a
+// The prod cell is the least loaded in the fleet, so a
 // score-then-filter implementation returns it. Filter-then-score refuses it on
 // permission and never looks at its utilisation at all
 // (docs/architecture.md ADR-005, docs/threat-model.md T-03).
@@ -288,7 +288,7 @@ func TestStaleCellIsNeverChosen(t *testing.T) {
 
 // TestRefusalsAreDistinguishable pins the four failure modes apart. An
 // authorization refusal and a fleet-wide capacity blackout must never be
-// handled the same way by the client (ENG-175).
+// handled the same way by the client.
 func TestRefusalsAreDistinguishable(t *testing.T) {
 	permitting := policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
 
@@ -451,7 +451,7 @@ func TestUnsetStrategyDefaultsToLeastLoaded(t *testing.T) {
 	}
 }
 
-// TestTraceCoversEveryRegisteredCell pins what --explain (ENG-114) renders. A
+// TestTraceCoversEveryRegisteredCell pins what --explain renders. A
 // cell missing from the trace is a cell whose absence the caller cannot explain.
 func TestTraceCoversEveryRegisteredCell(t *testing.T) {
 	index := loaded(t, map[string]float64{"live-dev": 0.2})
@@ -559,7 +559,7 @@ func candidateFor(t *testing.T, d *Decision, cell string) Candidate {
 }
 
 // TestPolicyClaimKeysMatchWhatTheAuthenticatorProduces closes the seam between
-// ENG-172 and this package.
+// the authenticator and this package.
 //
 // A policy constraining "repo" against an authenticator that emits "repository"
 // matches nothing, and a policy that matches nothing is a silent deny-all that
@@ -677,7 +677,7 @@ func TestPinnedSubjectBeatsAnIssuerWidePolicy(t *testing.T) {
 // The candidate table is built before the engine knows it will refuse, and it
 // is the only record of which cells were considered and what stopped each one.
 // Discarding it made "why was my deploy refused" unanswerable from the audit
-// trail (ENG-176), and nothing else in this package would notice it going
+// trail, and nothing else in this package would notice it going
 // missing again: every other test asserts on the error identity alone.
 func TestARefusalCarriesItsReasoning(t *testing.T) {
 	index := loaded(t, map[string]float64{"dev-euw1": 0.10})

@@ -13,14 +13,13 @@ Three views of the same events, with one instrumentation point behind them.
 Every placement and every mint produces one `audit.Record`. The JSON trail, the
 Kubernetes Events and the Prometheus counters are all views over it.
 
-That is deliberate. A metric incremented at its own call site drifts from the
-log line next to it the first time somebody adds an early return, and the drift
-is invisible: both look fine, they just describe different things. Deriving all
-three from one record means a refusal that is audited is counted by
-construction.
+A metric incremented at its own call site drifts from the log line next to it
+the first time somebody adds an early return, and the drift is invisible: both
+look fine, they just describe different things. Deriving all three from one
+record means a refusal that is audited is also counted.
 
-The practical consequence for contributors: **new hub instrumentation goes on
-the audit record**, not on a new call site.
+The consequence for contributors: **new hub instrumentation goes on the audit
+record**, not on a new call site.
 
 ## The audit trail
 
@@ -37,7 +36,7 @@ One JSON line per placement and per mint, tied together by `request_id`:
                 "reason":"cell is not permitted by this caller's policy"}]}
 ```
 
-Three properties worth knowing:
+Three properties of the trail:
 
 - **It is written through its own handler at a fixed level.** `--log-level=error`
   suppresses the hub's chatter and never the trail. Sharing one logger would
@@ -53,9 +52,9 @@ Worked queries are in the [audit trail reference](audit.md).
 
 ## Metrics
 
-The full surface, the cardinality argument, and the three metrics that are not
-what you would guess are in the [metrics reference](metrics.md). The short
-version:
+The full surface, the cardinality argument, and the four metrics whose
+definitions are not obvious are in the [metrics reference](metrics.md). The
+short version:
 
 ```promql
 # Is cellcast adding time to every deploy?
@@ -107,16 +106,16 @@ Events:
   Normal  CredentialIssued   2m     cellcast-hub   issued a 15m0s credential to repo:acme/checkout:ref:refs/heads/main, scoped to apps/deployer
 ```
 
-Events are lossy by design: they are rate-limited and expire. They are a
-convenience on top of the trail, never a substitute for it. Dry runs produce no
-event, because a dry run is not a deploy.
+Events are lossy by design: rate-limited, and they expire. They are a
+convenience on top of the trail rather than a substitute for it. Dry runs
+produce no event, because a dry run is not a deploy.
 
 Only the leader emits them, which is why they appear once rather than once per
 replica.
 
 ## What to alert on
 
-The five shipped rules, and why each one is not merely a dashboard panel:
+The five shipped rules, and what each catches that a dashboard panel would not:
 
 | Alert | Catches |
 |---|---|
@@ -126,5 +125,5 @@ The five shipped rules, and why each one is not merely a dashboard panel:
 | `CellcastAuthRejectionRatioHigh` | A broken pipeline, or somebody probing |
 | `CellcastNoAuthenticator` | A hub refusing everything because no OIDC issuer is configured, while passing its own health checks |
 
-The last one is the misconfiguration that stops every deploy in the estate while
-looking entirely healthy from the outside.
+The last is the misconfiguration that stops every deploy in the estate while
+looking healthy from the outside.
