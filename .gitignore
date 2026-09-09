@@ -10,3 +10,8 @@ coverage.out
 
 # mkdocs build output
 site/
+
+# demo fleet state: kubeconfigs, tokens and cluster CAs for throwaway clusters
+demo/.work/
+cellcast.kubeconfig
+cellcast.cast
