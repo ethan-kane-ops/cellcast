@@ -1043,7 +1043,16 @@ integration-logs:
     # which subject was presented or which claims a policy could have matched.
     # The audit record does, and it is written at info.
     set -euo pipefail
-    for log in demo/.work/logs/*.log; do
+    # Tolerant on purpose. This runs because something already failed, and a
+    # fleet that fell over before it wrote a log should not turn one failure
+    # into two.
+    shopt -s nullglob
+    logs=(demo/.work/logs/*.log)
+    if [ ${#logs[@]} -eq 0 ]; then
+        echo "no logs; the fleet did not get far enough to write any"
+        exit 0
+    fi
+    for log in "${logs[@]}"; do
         echo "=== $log ==="
         cat "$log"
     done
