@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -77,6 +78,31 @@ func TestAPIDeniesByDefault(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("GET /api/v1/version = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestARefusalWithNoAuthenticatorIsStillUnauthenticated pins the invariant the
+// middleware does not enforce.
+//
+// The middleware writes 401 for any error an Authenticator returns, so a
+// refusal that was not an ErrUnauthenticated would still reach a caller as one
+// and nothing here would notice. Anything reading the error rather than the
+// status code, a fallback stance deciding whether a refusal may be worked
+// around among them, would.
+//
+// The rejection reason is the other half. Counted as Unclassified alongside
+// malformed tokens, the one misconfiguration that stops every deploy in the
+// estate would read as a pipeline problem.
+func TestARefusalWithNoAuthenticatorIsStillUnauthenticated(t *testing.T) {
+	_, err := denyAll{}.Authenticate(t.Context(), httptest.NewRequest(http.MethodGet, "/api/v1/version", nil))
+	if err == nil {
+		t.Fatal("a hub with no authenticator admitted a caller")
+	}
+	if !errors.Is(err, identity.ErrUnauthenticated) {
+		t.Errorf("Authenticate() = %v, which does not read as unauthenticated", err)
+	}
+	if got := rejectionReason(err); got != "NoAuthenticator" {
+		t.Errorf("rejectionReason() = %q, want NoAuthenticator; a missing authenticator is its own bucket", got)
 	}
 }
 

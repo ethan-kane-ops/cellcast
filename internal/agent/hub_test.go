@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -174,6 +175,13 @@ func TestHubClientRefusals(t *testing.T) {
 			}
 			if hubErr.Misconfigured() != tt.wantMisconfigure {
 				t.Errorf("Misconfigured() = %v, want %v", hubErr.Misconfigured(), tt.wantMisconfigure)
+			}
+			// The rendered string is what lands in the agent's log, and it is
+			// the only place an operator sees the status and the hub's own
+			// words together.
+			if got := hubErr.Error(); !strings.Contains(got, tt.wantMessage) ||
+				!strings.Contains(got, strconv.Itoa(tt.status)) {
+				t.Errorf("Error() = %q, want the status and the message in it", got)
 			}
 		})
 	}

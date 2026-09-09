@@ -580,3 +580,106 @@ func TestJSONResultNamesItsSource(t *testing.T) {
 		t.Error("a cached decision carries a credential")
 	}
 }
+
+// explainBody is a decision whose candidate table carries all three verdicts.
+//
+// Shaped like the fleet the demo records against: apse1 is the emptiest cell in
+// the estate and the one policy refuses, so a hub that scored before it
+// filtered would have returned it. It is given a real utilisation here because
+// the hub has one for it. Agents report capacity for every cell they are
+// registered for, whether or not the caller's policy permits that cell.
+func explainBody() map[string]any {
+	body := successBody("euw1")
+	body["candidates"] = []map[string]any{
+		{"cell": "euw1", "admitted": true, "chosen": true, "stage": "scoring",
+			"utilisation": 0.29, "reason": "lowest committed utilisation"},
+		{"cell": "use1", "admitted": true, "chosen": false, "stage": "scoring",
+			"utilisation": 0.42, "reason": "eligible"},
+		{"cell": "apse1", "admitted": false, "chosen": false, "stage": "permission",
+			"utilisation": 0.04, "reason": "not permitted by policy app-prod"},
+	}
+	return body
+}
+
+// tableRow returns the output line describing one cell.
+func tableRow(t *testing.T, out, cell string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), cell+" ") {
+			return line
+		}
+	}
+	t.Fatalf("no row for %s in:\n%s", cell, out)
+	return ""
+}
+
+// TestExplainSaysWhyEachCellWasOrWasNotChosen covers the output the whole
+// argument rests on: policy filters, and only the survivors are scored.
+//
+// A rejection nobody can read is a rejection somebody works around, so each
+// verdict has to be distinguishable and each refusal has to carry its reason.
+func TestExplainSaysWhyEachCellWasOrWasNotChosen(t *testing.T) {
+	srv := hubStub(t, http.StatusOK, explainBody())
+	kubeconfig := filepath.Join(t.TempDir(), "cellcast.kubeconfig")
+
+	out, err := run(t, srv.URL, "--workload", "checkout-api", "--kubeconfig", kubeconfig, "--explain")
+	if err != nil {
+		t.Fatalf("place = %v, want nil", err)
+	}
+
+	for _, want := range []struct{ cell, verdict, detail string }{
+		{"euw1", "chosen", "lowest committed utilisation"},
+		{"use1", "eligible", "eligible"},
+		{"apse1", "refused", "not permitted by policy app-prod"},
+	} {
+		row := tableRow(t, out, want.cell)
+		if !strings.Contains(row, want.verdict) {
+			t.Errorf("%s row = %q, want verdict %s", want.cell, row, want.verdict)
+		}
+		if !strings.Contains(row, want.detail) {
+			t.Errorf("%s row = %q, does not say why", want.cell, row)
+		}
+	}
+
+	// The utilisation column is the tell. A cell refused at the permission
+	// stage was never scored, and printing a number next to it says the
+	// opposite: that it was measured, considered and beaten on capacity.
+	if row := tableRow(t, out, "apse1"); strings.Contains(row, "%") {
+		t.Errorf("apse1 was refused before scoring, and its row reports a utilisation: %q", row)
+	}
+	if row := tableRow(t, out, "euw1"); !strings.Contains(row, "29%") {
+		t.Errorf("euw1 row = %q, want the utilisation it was chosen on", row)
+	}
+
+	// The hub's order is the order it considered them in.
+	if i, j := strings.Index(out, "euw1"), strings.Index(out, "apse1"); i > j {
+		t.Errorf("the table reorders the hub's candidates:\n%s", out)
+	}
+}
+
+// TestNoExplainAsksTheHubForNoTable pins that the table is opt in. It names
+// cells this caller may not reach, so it is not something to fetch by default.
+func TestNoExplainAsksTheHubForNoTable(t *testing.T) {
+	var explained bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req placeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decoding the request: %v", err)
+		}
+		explained = req.Explain
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(successBody("euw1")); err != nil {
+			t.Errorf("encoding stub response: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	kubeconfig := filepath.Join(t.TempDir(), "cellcast.kubeconfig")
+	if _, err := run(t, srv.URL, "--workload", "checkout-api", "--kubeconfig", kubeconfig); err != nil {
+		t.Fatalf("place = %v, want nil", err)
+	}
+	if explained {
+		t.Error("the client asked the hub to explain a placement nobody asked it to explain")
+	}
+}
