@@ -1,7 +1,7 @@
 // Package cli implements the cellcast client command tree.
 //
 // The client is what a pipeline invokes. It ships through a Homebrew tap and
-// deliberately does not link controller-runtime.
+// does not link controller-runtime.
 package cli
 
 import (

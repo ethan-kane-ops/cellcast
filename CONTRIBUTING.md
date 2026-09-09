@@ -1,10 +1,8 @@
 # Contributing to cellcast
 
-Thank you for considering a contribution. This document describes the development workflow, the coding standards, and what a reviewable pull request looks like here.
+The development workflow, the coding standards, and what a reviewable pull request looks like here.
 
 By participating, you agree to abide by the [Code of Conduct](./CODE_OF_CONDUCT.md).
-
----
 
 ## Development setup
 
@@ -41,9 +39,11 @@ Three binaries, deployed in two places:
 | `cellcast-agent` | every registered cell | reports capacity on a heartbeat |
 | `cellcast` | the pipeline runner | client CLI |
 
-**The split is a security boundary, not tidiness.** The agent runs in every registered cell, so it must never link the minting code. A test in `internal/boundaries` enforces this by inspecting what each binary actually links, and a change that merges the binaries or moves minting into a shared package the agent imports will fail it. That test is not the obstacle; it is the design.
+**The split is a security boundary, not tidiness.** The agent runs in every registered cell, so it must never link the minting code. A test in `internal/boundaries` enforces this by inspecting what each binary links, and a change that merges the binaries or moves minting into a shared package the agent imports will fail it.
 
-Read [docs/architecture.md](./docs/architecture.md) before changing anything structural, and [docs/threat-model.md](./docs/threat-model.md) before touching auth, policy, or the minting path. They are the design contract rather than a description written afterwards.
+Read [docs/architecture.md](./docs/architecture.md) before changing anything structural, and [docs/threat-model.md](./docs/threat-model.md) before touching auth, policy, or the minting path. They are the design contract, not a description written after the fact.
+
+Adding support for a CI platform or a second way to mint credentials is documented separately: [docs/extending.md](./docs/extending.md). Most CI platforms need an issuer entry rather than a code change.
 
 ## Code generation
 
@@ -60,19 +60,19 @@ just generate manifests
 - Error strings: lowercase, no trailing punctuation, wrapped with `%w`.
 - Tests: table-driven, `t.TempDir()` for filesystem fixtures.
 - Structured logging via `log/slog` to stdout.
-- **Never log token material**, not even a prefix. Log a hash if you need correlation. The request logger deliberately omits headers, bodies and query strings.
-- **New hub instrumentation goes on the audit record, not on a new call site.** `internal/hub/audit` is the single description of what the hub did; Events and metrics are views over it. Adding a field to `audit.Record` requires classifying it in `TestRecordHasNoFieldThatCouldHoldAToken`, which is deliberate.
+- **Never log token material**, not even a prefix. Log a hash if correlation is needed. The request logger omits headers, bodies and query strings.
+- **New hub instrumentation goes on the audit record, not on a new call site.** `internal/hub/audit` is the single description of what the hub did; Events and metrics are views over it. Adding a field to `audit.Record` requires classifying it in `TestRecordHasNoFieldThatCouldHoldAToken`.
 - **Adding a metric means updating `dashboards/cellcast.json` or `config/prometheus/prometheusrule.yaml`, and `docs/metrics.md`.** A contract test asserts the three agree with what the registry emits, in both directions.
-- Comments explain why, not what. A comment restating the line below it is noise; a comment saying which failure the line prevents is the reason the line survives a refactor.
+- Comments explain why, not what. A comment restating the line below it is noise. A comment naming the failure the line prevents is why the line survives a refactor.
 
 ## Tests
 
-The bar is that a test fails when the behaviour it names breaks. Two habits get you there:
+The bar is that a test fails when the behaviour it names breaks. Two habits:
 
 - **Verify by breaking.** Change the code so the behaviour is wrong, run the test, and confirm it fails for the stated reason. Commit first: the revert is `git checkout HEAD --`, which destroys uncommitted work.
 - **Assert the property, not the text.** `strings.Contains(output, "alert: Foo")` passes on an alert renamed to `FooBar`. Compare whole values.
 
-Coverage has a floor (`just cover`), but a test that raises coverage without being able to fail is worse than the gap it filled.
+Coverage has a floor (`just cover`). A test that raises coverage without being able to fail is worse than the gap it filled, because it also stops anyone looking there again.
 
 ## Pull requests
 
@@ -80,7 +80,7 @@ Coverage has a floor (`just cover`), but a test that raises coverage without bei
 - Conventional commit format for the title: `type(scope): summary`.
 - The PR body describes the diff and the problem it solves. Not the journey, not the branch, not what a reviewer should do next.
 - `just check` passes.
-- If the change touches the minting path, the policy engine, or the authenticator, say in the PR what an attacker gains if you got it wrong. If the answer is "nothing", say why.
+- If the change touches the minting path, the policy engine, or the authenticator, the PR says what an attacker gains if it is wrong. If the answer is nothing, it says why.
 
 ## Security
 

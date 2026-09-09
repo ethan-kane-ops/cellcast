@@ -65,7 +65,7 @@ func expectedToReport(cluster *cellcastv1alpha1.Cluster) bool {
 		return false
 	}
 	// A draining cell takes no new placements, so its capacity cannot change a
-	// decision. Holding up a hub rollout for a cell that is deliberately being
+	// decision. Holding up a hub rollout for a cell an operator is
 	// emptied is the wrong way round: draining a cell is the moment you most
 	// want the hub healthy.
 	return cluster.Spec.State != cellcastv1alpha1.ClusterStateDraining
@@ -73,7 +73,7 @@ func expectedToReport(cluster *cellcastv1alpha1.Cluster) bool {
 
 // trackWarmth polls until the capacity index covers the fleet, then latches.
 //
-// It keeps polling past the readiness deadline on purpose. A replica that went
+// It keeps polling past the readiness deadline. A replica that went
 // ready while still cold has to be able to notice the heartbeats that its own
 // readiness is what allowed to arrive; stopping the poll at the deadline is how
 // that hub would stay cold for the rest of its life.
@@ -131,7 +131,7 @@ func (s *Server) awaitWarmth(ctx context.Context) {
 	case <-warm:
 	case <-ctx.Done():
 	case <-deadline.C:
-		// Ready while cold is deliberate, and it is the only way out of a
+		// Ready while cold is intended, and it is the only way out of a
 		// deadlock the fleet can otherwise reach: agents heartbeat through the
 		// Service, a Service routes only to ready pods, so a fleet whose hub
 		// replicas all restarted at once has no path back to warm until one of

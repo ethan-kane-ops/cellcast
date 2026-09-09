@@ -27,9 +27,9 @@ spec:
 ```
 
 The credential handed to the caller can do exactly what `apps/deployer` can do
-in that cell, for the granted lifetime. **Whatever you grant that service
-account is what cellcast can hand out**, so it is the object worth reviewing,
-not this one.
+in that cell, for the granted lifetime. **Whatever that service account is
+granted is what cellcast can hand out**, so it is the object to review, not this
+one.
 
 `credentialSource` takes one of two forms and never both:
 
@@ -54,20 +54,24 @@ asked for, and what capped it:
 credential valid for 30m (requested 2h, capped by policy at 30m)
 ```
 
-A deploy that assumed it had two hours would otherwise fail partway through
-rather than at the start, which is the more expensive failure.
+Otherwise a deploy that assumed it had two hours fails partway through rather
+than at the start.
 
 !!! note "Why the hub's own ceiling exists"
 
     A Kubernetes API server applies no maximum of its own unless the operator
     set `--service-account-max-token-expiration`. A default cluster will issue a
     token lasting years if asked. `--token-max-ttl` is the bound that is certain
-    to exist, which is why it is a real control rather than defence in depth.
+    to exist.
 
 There is also a floor the hub does not choose: the `TokenRequest` API refuses
-anything under ten minutes. A policy with a `max` below that admits placements
-and can never mint for them, so the hub rejects that configuration at startup
-rather than at deploy time.
+anything under ten minutes.
+
+The hub's own `--token-max-ttl` is checked against that floor at startup, so a
+hub configured below it refuses to start rather than accepting requests it can
+never satisfy. A **policy** `max` below the floor is not caught that early: it
+admits placements and then fails the mint with `MintFailed`. Keep a policy's
+`max` at ten minutes or above.
 
 ## What the hub does not do
 
@@ -88,10 +92,10 @@ the material that authenticates the hub to a spoke is not.
 a cached credential. A hub that cannot be reached cannot mint, and no client
 flag changes that.
 
-## Verifying trust configuration before you need it
+## Checking trust configuration before a pipeline depends on it
 
-The hub reports whether a `TrustConfig` could mint, checked when you write it
-rather than when a pipeline depends on it:
+The hub reports whether a `TrustConfig` could mint, checked when it is written
+rather than when a deploy needs it:
 
 ```console
 $ kubectl -n cellcast-system get trustconfig
@@ -105,8 +109,6 @@ anything useful in that cell is that cluster's RBAC to answer, and asking would
 mean the hub holding permission to introspect it.
 
 ## If the hub is compromised
-
-Stated plainly because it is the question a reviewer asks first.
 
 Whoever controls the hub's ServiceAccount can read the trust configuration it
 holds and mint what that configuration allows: a token for the named service

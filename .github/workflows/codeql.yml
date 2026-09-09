@@ -1,0 +1,45 @@
+# Static analysis. Complements `just vuln`, which asks a different question:
+# govulncheck reports known advisories in dependencies this code can reach,
+# CodeQL looks for defects in the code itself.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, because the query packs change even when the code does not.
+    - cron: "27 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze go
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploading the SARIF result is what puts a finding in the Security tab.
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: go
+          # Manual rather than autobuild: autobuild would resolve its own Go
+          # toolchain and analyse a build this repository does not pin.
+          build-mode: manual
+          queries: security-and-quality
+
+      - run: go build ./...
+
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: /language:go

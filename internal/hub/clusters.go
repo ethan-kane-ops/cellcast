@@ -28,7 +28,7 @@ const maxRegistrationBytes = 64 << 10
 
 // reservedLabelPrefix is owned by cellcast and may not be set by a registrant.
 //
-// PlacementPolicy selectors match on cluster labels (ENG-173), so a registrant
+// PlacementPolicy selectors match on cluster labels, so a registrant
 // who could set a label under the system prefix could forge whatever a policy
 // is configured to trust. Registration is already privileged (T-04); this keeps
 // the blast radius of that privilege inside the operator's own label space.
@@ -64,7 +64,7 @@ var credentialFields = []string{
 
 // clusterRegistration is the POST /api/v1/clusters request body.
 //
-// It is deliberately a hand-written type rather than the CRD serialised
+// It is a hand-written type rather than the CRD serialised
 // directly. The wire format is a contract with pipelines and must not shift
 // every time an internal field does, and writing it out by hand is what makes
 // DisallowUnknownFields a security control rather than a formality: there is no
@@ -90,7 +90,7 @@ type reporterPayload struct {
 
 // clusterResponse is the API representation of a registered cell.
 //
-// The CA bundle is echoed back deliberately: it is a public certificate, and a
+// The CA bundle is echoed back: it is a public certificate, and a
 // caller comparing what it sent against what was stored is a cheap way to catch
 // a truncated paste.
 type clusterResponse struct {
@@ -153,7 +153,7 @@ func findCredentialField(body []byte) (string, bool) {
 
 // validate reports every problem with the payload at once.
 //
-// Validation messages are specific, unlike the deliberately coarse errors
+// Validation messages are specific, unlike the coarse errors
 // elsewhere in this package. They describe the caller's own input and reveal
 // nothing about the fleet, and an operator registering a cell needs to be told
 // which field is wrong.
@@ -373,7 +373,7 @@ func stateSince(cl *cellcastv1alpha1.Cluster) *time.Time {
 // Registering a cell is a privileged action: whoever can do it can point
 // cellcast at an endpoint they control and attract real deploys to it. The
 // authoritative control is RBAC on the hub's own service account, not this
-// handler (docs/threat-model.md T-04). The endpoint is deliberately not probed
+// handler (docs/threat-model.md T-04). The endpoint is not probed
 // for reachability, because doing so would make the hub issue outbound requests
 // to a URL the caller chose.
 func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {

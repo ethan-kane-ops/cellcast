@@ -24,7 +24,7 @@ metadata:
     {{- if $.Values.crds.keep }}
     # Deleting a CRD deletes every object of that kind with it, so an uninstall
     # would take the whole registry: every Cluster, every PlacementPolicy,
-    # every TrustConfig. Left behind on purpose.
+    # every TrustConfig. Left behind.
     helm.sh/resource-policy: keep
     {{- end }}
 spec:

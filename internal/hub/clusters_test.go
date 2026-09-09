@@ -30,7 +30,7 @@ const testNamespace = "cellcast-system"
 
 // newFakeClient returns a client backed by an in-memory tracker, with the
 // status subresource enabled so reconciler writes behave as they do against a
-// real API server. Installing the CRDs into an actual API server is ENG-177.
+// real API server. internal/apitest covers the schema itself against one.
 func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
 	scheme, err := NewScheme()

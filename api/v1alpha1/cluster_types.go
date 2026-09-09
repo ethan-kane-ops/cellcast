@@ -41,8 +41,6 @@ const (
 // TrustConfigReference names the trust configuration used to mint credentials
 // for this cell. It is a reference, never inline material: a Cluster never
 // carries a credential. See docs/architecture.md ADR-004.
-//
-// The contents of the referenced object are defined by ENG-113.
 type TrustConfigReference struct {
 	// Name of the trust configuration object in the hub namespace.
 	// +kubebuilder:validation:MinLength=1

@@ -55,8 +55,8 @@ type liveCell struct {
 	Load int `json:"load"`
 }
 
-// TestLiveAgentFleet is ENG-174's done-when: three real clusters, three real
-// agents, one hub, and a cell that drops out of scoring when its agent dies.
+// TestLiveAgentFleet runs three real clusters, three real agents and one hub,
+// with a cell that drops out of scoring when its agent dies.
 //
 // Every component is the real one, including the OIDC path. Each kind cluster
 // is created with its own service account issuer, so the agents present tokens

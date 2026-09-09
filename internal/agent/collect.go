@@ -56,7 +56,7 @@ func Collect(nodes []*corev1.Node, pods []*corev1.Pod) Snapshot {
 // allocatable is a number the API server last heard rather than capacity that
 // exists.
 //
-// Taints are deliberately not an exclusion. A taint is a per-workload matching
+// Taints are not an exclusion. A taint is a per-workload matching
 // question and this report is a cell-level fact, so filtering on them would
 // score a cluster on the subset of it that tolerates nothing. It would also
 // report every single-node kind cluster as having zero capacity, because the

@@ -1,0 +1,47 @@
+# The suites that need real clusters. They build their own kind clusters, take
+# minutes each, and are the only place most of the agent and fallback behaviour
+# is exercised end to end.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # A manual run, for reproducing a failure without pushing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: ${{ matrix.recipe }}
+    runs-on: ubuntu-latest
+    # Each recipe creates and destroys its own clusters, so they are
+    # independent and the matrix is free parallelism. fail-fast is off because
+    # knowing that two of the three broke is more useful than knowing one did.
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe:
+          # A credential minted against a real API server, bounded by its RBAC.
+          - verify-mint
+          # A placement end to end, then the hub dies and every declared
+          # fallback stance is checked.
+          - verify-e2e
+          # Three cells, three agents, and one dropping out of scoring.
+          - verify-agent
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      # The recipes call `kind` directly and create clusters with their own
+      # service account issuers, so this installs the binary and no cluster.
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          install_only: true
+      - run: just ${{ matrix.recipe }}

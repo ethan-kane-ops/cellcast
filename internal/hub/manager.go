@@ -87,8 +87,7 @@ func (o ManagerOptions) ValidateAgainst(cfg Config) error {
 // NewManager builds the controller-runtime manager that owns the Cluster and
 // PlacementPolicy reconcilers.
 //
-// Reconcilers are added by RegisterControllers. ENG-112 extends the Cluster
-// reconciler and ENG-173 adds the PlacementPolicy one.
+// Reconcilers are added by RegisterControllers.
 //
 // log is bridged into controller-runtime's global logger. That call is not
 // optional: without it every line the controller machinery emits is discarded,

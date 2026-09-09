@@ -24,7 +24,7 @@ const maxCapacityBytes = 4 << 10
 
 // capacityReport is the POST /api/v1/clusters/{name}/capacity request body.
 //
-// The cell is taken from the path and is deliberately absent here, so a report
+// The cell is taken from the path and is absent here, so a report
 // cannot name one cell in its URL and a different one in its body. There is no
 // version of that mismatch worth resolving.
 type capacityReport struct {

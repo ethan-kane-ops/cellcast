@@ -4,8 +4,8 @@
 # dashboard shows is something an operator goes looking for; these are the ones
 # that have to come and find them.
 #
-# Requires the Prometheus Operator CRDs. ENG-180 templates this into the chart;
-# until then apply it directly:
+# Requires the Prometheus Operator CRDs. The hub chart templates this in under
+# `metrics.prometheusRule.enabled`. To apply it without the chart:
 #
 #   kubectl apply -f config/prometheus/prometheusrule.yaml
 apiVersion: monitoring.coreos.com/v1

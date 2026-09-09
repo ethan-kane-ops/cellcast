@@ -1,6 +1,6 @@
 # Support
 
-Thanks for using cellcast. Here is where to go depending on what you need.
+Where to go, by what is needed.
 
 ## Documentation
 
@@ -18,16 +18,16 @@ using the question or feature-request template. Please search existing issues fi
 File a bug with the bug-report template at
 https://github.com/ethan-kane-ops/cellcast/issues/new/choose.
 
-Two things make a cellcast bug report actionable, and both come from the hub
-rather than from the client:
+Two things make a bug report actionable, and both come from the hub rather than
+from the client:
 
 - The **audit record** for the request, which is a single JSON line on the hub's
   stdout carrying the request id, the policy that matched, and every cell that
   was considered. See [docs/audit.md](./docs/audit.md) for how to find it.
 - The `Cluster` and `PlacementPolicy` that were in play, as YAML.
 
-**Redact before pasting.** An audit record never contains token material by
-construction, but a `kubectl get -o yaml` of anything else in the namespace can.
+**Redact before pasting.** An audit record cannot contain token material, but a
+`kubectl get -o yaml` of anything else in the namespace can.
 
 ## Security vulnerabilities
 

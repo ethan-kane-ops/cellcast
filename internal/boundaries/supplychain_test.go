@@ -123,7 +123,7 @@ func TestTheReleaseVerifiesTheSignaturesItMade(t *testing.T) {
 }
 
 func TestNothingShipsWithoutAVulnerabilityScan(t *testing.T) {
-	// govulncheck is deliberately outside the fast gate, which means the only
+	// govulncheck sits outside the fast gate, which means the only
 	// thing standing between a known reachable vulnerability and a published
 	// image is that `release` runs the heavy one. Moving the scan out of
 	// `check-all`, or the gate out of `release`, would leave both recipes

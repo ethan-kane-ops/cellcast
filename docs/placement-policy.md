@@ -7,8 +7,8 @@ control.
 ## Deny by default
 
 A caller matching no policy is refused with `NoPolicy`. There is no "any cell"
-fallback, and no flag turns one on. This is the single most important property
-of the object and everything else follows from it.
+fallback, and no flag turns one on. Everything else about the object follows
+from that.
 
 ## The shape
 
@@ -47,10 +47,9 @@ Every field present must match; a `SubjectSelector` is an AND.
 issuer here does not add it: the hub verifies signatures only against issuers it
 was started with, so a policy naming an unconfigured issuer matches nothing.
 
-`subject` and `claims` are exact-match. There is deliberately no pattern
-matching. A glob in a policy is read as narrower than it is, and the failure is
-silent until somebody notices a branch they did not expect deploying to
-production.
+`subject` and `claims` are exact-match. There is no pattern matching. A glob in
+a policy reads as narrower than it is, and the failure stays silent until
+somebody notices an unexpected branch deploying to production.
 
 !!! warning "An issuer-only selector is broader than it looks"
 
@@ -64,11 +63,11 @@ production.
 
 A standard label selector over registered `Cluster` objects, evaluated at
 decision time. Labelling a new cell `env: prod` adds it to every policy that
-selects on that label, without editing any of them. That is the point, and it is
-also the thing to be careful about.
+selects on that label, without editing any of them. That is the intended
+behaviour and the thing to be careful about.
 
-An empty selector matches every registered cell. That is valid and occasionally
-what you want; it is never what you want in production.
+An empty selector matches every registered cell. Valid, occasionally useful in
+development, and never correct in production.
 
 ### `strategy`
 
@@ -80,8 +79,9 @@ How the permitted, eligible survivors are ranked:
 | `RoundRobin` | Even distribution, ignoring load |
 
 Utilisation is the **maximum** of CPU and memory pressure, not the mean. A cell
-at 95% memory and 10% CPU is nearly full, not half loaded, and averaging is how
-a scheduler keeps sending work to a cell one pod away from evicting things.
+at 95% memory and 10% CPU is nearly full rather than half loaded, and averaging
+is how a scheduler keeps sending work to a cell one pod away from evicting
+things.
 
 Scoring only ever runs on cells that already passed the filter. The least-loaded
 cell in the estate is never returned to a caller not permitted to reach it.
@@ -101,7 +101,7 @@ for them.
 
 Whether a caller under this policy may ask for a `DARK` cell with `--dark`. Off
 by default. A dark cell is reachable **only** through a policy that permits it,
-which is what makes running QA smoke tests against a dark cell safe.
+which is what makes a QA smoke test against one safe to run.
 
 ## Cell state, which is not policy
 
@@ -114,8 +114,8 @@ A cell's `spec.state` is set by an operator and applies to every policy:
 | `DRAINING` | no | yes |
 
 `DRAINING` is the upgrade-window state: existing workloads keep serving and new
-deploys route elsewhere, without anyone editing a pipeline. It is why there are
-three states rather than two.
+deploys route elsewhere, without anyone editing a pipeline. That case is why
+there are three states rather than two.
 
 ## Seeing what a policy does
 
@@ -152,5 +152,5 @@ app-prod   LeastLoaded   True    selector "env=prod" matches 2 registered cell(s
 qa-dark    LeastLoaded   False   selector "env=qa" matches no registered cell
 ```
 
-`READY: False` means a policy that will refuse every caller it matches. It is
-usually a label typo, and it is much cheaper to see here than in a build log.
+`READY: False` means a policy that will refuse every caller it matches. Usually
+a label typo, and much cheaper to see here than in a build log.

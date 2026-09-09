@@ -18,7 +18,7 @@ import (
 )
 
 // TestLiveFallback kills the hub in the middle of a pipeline and checks that
-// each declared stance behaves the way it was declared (ENG-175, ADR-006).
+// each declared stance behaves the way it was declared (ADR-006).
 //
 // Run it with `just verify-e2e`. The hub runs in-process and is stopped by
 // closing its listeners, which is what a killed hub looks like from the far end

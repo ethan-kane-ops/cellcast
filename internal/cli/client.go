@@ -20,7 +20,7 @@ var ErrNoToken = errors.New("no caller token: set CELLCAST_TOKEN or pass --token
 // tokenEnv is the environment variable holding the caller's identity token.
 //
 // An environment variable and a file are the only two ways in. There is
-// deliberately no --token flag: a token in a flag is a token in the process
+// no --token flag: a token in a flag is a token in the process
 // table, readable by every other user on a shared CI runner
 // (docs/threat-model.md T-05).
 const tokenEnv = "CELLCAST_TOKEN"

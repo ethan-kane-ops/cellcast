@@ -9,9 +9,8 @@ import (
 
 // Authenticator resolves a caller identity from an inbound request.
 //
-// This is the seam ENG-172 implements. It exists so that the OIDC work drops
-// into a defined place rather than rewriting the server, and so that no
-// intermediate state of this repository serves an unauthenticated placement
+// The seam exists so that authentication has one defined place, and so that no
+// state of this repository serves an unauthenticated placement
 // API.
 type Authenticator interface {
 	// Authenticate returns the caller's identity, or an error. An error must
@@ -21,7 +20,7 @@ type Authenticator interface {
 
 // denyAll rejects every caller.
 //
-// This is the default deliberately. An unauthenticated API that mints scoped
+// This is the default. An unauthenticated API that mints scoped
 // cluster credentials is a privilege escalation service, so the failure mode of
 // "nobody configured an authenticator" must be refusal, not anonymous access.
 type denyAll struct{}

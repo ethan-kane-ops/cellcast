@@ -1,9 +1,7 @@
 // Package v1alpha1 contains the v1alpha1 API types for cellcast.
 //
 // The API is versioned from the start so that a v1beta1 can be additive rather
-// than breaking. Field-level semantics are owned by the tickets that implement
-// them: ENG-110 for Cluster, ENG-173 for PlacementPolicy, ENG-113 for
-// TrustConfig.
+// than breaking. Field-level semantics live on the types themselves.
 //
 // This package depends only on apimachinery. Keeping controller-runtime out of
 // it means anything that needs the types (the client CLI, a downstream

@@ -80,7 +80,7 @@ func TestAPIDeniesByDefault(t *testing.T) {
 	}
 }
 
-// stubAuthenticator stands in for the OIDC implementation landing in ENG-172.
+// stubAuthenticator stands in for the OIDC authenticator.
 type stubAuthenticator struct{ id *identity.Identity }
 
 func (s stubAuthenticator) Authenticate(context.Context, *http.Request) (*identity.Identity, error) {

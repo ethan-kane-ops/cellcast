@@ -16,7 +16,7 @@ import (
 
 // filterBudget is the time one filter pass over a small fleet may take.
 //
-// Absurdly generous, and deliberately so: it is not a performance assertion, it
+// Absurdly generous: it is not a performance assertion, it
 // is a tripwire for a selector whose evaluation is superlinear in something an
 // operator can write. A real pass over ten cells is microseconds, so nothing
 // short of a genuine blowup comes near this, and it cannot flake on a loaded

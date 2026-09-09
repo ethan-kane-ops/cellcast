@@ -39,11 +39,11 @@ type Reporter struct {
 //
 // Nothing is ever buffered. Each attempt measures the cell again, so a report
 // that failed to send is discarded rather than retried, and the hub only ever
-// sees numbers that were true when they were sent. That is the whole of
-// "degrades honestly": a cell whose agent cannot reach the hub goes Unknown and
-// drops out of scoring, which is a state the hub detects. A queue of stale
-// reports delivered on reconnection would instead steer live deploys with
-// minutes-old numbers, and nothing downstream could tell.
+// sees numbers that were true when they were sent. A cell whose agent cannot
+// reach the hub goes Unknown and drops out of scoring, which is a state the hub
+// detects. A queue of stale reports delivered on reconnection would instead
+// steer live deploys with minutes-old numbers, and nothing downstream could
+// tell.
 func (r *Reporter) Run(ctx context.Context) error {
 	// Full jitter before the first heartbeat, not just around later ones. A
 	// fleet-wide rollout starts every agent within a few seconds of the others,

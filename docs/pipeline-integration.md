@@ -1,9 +1,9 @@
 # Pipeline integration
 
-cellcast slots into the pipeline you have. It answers where and hands back a
-credential; your existing deploy step does the deploying.
+cellcast attaches to an existing pipeline. It answers where and hands back a
+credential; the deploy step already in place does the deploying.
 
-The client needs two things: the hub's URL, and the identity token your CI
+The client needs two things: the hub's URL, and the identity token the CI
 platform already issues. There is no secret to configure and nothing to rotate.
 
 !!! note "Purpose-built integrations are not shipped yet"
@@ -16,7 +16,7 @@ platform already issues. There is no secret to configure and nothing to rotate.
 
 ```bash
 export CELLCAST_HUB=https://cellcast.example.com
-export CELLCAST_TOKEN="$(...)"        # your platform's OIDC token
+export CELLCAST_TOKEN="$(...)"        # the CI platform's OIDC token
 
 cellcast place --workload checkout-api --ttl 15m
 kubectl --kubeconfig cellcast.kubeconfig -n apps apply -f deploy.yaml
@@ -24,7 +24,7 @@ kubectl --kubeconfig cellcast.kubeconfig -n apps apply -f deploy.yaml
 
 `cellcast place` writes a kubeconfig at `0600`. The token is never printed and
 never passed as a command argument, because on a shared runner both are visible
-to every other job on the machine. There is deliberately no `--token` flag.
+to every other job on the machine. There is no `--token` flag.
 
 ## GitHub Actions
 
@@ -119,7 +119,7 @@ cellcast place --workload checkout-api --on-unavailable prod-euw1
 |---|---|
 | `fail` | The pipeline must not guess. The right default for production |
 | `last-known` | The pipeline needs only the cell name, or holds a break-glass credential |
-| `<cell>` | There is a cell you would always fall back to, decided in advance |
+| `<cell>` | One cell is the standing fallback, decided in advance |
 
 Nothing falls back implicitly, and no stance gets past a refusal. If the hub
 answers that the caller is not permitted, the command fails whatever the stance
@@ -128,12 +128,12 @@ stance may answer it: the cost is a suboptimal cell, never an unauthorised one.
 
 `last-known` reads a decision cache written on the last successful placement,
 keyed by workload, valid for `--cache-ttl` (default one hour). On an ephemeral
-runner it is empty on every run, so point `--cache-dir` at something that
-survives the job or treat `last-known` as equivalent to `fail`.
+runner it is empty on every run, so either point `--cache-dir` at something that
+survives the job, or treat `last-known` as equivalent to `fail`.
 
 ## Seeing what a change would do
 
-Both flags are worth having in a pre-merge job:
+Both flags belong in a pre-merge job:
 
 ```bash
 cellcast place --workload checkout-api --dry-run --explain
@@ -142,4 +142,4 @@ cellcast place --workload checkout-api --dry-run --explain
 `--dry-run` runs the whole decision, policy and capacity lookups included, and
 stops before minting. Nothing is issued and nothing is deployed. `--explain`
 prints every cell and why it was or was not chosen, which is how a policy change
-gets reviewed before it is relied on.
+gets reviewed before anything relies on it.

@@ -226,7 +226,7 @@ func TestCollect(t *testing.T) {
 //
 // A cordoned node's allocatable is dropped while the pods still running on it
 // are counted, so the cell reads as fuller than the arithmetic on a healthy
-// cluster would suggest. That is deliberate: those pods are real load, and
+// cluster would suggest. Those pods are real load, and
 // overstating utilisation steers deploys away from a cell being drained, which
 // is the direction to be wrong in.
 func TestCollectPodsOnExcludedNodesStillCommit(t *testing.T) {

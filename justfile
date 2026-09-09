@@ -1,8 +1,9 @@
 # cellcast task runner.
 #
-# CI is intentionally dormant until the repository goes public (ENG-188), so
-# these recipes and the pre-commit hooks are the verification layer. `just
-# check` is the gate that must pass before every commit.
+# These recipes are the verification layer. CI runs them rather than
+# reimplementing them, so what CI checks and what a contributor can run locally
+# cannot drift apart. `just check` is the gate that must pass before every
+# commit.
 
 binaries := "cellcast cellcast-hub cellcast-agent"
 
@@ -11,8 +12,8 @@ binaries := "cellcast cellcast-hub cellcast-agent"
 # against a different minor than the one the hub links proves less than it looks.
 envtest_k8s := "1.37.x"
 
-# Statement coverage floor. 80 is the stretch target (ENG-177); the gate is set
-# where the suite actually is so that a drop is a signal rather than noise.
+# Statement coverage floor. 80 is the target; the gate is set where the suite
+# is, so that a drop is a signal rather than noise.
 coverage_min := "70"
 
 # How long each fuzz target runs under `just fuzz`. Short enough to sit in a
@@ -149,6 +150,18 @@ cover: envtest-assets
 
 # Run linters
 lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # gofmt reports rather than rewrites. The pre-commit hook rewrites staged
+    # files, which never sees a file that was committed misformatted before the
+    # hook existed, and golangci-lint's default set does not include a
+    # formatter.
+    unformatted=$(gofmt -l . | grep -v '^site/' || true)
+    if [ -n "$unformatted" ]; then
+        echo "gofmt: not formatted, run 'gofmt -w' on:" >&2
+        echo "$unformatted" >&2
+        exit 1
+    fi
     go vet ./...
     golangci-lint run
 
@@ -177,10 +190,14 @@ manifests:
 verify-generate: generate manifests
     #!/usr/bin/env bash
     set -euo pipefail
-    # The chart paths are the copies `manifests` writes, not the whole chart:
-    # widening this to charts/ would report an edited template as stale
-    # generated output and send the reader to a command that changes nothing.
-    generated="api/ config/crd/ charts/cellcast/crd-bases/ charts/cellcast/files/"
+    # Only the paths `generate` and `manifests` write. The chart paths are the
+    # copies `manifests` makes, not the whole chart: widening this to charts/
+    # would report an edited template as stale generated output and send the
+    # reader to a command that changes nothing. api/ is narrowed to the deepcopy
+    # file for the same reason, one directory over: the hand-written types live
+    # beside it, and comparing the directory fails on every uncommitted edit to
+    # them, including the edit that this recipe exists to regenerate from.
+    generated="api/v1alpha1/zz_generated.deepcopy.go config/crd/ charts/cellcast/crd-bases/ charts/cellcast/files/"
     if ! git diff --quiet -- $generated; then
         echo "generated output is stale; run 'just generate manifests' and commit the result" >&2
         git diff --stat -- $generated >&2
@@ -202,15 +219,15 @@ changelog:
 
 # --- Release ------------------------------------------------------------------
 #
-# CI is dormant until the repository goes public (ENG-188), so the release lives
-# in these recipes rather than in a workflow. That is the better shape anyway: a
-# pipeline whose steps exist only inside a workflow file cannot be rehearsed
-# before it is trusted, and this one publishes images that broker cluster
-# credentials. `just release-check` runs every step and publishes nothing.
+# The release lives in these recipes and the workflow calls them, rather than
+# the steps existing only inside a workflow file. A pipeline that cannot be run
+# outside CI cannot be rehearsed before it is trusted, and this one publishes
+# images that broker cluster credentials. `just release-check` runs every step
+# and publishes nothing.
 #
-# Publishing order is deliberate. Everything is verified before anything is
-# pushed, and the GitHub release goes last, because it is the artifact a person
-# reads and it should not appear before the things it describes exist.
+# Publishing order matters. Everything is verified before anything is pushed,
+# and the GitHub release goes last, because it is the artifact a person reads
+# and should not appear before the things it describes exist.
 
 # Print the current digests for the base images the Dockerfile pins
 image-bases:
@@ -585,13 +602,12 @@ verify-e2e:
     # The whole product against one cluster: a caller identity, a policy, a
     # capacity report, a placement, a mint, and a kubeconfig that is then used
     # to talk to the cell it names. The assertion that matters is that the least
-    # loaded cell in the fleet is deliberately one the caller may not reach, so
-    # a scoring pass that ran before the permission filter would return it.
+    # loaded cell in the fleet is one the caller may not reach, so a scoring pass
+    # that ran before the permission filter would return it.
     #
-    # The second test is ENG-175's done-when: the same fixture, with the hub
-    # stopped mid-pipeline, then restarted. It checks each declared
-    # --on-unavailable stance and that no stance answers an authorization
-    # refusal (docs/architecture.md ADR-006).
+    # The second test uses the same fixture with the hub stopped mid-pipeline,
+    # then restarted. It checks each declared --on-unavailable stance and that
+    # no stance answers an authorization refusal (docs/architecture.md ADR-006).
     #
     # Not part of `check`: it needs docker and takes about a minute.
     set -euo pipefail
@@ -616,8 +632,8 @@ verify-e2e:
 # Run three real cells with real agents and watch one drop out of scoring
 verify-agent:
     #!/usr/bin/env bash
-    # ENG-174's done-when, and the only way to check most of it. Three kind
-    # clusters, each created with its own service account issuer, because the
+    # The only way to check most of the agent's behaviour. Three kind clusters,
+    # each created with its own service account issuer, because the
     # agent binding is on the issuer and a fleet sharing one proves nothing
     # (docs/architecture.md ADR-009). A stock kind cluster issues as
     # https://kubernetes.default.svc.cluster.local, so every cluster here is
@@ -728,10 +744,10 @@ vuln:
     # reports only advisories on paths this code can actually execute, so the
     # output is short enough that a non-empty one means something.
     #
-    # Deliberately not in `check`. It fetches the advisory database, and a
-    # pre-commit gate that fails when vuln.go.dev is slow teaches people to pass
-    # --no-verify, which costs more than it saves. It is in `check-all`, which
-    # `release` runs, so nothing ships with a known reachable vulnerability.
+    # Not in `check`. It fetches the advisory database, and a pre-commit gate
+    # that fails when vuln.go.dev is slow teaches people to pass --no-verify.
+    # It is in `check-all`, which `release` runs, so nothing ships with a known
+    # reachable vulnerability.
     set -euo pipefail
     go tool govulncheck ./...
 

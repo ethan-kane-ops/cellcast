@@ -38,9 +38,8 @@ dashboards/            Grafana JSON, tied to the code by a contract test
 
 **The three-binary split is a security boundary, not tidiness.** The agent runs
 in every registered cell and must never link the minting code. `internal/boundaries`
-enforces this by inspecting what each binary actually links, so a change that
-merges the binaries, or moves minting into a package the agent imports, fails
-the build.
+enforces it by inspecting what each binary links, so a change that merges the
+binaries, or moves minting into a package the agent imports, fails the build.
 
 ## Code generation
 
@@ -70,14 +69,13 @@ just check-all   # check + vulnerabilities + race + envtest
 ```
 
 `just vuln` is in `check-all` rather than in `check`. It fetches the advisory
-database, and a pre-commit gate that fails when vuln.go.dev is slow teaches people
-to reach for `--no-verify`, which costs more than it saves. `just release` runs
-`check-all`, so nothing ships with a known reachable vulnerability.
+database, and a pre-commit gate that fails when vuln.go.dev is slow teaches
+people to reach for `--no-verify`. `just release` runs `check-all`, so nothing
+ships with a known reachable vulnerability.
 
 ### Tests that are not behaviour tests
 
-Three groups exist to hold design decisions in place, and they are worth knowing
-about before you trip one:
+Three groups hold design decisions in place rather than checking behaviour:
 
 - **`internal/boundaries`** asserts the binary split and that the charts pass
   only flags the binaries accept.
@@ -110,8 +108,7 @@ also stops anyone looking there again.
 ### Assert the property, not the text
 
 `strings.Contains(output, "alert: Foo")` passes on an alert renamed to `FooBar`.
-That is not hypothetical; it happened here and the break-test caught it. Compare
-whole values.
+That happened here, and the break-test caught it. Compare whole values.
 
 ## Local end-to-end
 
@@ -127,6 +124,12 @@ Each builds its own kind clusters and tears them down. They are not part of
 Every kind cluster is created with its own service account issuer, because the
 hub tells one cell's agent from another by the `iss` claim, and every stock kind
 cluster issues as the same URL.
+
+## Adding a provider
+
+Two seams are pluggable: caller identity (`oidc.Provider`) and credential
+minting (`broker.Provider`). Most CI platforms need no code at all, only an
+issuer entry. See [Extending](extending.md).
 
 ## Charts
 
@@ -146,8 +149,7 @@ just docs-serve       # live reload at http://127.0.0.1:8000
 just docs-build       # static build into ./site, --strict
 ```
 
-`--strict` turns a broken internal link into a build failure, which is the only
-reason link rot ever gets fixed.
+`--strict` turns a broken internal link into a build failure.
 
 ## Release
 
@@ -159,16 +161,38 @@ just chart-package    # both charts into dist/charts
 just verify-attestations   # build one image and read back its SBOM and provenance
 ```
 
-`just release-check` is worth running after any change to the `Dockerfile`, the charts'
-`Chart.yaml`, or `.goreleaser.yaml`. It is the only thing that compiles for the
-architecture you do not run on. The full procedure is in [Releasing](releasing.md).
+Run `just release-check` after any change to the `Dockerfile`, either `Chart.yaml`, or
+`.goreleaser.yaml`. It is the only thing that compiles for the architecture this machine
+does not run on. The full procedure is in [Releasing](releasing.md).
 
-`just release-check` deliberately skips signing. A keyless signature needs an OIDC flow,
-and a rehearsal that opened a browser would not be one. `just sign` and `just verify` run
-only from `just release`, and `just verify` is what decides whether a release succeeded.
+It skips signing. A keyless signature needs an OIDC flow, and a rehearsal that opened a
+browser would not be one. `just sign` and `just verify` run only from `just release`, and
+`just verify` is what decides whether a release succeeded.
 
 ## CI
 
-There is none yet, on purpose. `just check` plus pre-commit is the verification
-layer until the repository is public. Do not add a workflow before then; satisfy
-the same code path locally and say so on the ticket.
+Five workflows, and every job in them runs a `just` recipe rather than an inline
+script, so what CI checks and what a contributor runs locally cannot drift.
+
+| Workflow | Runs | What it does |
+|---|---|---|
+| `ci.yml` | push, PR | `just check`, the race detector, envtest, and both vulnerability scans |
+| `e2e.yml` | push, PR | the three kind suites, in parallel |
+| `codeql.yml` | push, PR, weekly | static analysis over the Go source |
+| `scorecard.yml` | push to main, weekly | OSSF Scorecard, published |
+| `release.yml` | a `v*` tag | `just release` |
+
+Two rules hold for anything added here:
+
+- `TestEveryWorkflowPinsItsActionsAndScopesItsToken` requires a `permissions:`
+  block and every `uses:` pinned to a full commit SHA. A tag is not a pin:
+  `actions/checkout@v4` resolves to whatever that tag points at today, which is
+  a third party's write access to this repository on every run.
+- `release.yml` cannot be renamed or moved. That path is the signing identity
+  every published `cosign verify` command names, and no test can catch a
+  mismatch. See [Releasing](releasing.md).
+
+Write any tidiness check carefully. `go mod tidy && git diff --exit-code go.mod
+go.sum` cannot fail on an *untracked* file, and go.sum was missing from this
+repository for its whole private life while that check stayed green. Assert the
+files exist as well as comparing them.

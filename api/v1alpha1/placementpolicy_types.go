@@ -76,7 +76,7 @@ type PlacementPolicySpec struct {
 
 	// Strategy selects among permitted, eligible cells.
 	//
-	// Chosen by policy rather than per request on purpose: a caller that can
+	// Chosen by policy rather than per request: a caller that can
 	// pick the strategy can steer itself into a specific cell.
 	// +kubebuilder:default=LeastLoaded
 	// +optional

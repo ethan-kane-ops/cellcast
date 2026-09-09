@@ -8,9 +8,8 @@ import (
 
 // A capacity report is arithmetic on numbers a compromised agent chooses
 // (docs/threat-model.md T-07), and the result steers every placement in the
-// fleet. Not on ENG-184's list of targets, added because it is the same class
-// of input as the ones that are: bytes from something the hub authenticates but
-// does not trust.
+// fleet. It is the same class of input as the parsers: values from something
+// the hub authenticates but does not trust.
 //
 // The property is narrow and total: whatever Validate accepts, Utilisation
 // returns a real number in [0,1]. A NaN would make every comparison in the

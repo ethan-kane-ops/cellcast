@@ -32,11 +32,11 @@ func WithPlacer(p Placer) Option {
 // Minter issues a short-lived credential for a cell that placement has already
 // chosen.
 //
-// The seam exists so the placement route (ENG-114) can be tested without a
-// spoke cluster behind it, and so that the only implementation, the broker, is
-// reachable from exactly one place.
+// The seam exists so the placement route can be tested without a spoke cluster
+// behind it, and so that the only implementation, the broker, is reachable from
+// exactly one place.
 //
-// There is deliberately no route that mints without placing first. A standalone
+// There is no route that mints without placing first. A standalone
 // mint endpoint would let a caller name its own cell and skip the permission
 // filter entirely, which is the confused-deputy path the placement engine
 // exists to close (docs/threat-model.md T-03).
