@@ -42,7 +42,7 @@ jobs:
       contents: read
     steps:
       - id: cellcast
-        uses: ethan-kane-ops/cellcast/.github/actions/place@v0.3.0
+        uses: ethan-kane-ops/cellcast/.github/actions/place@v0.4.0
         with:
           hub: https://cellcast.example.com
           workload: checkout-api
