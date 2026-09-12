@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -48,6 +49,14 @@ func requestIDFrom(ctx context.Context) string {
 	return id
 }
 
+// sanitizeForLog removes line break characters so user input cannot forge
+// additional log entries in text log sinks.
+func sanitizeForLog(s string) string {
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
 // statusRecorder captures the status code for logging.
 type statusRecorder struct {
 	http.ResponseWriter
@@ -76,7 +85,7 @@ func logging(log *slog.Logger) middleware {
 			args := []any{
 				slog.String("request_id", requestIDFrom(r.Context())),
 				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
+				slog.String("path", sanitizeForLog(r.URL.Path)),
 				slog.Int("status", rec.status),
 				slog.Duration("duration", time.Since(start)),
 			}
@@ -102,7 +111,7 @@ func recoverPanic(log *slog.Logger) middleware {
 					log.ErrorContext(r.Context(), "panic serving request",
 						slog.String("request_id", requestIDFrom(r.Context())),
 						slog.String("method", r.Method),
-						slog.String("path", r.URL.Path),
+						slog.String("path", sanitizeForLog(r.URL.Path)),
 						slog.Any("panic", v),
 					)
 					writeError(w, http.StatusInternalServerError, "internal error")
