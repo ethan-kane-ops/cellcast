@@ -81,6 +81,8 @@ spec:
             - --log-level={{ .Values.hub.logLevel }}
             - --log-format={{ .Values.hub.logFormat }}
             - --token-max-ttl={{ .Values.hub.tokenMaxTTL }}
+            - --placement-rate-limit={{ .Values.hub.rateLimit.placementsPerSecond }}
+            - --placement-burst={{ .Values.hub.rateLimit.burst }}
             - --capacity-staleness={{ .Values.hub.capacity.staleness }}
             - --capacity-retention={{ .Values.hub.capacity.retention }}
             - --capacity-max-cells={{ .Values.hub.capacity.maxCells }}

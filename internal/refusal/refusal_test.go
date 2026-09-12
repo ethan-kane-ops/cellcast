@@ -27,6 +27,8 @@ func TestOptimisationClassifiesEveryReason(t *testing.T) {
 		refusal.NoEligibleCells:      true,
 		refusal.CapacityUnknown:      true,
 		refusal.PlacementUnavailable: true,
+		// Declined before policy was evaluated, like the one above.
+		refusal.RateLimited: true,
 
 		// Minting never falls back, even though both of these are 503s that
 		// look like availability failures.

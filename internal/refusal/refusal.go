@@ -42,6 +42,11 @@ const (
 	// replica that answered has not yet heard from the fleet it would score.
 	PlacementUnavailable Reason = "PlacementUnavailable"
 
+	// RateLimited means this caller has asked for more placements than its
+	// share, and the hub declined before doing any work. The response's
+	// Retry-After says when to ask again.
+	RateLimited Reason = "RateLimited"
+
 	// MintUnavailable means the credential broker is not available.
 	MintUnavailable Reason = "MintUnavailable"
 
@@ -63,7 +68,7 @@ const (
 func All() []Reason {
 	return []Reason{
 		NoPolicy, DarkNotPermitted, NoPermittedCells, InvalidRequest,
-		NoEligibleCells, CapacityUnknown, PlacementUnavailable,
+		NoEligibleCells, CapacityUnknown, PlacementUnavailable, RateLimited,
 		MintUnavailable, MintFailed, Unknown,
 	}
 }
@@ -86,7 +91,11 @@ func All() []Reason {
 // into a success by a stance.
 func Optimisation(r Reason) bool {
 	switch r {
-	case NoEligibleCells, CapacityUnknown, PlacementUnavailable:
+	// RateLimited sits with PlacementUnavailable: both are the hub declining
+	// before it has evaluated any policy, never a finding that the caller is
+	// not permitted. A stance never yields a credential, so answering one
+	// grants nothing the caller did not already have.
+	case NoEligibleCells, CapacityUnknown, PlacementUnavailable, RateLimited:
 		return true
 	default:
 		return false

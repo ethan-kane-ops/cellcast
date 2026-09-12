@@ -280,7 +280,7 @@ every deploy in the estate, which is a worse outage than the problem cellcast so
 | Unauthenticated requests rejected before expensive work | Implemented: authentication is middleware over the whole API surface, and rejections are counted before a handler runs |
 | Multi-replica stateless API path with a PodDisruptionBudget | Implemented: see [ADR-011](architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) |
 | Agent heartbeats jittered to avoid a synchronised herd | Implemented: full jitter on the first heartbeat, plus or minus 10% after that |
-| Rate limiting per authenticated caller identity | Planned |
+| Rate limiting per authenticated caller identity | Implemented: a token bucket per issuer and subject, checked after authentication and before any work, answering 429 `RateLimited` with `Retry-After`. Per replica, so N replicas allow N times `--placement-rate-limit`. A Buildkite `sub` carries the commit, so there the bucket is per build |
 | Capacity index bounded, and reports for unregistered cells refused | Implemented |
 | Capacity report payloads size-bounded before decoding | Implemented |
 | Fuzz targets over the placement and registration request bodies | Implemented: both handlers, asserting the status set, that every response is JSON, and that a refusal carries a reason the client contract defines |

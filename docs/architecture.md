@@ -354,8 +354,9 @@ both the hub and the client so the two cannot drift apart:
 | `InvalidRequest` | 400 | No. A fallback would hide the typo and deploy anyway |
 | `NoEligibleCells`, `CapacityUnknown` | 503 | Yes. The caller is permitted and the hub cannot rank |
 | `PlacementUnavailable` | 503 | Yes. The hub is up and cannot decide |
+| `RateLimited` | 429 | Yes. The hub declined before evaluating any policy, and a stance never yields a credential |
 | `MintUnavailable`, `MintFailed` | 503 | No. Minting never falls back |
-| No response, or a gateway's 502/503/504 | any | Yes. Nothing was decided, so nothing was refused |
+| No response, a gateway's 502/503/504, or a proxy's 429 | any | Yes. Nothing was decided, so nothing was refused |
 
 `PlacementUnavailable` and `MintUnavailable` were one code until this was implemented. They look
 identical on the wire and call for opposite behaviour, which is the sort of thing that only shows up

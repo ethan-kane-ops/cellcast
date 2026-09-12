@@ -64,6 +64,11 @@ func startReplica(t *testing.T, drainDelay time.Duration) *replica {
 	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(registeredCell("prod-euw1")).Build()
 
 	cfg := DefaultConfig()
+	// The load here is one caller issuing thousands of placements a second,
+	// which is exactly what the rate limit refuses. This test is about the
+	// drain, so it runs without the limit; TestAPlacementFloodIsRefusedForThatCallerOnly
+	// covers the limit.
+	cfg.PlacementRateLimit = 0
 	cfg.Addr = freeAddr(t)
 	cfg.ProbeAddr = freeAddr(t)
 	cfg.DrainDelay = drainDelay

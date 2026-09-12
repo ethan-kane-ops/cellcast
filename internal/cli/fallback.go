@@ -92,11 +92,13 @@ func fallbackAllowed(err error) bool {
 
 	if ref.Reason == refusal.Unknown {
 		// Something answered and it was not the hub. A gateway reporting that
-		// it could not reach an upstream is a hub outage by another name; any
+		// it could not reach an upstream is a hub outage by another name, and a
+		// 429 from a proxy is a rate limit the hub never saw; any
 		// other status is an answer this client cannot classify, and an
 		// unclassifiable answer is not one to act on.
 		switch ref.Status {
-		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
+			http.StatusTooManyRequests:
 			return true
 		}
 		return false

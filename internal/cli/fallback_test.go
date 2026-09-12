@@ -99,6 +99,8 @@ func TestFallbackAllowed(t *testing.T) {
 		{name: "a gateway could not reach the hub", err: &Refusal{Status: 502, Reason: refusal.Unknown}, want: true},
 		{name: "a gateway timed out", err: &Refusal{Status: 504, Reason: refusal.Unknown}, want: true},
 		{name: "a bare 503 from a proxy", err: &Refusal{Status: 503, Reason: refusal.Unknown}, want: true},
+		{name: "a proxy's own rate limit", err: &Refusal{Status: 429, Reason: refusal.Unknown}, want: true},
+		{name: "the hub's rate limit", err: &Refusal{Status: 429, Reason: refusal.RateLimited}, want: true},
 		{name: "an unparseable 403", err: &Refusal{Status: 403, Reason: refusal.Unknown}},
 		{name: "an unparseable 500", err: &Refusal{Status: 500, Reason: refusal.Unknown}},
 	}

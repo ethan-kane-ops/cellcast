@@ -33,6 +33,19 @@
         "logFormat": { "type": "string", "enum": ["json", "text"] },
         "registryNamespace": { "type": "string" },
         "tokenMaxTTL": { "$ref": "#/definitions/duration" },
+        "rateLimit": {
+          "type": "object",
+          "properties": {
+            "placementsPerSecond": {
+              "type": "number",
+              "minimum": 0
+            },
+            "burst": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
         "warmupTimeout": { "$ref": "#/definitions/duration" },
         "drainDelay": { "$ref": "#/definitions/duration" },
         "shutdownTimeout": { "$ref": "#/definitions/duration" },
