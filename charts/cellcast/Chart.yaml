@@ -11,8 +11,8 @@ type: application
 # a release nothing else in the project has heard of. appVersion keeps the `v`
 # because it is also the default image tag, and the image is tagged with the git
 # tag; version drops it because Helm requires bare semver.
-version: 0.3.0
-appVersion: "v0.3.0"
+version: 0.4.0
+appVersion: "v0.4.0"
 
 home: https://github.com/ethan-kane-ops/cellcast
 sources:
