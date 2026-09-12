@@ -1,17 +1,19 @@
 # Observability
 
-Three views of the same events, with one instrumentation point behind them.
+Four views of the same events, with one instrumentation point behind them.
 
 | View | What it is for | Where |
 |---|---|---|
 | **Audit trail** | What happened, per request, forensically | stdout, JSON |
-| **Metrics** | Rates and trends, alerting | Prometheus |
+| **Metrics** | Rates and trends, alerting | Prometheus, or OTLP |
 | **Events** | "who has been deploying here", per cell | `kubectl describe cluster` |
+| **Traces** | Where the time in one request went | OTLP, once configured |
 
 ## One record, three views
 
 Every placement and every mint produces one `audit.Record`. The JSON trail, the
-Kubernetes Events and the Prometheus counters are all views over it.
+Kubernetes Events, the Prometheus counters and the attributes on a trace's spans
+are all views over it.
 
 A metric incremented at its own call site drifts from the log line next to it
 the first time somebody adds an early return, and the drift is invisible: both
@@ -112,6 +114,106 @@ produce no event, because a dry run is not a deploy.
 
 Only the leader emits them, which is why they appear once rather than once per
 replica.
+
+## OTLP export
+
+The hub exports traces and metrics over OTLP, and the agent exports traces, to
+any collector: an OpenTelemetry Collector, Grafana Alloy or a Datadog agent.
+Nothing is exported until an endpoint is set.
+
+```bash
+helm upgrade cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast --reuse-values \
+  --set observability.otlp.endpoint=http://otel-collector.observability:4318
+```
+
+| Flag | Chart value | Default |
+|---|---|---|
+| `--otlp-endpoint` | `observability.otlp.endpoint` | none, so nothing is exported |
+| `--otlp-protocol` | `observability.otlp.protocol` | `http/protobuf` |
+| `--trace-sample-ratio` | `observability.otlp.traceSampleRatio` | `1` |
+
+The endpoint is a base URL, as `OTEL_EXPORTER_OTLP_ENDPOINT` is: traces go to
+`/v1/traces` under it and metrics to `/v1/metrics`. Its scheme decides TLS. A
+backend that needs an API key gets it from a Secret named in
+`observability.otlp.headersSecret`, which reaches the process as
+`OTEL_EXPORTER_OTLP_HEADERS` and never as an argument.
+
+The standard environment variables work with none of the above:
+`OTEL_EXPORTER_OTLP_ENDPOINT` and its per-signal forms, `_PROTOCOL`, `_HEADERS`,
+`_CERTIFICATE`, `_COMPRESSION` and `_TIMEOUT`, plus `OTEL_SERVICE_NAME`,
+`OTEL_RESOURCE_ATTRIBUTES`, `OTEL_METRIC_EXPORT_INTERVAL`,
+`OTEL_TRACES_EXPORTER=none`, `OTEL_METRICS_EXPORTER=none` and
+`OTEL_SDK_DISABLED`. A flag wins over its variable. A collector that is down is
+logged at most once a minute and never stops the hub.
+
+### Traces
+
+One placement is one trace, under the caller's own span when the request
+carries a `traceparent` header:
+
+```text
+POST /api/v1/placement
+├── authenticate          issuer discovery and key fetches
+├── place
+│   ├── select policy
+│   ├── filter
+│   └── score
+└── mint                  the TokenRequest round trip to the spoke
+```
+
+Each heartbeat is one trace too: `POST /api/v1/clusters/{name}/capacity` in the
+agent, with the hub's span for the report under it. The mint sends its trace
+context on to the spoke, so a spoke API server with tracing enabled joins the
+trace. A trace that arrives sampled stays sampled whatever the ratio says.
+
+**Spans carry the audit record and nothing else.** Apart from the method, route,
+status code and request id, every attribute is an audit field under the name
+the trail uses, prefixed `cellcast.`: `cellcast.subject` on a span is `subject`
+in the audit line. Four fields stay off spans, because a trace backend is
+usually read by more people than the audit trail: the claims, the candidate
+table, `token_sha256` and the internal `error`. `cellcast.request_id` leads from
+a span to the full record, and the request log line carries `trace_id` for the
+way back.
+
+The classification that decides this is the one that keeps token material out
+of the trail, and the build fails if any file other than the tracing files puts
+anything on a span.
+
+### Metrics
+
+The OTLP metrics are the Prometheus registry, bridged as it stands: the names,
+labels and buckets a scrape of the metrics endpoint reports, so the dashboard,
+the alerts and the [metrics reference](metrics.md) apply to either path. That
+includes the controller-runtime and Go runtime metrics the endpoint also serves;
+drop them in the collector if the backend bills per series.
+
+### Datadog
+
+Point OTLP at the Datadog agent rather than linking a vendor SDK into the binary
+that mints credentials. With the Datadog agent's OTLP receiver enabled on every
+node, in the Datadog chart's values:
+
+```yaml
+datadog:
+  otlp:
+    receiver:
+      protocols:
+        http:
+          enabled: true
+```
+
+then point cellcast at the agent on its own node:
+
+```bash
+helm upgrade cellcast oci://ghcr.io/ethan-kane-ops/charts/cellcast --reuse-values \
+  --set 'observability.otlp.endpoint=http://$(HOST_IP):4318'
+```
+
+`HOST_IP` is set from the node's address whenever an endpoint is. Tag the
+service through `extraEnv`, for example
+`OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=prod`. If the Datadog
+agent already scrapes the metrics endpoint, set `OTEL_METRICS_EXPORTER=none` to
+keep one copy.
 
 ## What to alert on
 

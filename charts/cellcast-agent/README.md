@@ -78,6 +78,11 @@ told apart.
 | agent.logLevel | string | `"info"` | Log level: debug, info, warn or error. |
 | agent.logFormat | string | `"json"` | Log format: json or text. |
 | agent.extraArgs | list | `[]` | Extra arguments appended to the agent command. |
+| observability.otlp.endpoint | string | `""` | OTLP collector base URL, for example `http://otel-collector.observability:4318`; the scheme decides TLS. Empty exports nothing unless OTEL_EXPORTER_OTLP_ENDPOINT arrives through extraEnv. For a Datadog agent on every node use `http://$(HOST_IP):4318`: the chart sets HOST_IP from the node's address whenever an endpoint is set. The agent exports traces only. |
+| observability.otlp.protocol | string | `"http/protobuf"` | `http/protobuf` or `grpc`. By convention a collector listens for the first on 4318 and the second on 4317. |
+| observability.otlp.traceSampleRatio | int | `1` | Share of heartbeat traces kept, from 0 to 1. The hub keeps whatever the agent kept, so a sampled report is traced end to end. |
+| observability.otlp.headersSecret.name | string | `""` | Secret holding headers for the collector or backend, such as an API key, in the OTEL_EXPORTER_OTLP_HEADERS format (`key=value,key2=value2`). It reaches the agent through the environment, never as an argument. |
+| observability.otlp.headersSecret.key | string | `"headers"` | Key inside that Secret. |
 | ports.probe | int | `8081` | Port health and readiness probes listen on. |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount for the agent. |
 | serviceAccount.name | string | `""` | Name of the ServiceAccount. Generated from the release when empty. |

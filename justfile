@@ -68,6 +68,14 @@ ldflags := "-s -w" + \
     " -X " + pkg + ".commit=" + commit + \
     " -X " + pkg + ".date=" + date
 
+# grpcnotrace drops gRPC's golang.org/x/net/trace integration, which nothing
+# here uses and which imports html/template. With html/template in a binary the
+# linker can no longer discard unused methods anywhere in it, so the OTLP
+# exporters' gRPC dependency cost the hub 20 MB and the agent 28 MB instead of
+# 3 each. The Dockerfile passes the same tag; TestServerBuildsLeaveOutGRPCTrace
+# holds both.
+go_tags := "grpcnotrace"
+
 default:
     @just --list
 
@@ -76,13 +84,13 @@ build:
     #!/usr/bin/env bash
     set -euo pipefail
     for b in {{binaries}}; do
-        go build -trimpath -ldflags '{{ldflags}}' -o "bin/$b" "./cmd/$b"
+        go build -trimpath -tags '{{go_tags}}' -ldflags '{{ldflags}}' -o "bin/$b" "./cmd/$b"
         echo "built bin/$b"
     done
 
 # Build a single binary, e.g. `just build-one cellcast-hub`
 build-one name:
-    go build -trimpath -ldflags '{{ldflags}}' -o bin/{{name}} ./cmd/{{name}}
+    go build -trimpath -tags '{{go_tags}}' -ldflags '{{ldflags}}' -o bin/{{name}} ./cmd/{{name}}
 
 # Run a locally built binary, e.g. `just run cellcast-hub --help`
 run name *args: (build-one name)

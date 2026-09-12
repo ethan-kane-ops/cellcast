@@ -77,6 +77,29 @@ agent:
   # -- Extra arguments appended to the agent command.
   extraArgs: []
 
+observability:
+  otlp:
+    # -- OTLP collector base URL, for example
+    # `http://otel-collector.observability:4318`; the scheme decides TLS. Empty
+    # exports nothing unless OTEL_EXPORTER_OTLP_ENDPOINT arrives through
+    # extraEnv. For a Datadog agent on every node use
+    # `http://$(HOST_IP):4318`: the chart sets HOST_IP from the node's address
+    # whenever an endpoint is set. The agent exports traces only.
+    endpoint: ""
+    # -- `http/protobuf` or `grpc`. By convention a collector listens for the
+    # first on 4318 and the second on 4317.
+    protocol: http/protobuf
+    # -- Share of heartbeat traces kept, from 0 to 1. The hub keeps whatever
+    # the agent kept, so a sampled report is traced end to end.
+    traceSampleRatio: 1
+    headersSecret:
+      # -- Secret holding headers for the collector or backend, such as an API
+      # key, in the OTEL_EXPORTER_OTLP_HEADERS format (`key=value,key2=value2`).
+      # It reaches the agent through the environment, never as an argument.
+      name: ""
+      # -- Key inside that Secret.
+      key: headers
+
 ports:
   # -- Port health and readiness probes listen on.
   probe: 8081

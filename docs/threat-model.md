@@ -251,6 +251,8 @@ and it happens by accident rather than by attack.
 | Short TTL resolved from policy limits the value of a leaked token | Implemented |
 | The credential type redacts its own token under `%v`, `String()` and `slog` | Implemented |
 | A refusal names the caller's identity, never its token | Implemented: placement responses carry the issuer, subject and claims the hub authenticated, built from the three fields `audit.Record` already holds. They are the caller's own, out of the token it just sent, and nothing about any policy is returned (`cellcast policy test`) |
+| Trace spans carry no token material | Implemented: apart from the method, route, status code and request id, every span attribute is an `audit.Record` field rendered from the same classification, which also keeps the claims, the candidate table, the digest and the internal error off spans. A test fails the build if any file other than the tracing files puts anything on a span, and a traced placement is searched span by span for both the caller's token and the minted one |
+| An OTLP backend's credentials never appear in a process argument | Implemented: the charts deliver `OTEL_EXPORTER_OTLP_HEADERS` from a Secret, and `--otlp-endpoint` refuses a URL with credentials in it |
 
 **Note for reviewers.** The usual way this control fails is a debug log line added later by someone
 who did not read this document, so there are two tests rather than a rule: one at the HTTP boundary
@@ -281,6 +283,7 @@ every deploy in the estate, which is a worse outage than the problem cellcast so
 | Multi-replica stateless API path with a PodDisruptionBudget | Implemented: see [ADR-011](architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) |
 | Agent heartbeats jittered to avoid a synchronised herd | Implemented: full jitter on the first heartbeat, plus or minus 10% after that |
 | Rate limiting per authenticated caller identity | Implemented: a token bucket per issuer and subject, checked after authentication and before any work, answering 429 `RateLimited` with `Retry-After`. Per replica, so N replicas allow N times `--placement-rate-limit`. A Buildkite `sub` carries the commit, so there the bucket is per build |
+| Trace context from callers cannot make tracing an amplifier | Implemented: only W3C `traceparent` and `tracestate` are read, never baggage. A caller can ask for its request to be sampled, which costs one exported trace per request, the same order as the request log line it already produces. The export queue is bounded and drops when full, and a collector outage is logged at most once a minute rather than stopping the hub |
 | Capacity index bounded, and reports for unregistered cells refused | Implemented |
 | Capacity report payloads size-bounded before decoding | Implemented |
 | Fuzz targets over the placement and registration request bodies | Implemented: both handlers, asserting the status set, that every response is JSON, and that a refusal carries a reason the client contract defines |

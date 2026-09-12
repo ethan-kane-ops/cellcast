@@ -35,21 +35,20 @@ which is the argument the recording exists to make.
 decision without minting and prints the issuer, subject and claims the hub read from the token, which
 is usually the whole diagnosis when a policy names a subject in a format the issuer does not produce.
 A `PlacementPolicy` also reports on its own status when it names an issuer the hub does not verify, a
-mistake that was otherwise invisible until a deploy was refused.
+mistake that was otherwise invisible until a deploy was refused. `cellcast cell add` enrols a cell
+with one command, reading the reporter's issuer from the cell itself rather than asking anybody to
+type it.
+
+**Rate limiting and OpenTelemetry.** Placement is rate limited per caller identity, so one pipeline
+stuck in a retry loop cannot keep every replica busy minting. The hub and the agent export traces and
+metrics over OTLP, configured from the charts, and reach a Datadog agent without a vendor SDK in the
+binary that mints credentials. A span carries only what the audit record's classification allows, so
+a trace backend receives no token material.
 
 ## Next
 
-The engine is further along than the product around it, and most of what is next is the operator's
-side: the steps between installing the hub and a pipeline's first placement.
-
-**One command to enrol a cell.** Registering a cell is three objects, and one of them needs the
-reporter's issuer written exactly right. Getting it wrong is silent: the cell registers, reports
-capacity that is attributed to nothing, and never wins a placement. The command reads the issuer from
-the cell itself.
-
-**Rate limiting per caller.** Placement sits in the deploy path, and one pipeline stuck in a retry
-loop can keep every replica busy minting. The threat model lists it as planned (T-06), and it is the
-only control in that section still planned.
+What a fleet that has been running for a while needs next: placements that stay where they are, a
+schema that stops moving, and less stored trust.
 
 **Keeping a workload where it already is.** Nothing in the engine knows where a workload ran last
 time, so two deploys minutes apart can land in different cells as utilisation shifts, splitting a
@@ -59,10 +58,6 @@ workload is already in, and say so in the explain table when it does not.
 **A stable API.** Every resource is `v1alpha1`, which says the schema may change without notice.
 Graduating it comes after stickiness, which adds a field, and comes with a test that upgrades a
 running fleet from the previous release rather than installing onto an empty cluster.
-
-**OpenTelemetry.** The metrics surface is Prometheus and the placement path has no tracing at all.
-OTLP covers both and reaches a Datadog agent without linking a vendor SDK into a binary that mints
-credentials.
 
 **A second trust provider.** The broker interface exists and Kubernetes `TokenRequest` is its only
 implementation, so nothing has tested whether it is an interface or a description of that one case.

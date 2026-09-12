@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -146,45 +147,113 @@ func TestRefusalIsRecordedWithTheSameRigour(t *testing.T) {
 // looks good at the time. Every field is classified here once. A new one fails
 // this test until it has been thought about.
 func TestRecordHasNoFieldThatCouldHoldAToken(t *testing.T) {
-	// Why each field cannot carry credential material.
-	classified := map[string]string{
-		"Event":          "a constant from this package",
-		"Outcome":        "a constant from this package",
-		"RequestID":      "hub-generated correlation id",
-		"Issuer":         "verified iss claim",
-		"Subject":        "verified sub claim",
-		"Claims":         "the allowlisted flat claims oidc extracts, never the raw token",
-		"Workload":       "caller-supplied name, recorded not interpreted",
-		"TargetedDark":   "a bool",
-		"RequestedTTL":   "a duration",
-		"Cell":           "a registered Cluster name",
-		"Policy":         "a PlacementPolicy name",
-		"Strategy":       "a scoring strategy name",
-		"Confidence":     "a confidence level",
-		"Candidates":     "cell names, filter stages and utilisation",
-		"Provider":       "the trust provider named in the cell's spec",
-		"Env":            "the cell's env label, which selects the TTL bounds",
-		"Namespace":      "the scope the credential was issued against",
-		"ServiceAccount": "the identity the credential acts as",
-		"GrantedTTL":     "a duration",
-		"ExpiresAt":      "a timestamp",
-		"TokenSHA256":    "a digest, produced only by HashToken",
-		"Reason":         "a refusal code",
-		"Error":          "an internal error string from the hub, never a response body",
+	// Why each field cannot carry credential material, the key the trail
+	// writes it under, and whether a span carries it too. A span's copy is
+	// TraceAttrs, which is derived from the trail's rendering, so this one
+	// table rules on both outputs.
+	type classification struct {
+		key    string
+		why    string
+		traced bool
+	}
+	classified := map[string]classification{
+		"Event":          {"event", "a constant from this package", true},
+		"Outcome":        {"outcome", "a constant from this package", true},
+		"RequestID":      {"request_id", "hub-generated correlation id", true},
+		"Issuer":         {"issuer", "verified iss claim", true},
+		"Subject":        {"subject", "verified sub claim", true},
+		"Claims":         {"claims", "the allowlisted flat claims oidc extracts, never the raw token", false},
+		"Workload":       {"workload", "caller-supplied name, recorded not interpreted", true},
+		"TargetedDark":   {"targeted_dark", "a bool", true},
+		"RequestedTTL":   {"requested_ttl", "a duration", true},
+		"Cell":           {"cell", "a registered Cluster name", true},
+		"Policy":         {"policy", "a PlacementPolicy name", true},
+		"Strategy":       {"strategy", "a scoring strategy name", true},
+		"Confidence":     {"confidence", "a confidence level", true},
+		"Candidates":     {"candidates", "cell names, filter stages and utilisation", false},
+		"Provider":       {"provider", "the trust provider named in the cell's spec", true},
+		"Env":            {"env", "the cell's env label, which selects the TTL bounds", true},
+		"Namespace":      {"namespace", "the scope the credential was issued against", true},
+		"ServiceAccount": {"service_account", "the identity the credential acts as", true},
+		"GrantedTTL":     {"granted_ttl", "a duration", true},
+		"ExpiresAt":      {"expires_at", "a timestamp", true},
+		"TokenSHA256":    {"token_sha256", "a digest, produced only by HashToken", false},
+		"Reason":         {"reason", "a refusal code", true},
+		"Error":          {"error", "an internal error string from the hub, never a response body", false},
 	}
 
 	rt := reflect.TypeOf(Record{})
 	for i := range rt.NumField() {
 		name := rt.Field(i).Name
 		if _, ok := classified[name]; !ok {
-			t.Errorf("Record.%s is not classified: add it above with why it cannot carry credential material, "+
-				"or do not put it on the audit record", name)
+			t.Errorf("Record.%s is not classified: add it above with why it cannot carry credential material "+
+				"and whether a span may carry it, or do not put it on the audit record", name)
 		}
-		delete(classified, name)
 	}
 	for name := range classified {
-		t.Errorf("Record.%s is classified but no longer exists; drop the entry", name)
+		if _, ok := rt.FieldByName(name); !ok {
+			t.Errorf("Record.%s is classified but no longer exists; drop the entry", name)
+		}
 	}
+
+	// Every field set, so every field is rendered and the keys can be held to
+	// the table: all of them in the trail, only the traced ones on a span.
+	var logged, traced []string
+	for _, c := range classified {
+		logged = append(logged, c.key)
+		if c.traced {
+			traced = append(traced, c.key)
+		}
+	}
+	rec := filledRecord(t)
+	if got, want := keysOf(rec.attrs()), sorted(logged); !slices.Equal(got, want) {
+		t.Errorf("the trail writes %v, want the classified keys %v", got, want)
+	}
+	if got, want := keysOf(rec.TraceAttrs()), sorted(traced); !slices.Equal(got, want) {
+		t.Errorf("a span carries %v, want only the keys classified as traced: %v", got, want)
+	}
+}
+
+// filledRecord returns a Record with every field set to something non-empty,
+// so that every field is rendered.
+func filledRecord(t *testing.T) Record {
+	t.Helper()
+	v := reflect.New(reflect.TypeOf(Record{})).Elem()
+	for i := range v.NumField() {
+		f := v.Field(i)
+		switch {
+		case f.Type() == reflect.TypeOf(time.Time{}):
+			f.Set(reflect.ValueOf(time.Unix(1_700_000_000, 0)))
+		case f.Kind() == reflect.String:
+			f.SetString("x")
+		case f.Kind() == reflect.Bool:
+			f.SetBool(true)
+		case f.Kind() == reflect.Int64:
+			f.SetInt(int64(time.Minute))
+		case f.Kind() == reflect.Map:
+			f.Set(reflect.MakeMap(f.Type()))
+			f.SetMapIndex(reflect.ValueOf("k"), reflect.ValueOf("v"))
+		case f.Kind() == reflect.Slice:
+			f.Set(reflect.MakeSlice(f.Type(), 1, 1))
+		default:
+			t.Fatalf("Record.%s is a %s, which filledRecord cannot fill; teach it", v.Type().Field(i).Name, f.Type())
+		}
+	}
+	return v.Interface().(Record)
+}
+
+func keysOf(attrs []slog.Attr) []string {
+	out := make([]string, 0, len(attrs))
+	for _, a := range attrs {
+		out = append(out, a.Key)
+	}
+	return sorted(out)
+}
+
+func sorted(s []string) []string {
+	s = slices.Clone(s)
+	slices.Sort(s)
+	return s
 }
 
 func TestHashToken(t *testing.T) {

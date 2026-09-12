@@ -240,10 +240,14 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		rec.RequestedTTL = requested
 	}
 
-	decision, err := s.placer.Place(ctx, id, placement.Request{
+	// Timing only. What was decided reaches the trace through the audit record
+	// below, like every other attribute the hub exports.
+	placeCtx, placeSpan := startSpan(ctx, "place")
+	decision, err := s.placer.Place(placeCtx, id, placement.Request{
 		Workload:   req.Workload,
 		TargetDark: req.TargetDark,
 	})
+	placeSpan.End()
 	if err != nil {
 		status, reason := placementRefusal(err)
 		var refused *placement.RefusedError
@@ -301,6 +305,13 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	rec.Event = audit.EventMint
 	rec.Outcome, rec.Reason, rec.Error = "", "", ""
 	rec.Candidates = nil
+
+	// The one step that leaves the process: reading the cell, reading its trust
+	// configuration and the TokenRequest round trip to the spoke all happen
+	// inside it. ctx is reassigned rather than shadowed, so that refuse and the
+	// audit record below land on this span rather than on the request's.
+	ctx, span := startSpan(ctx, "mint")
+	defer span.End()
 
 	if s.minter == nil {
 		// A cell name with no way to reach it looks like success and is not.

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -36,8 +37,9 @@ const (
 	leaseName = "cellcast-agent"
 )
 
-// Run starts the agent and blocks until ctx is cancelled.
-func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
+// Run starts the agent and blocks until ctx is cancelled. Each report is traced
+// through tp, which may be a no-op provider.
+func Run(ctx context.Context, cfg Config, log *slog.Logger, tp trace.TracerProvider) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -46,6 +48,7 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	hub.tracerProvider = tp
 
 	restCfg, err := kubeConfig(cfg.Kubeconfig)
 	if err != nil {

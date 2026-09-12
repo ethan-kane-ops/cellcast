@@ -128,6 +128,11 @@ API. Reaching it is a NetworkPolicy decision: `networkPolicy.enabled`.
 | metrics.serviceMonitor.relabelings | list | `[]` | Relabelings. |
 | metrics.prometheusRule.enabled | bool | `false` | Install the shipped alerting rules. Requires the Prometheus Operator CRDs. |
 | metrics.prometheusRule.labels | object | `{}` | Extra labels, for a Prometheus that selects PrometheusRules by label. |
+| observability.otlp.endpoint | string | `""` | OTLP collector base URL, for example `http://otel-collector.observability:4318`; the hub posts to /v1/traces and /v1/metrics under it, and the scheme decides TLS. Empty exports nothing unless OTEL_EXPORTER_OTLP_ENDPOINT arrives through extraEnv. For a Datadog agent on every node use `http://$(HOST_IP):4318`: the chart sets HOST_IP from the node's address whenever an endpoint is set. |
+| observability.otlp.protocol | string | `"http/protobuf"` | `http/protobuf` or `grpc`. By convention a collector listens for the first on 4318 and the second on 4317. |
+| observability.otlp.traceSampleRatio | int | `1` | Share of the traces the hub starts that are kept, from 0 to 1. A trace that arrives already sampled, from an agent or a pipeline, is kept whatever this says. |
+| observability.otlp.headersSecret.name | string | `""` | Secret holding headers for the collector or backend, such as an API key, in the OTEL_EXPORTER_OTLP_HEADERS format (`key=value,key2=value2`). It reaches the hub through the environment, never as an argument, so it is not in the pod spec. |
+| observability.otlp.headersSecret.key | string | `"headers"` | Key inside that Secret. |
 | networkPolicy.enabled | bool | `false` | Restrict who may reach the hub. Off by default because a policy that names the wrong callers is an outage, and the right callers differ per estate. |
 | networkPolicy.allowedIngress | list | `[]` | Selectors allowed to reach the API port. Ingress from agents and from whatever runs the client belongs here. |
 | networkPolicy.metricsAllowedIngress | list | `[]` | Selectors allowed to reach the metrics port. |

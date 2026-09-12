@@ -13,6 +13,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // maxErrorBytes bounds how much of a hub error response is read back. The hub's
@@ -50,6 +53,10 @@ type HubClient struct {
 	url        string
 	tokenPath  string
 	httpClient *http.Client
+
+	// tracerProvider starts the span for each report. A no-op unless Run was
+	// handed a real one.
+	tracerProvider trace.TracerProvider
 }
 
 // NewHubClient builds the client the reporting loop publishes through.
@@ -80,8 +87,9 @@ func NewHubClient(cfg Config) (*HubClient, error) {
 		// The path is built from the parsed URL rather than by string
 		// concatenation, so a cell name is escaped rather than able to walk out
 		// of the path it belongs in.
-		tokenPath:  cfg.TokenPath,
-		httpClient: &http.Client{Transport: transport},
+		tokenPath:      cfg.TokenPath,
+		httpClient:     &http.Client{Transport: transport},
+		tracerProvider: noop.NewTracerProvider(),
 	}, nil
 }
 
@@ -106,6 +114,14 @@ func hubTransport(caFile string) (http.RoundTripper, error) {
 
 // Report publishes one heartbeat.
 func (c *HubClient) Report(ctx context.Context, s Snapshot) error {
+	ctx, span := startReport(ctx, c.tracerProvider)
+	err := c.report(ctx, s)
+	endReport(span, err)
+	return err
+}
+
+// report is Report inside its span.
+func (c *HubClient) report(ctx context.Context, s Snapshot) error {
 	token, err := c.token()
 	if err != nil {
 		return err
@@ -130,6 +146,7 @@ func (c *HubClient) Report(ctx context.Context, s Snapshot) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
+	injectTrace(ctx, req.Header)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
