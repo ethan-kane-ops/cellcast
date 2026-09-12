@@ -30,8 +30,10 @@ Ranked by what an attacker actually wants:
    reconnaissance worth having on its own.
 4. **Placement policy.** Modifying it is how an attacker turns a dev pipeline into a prod deploy.
 
-Note what is absent: there is no credential store. cellcast holds no long-lived downstream
-credential to steal, by construction (see [ADR-004](architecture.md#adr-004-downstream-credentials-are-minted-never-stored)).
+Note what is absent: there is no store of the credentials cellcast hands out. Every one is minted
+when it is asked for and expires on its own (see [ADR-004](architecture.md#adr-004-downstream-credentials-are-minted-never-stored)).
+What cellcast does hold is its own way into each cell, and under a `secretRef` configuration that is
+a stored credential. T-08 says what bounds it, and why calling it anything else would be dishonest.
 
 ## Trust boundaries
 
@@ -244,10 +246,11 @@ and it happens by accident rather than by attack.
 | Default output path is a kubeconfig written to a file with restrictive permissions | Implemented: 0600, created with O_EXCL so an existing symlink is never followed |
 | Token never appears in a process argument, where any user on the runner can read it | Implemented: there is no `--token` flag, and a test asserts there never is one |
 | `--json` output carries the decision with the token stripped | Implemented |
-| GitHub Actions integration registers the value as a mask before use | Planned: the purpose-built integrations are not shipped |
+| GitHub Actions integration masks the caller's identity token before use | Implemented: `.github/actions/place` registers it with `::add-mask::` and passes it by file, never as an argument; the minted credential goes to a kubeconfig outside the workspace and is never printed |
 | Audit records log a hash for correlation, never the token or any prefix of it | Implemented: `audit.Record` has no field that can hold token material, and a test classifies every field so a new one fails until somebody has thought about it |
 | Short TTL resolved from policy limits the value of a leaked token | Implemented |
 | The credential type redacts its own token under `%v`, `String()` and `slog` | Implemented |
+| A refusal names the caller's identity, never its token | Implemented: placement responses carry the issuer, subject and claims the hub authenticated, built from the three fields `audit.Record` already holds. They are the caller's own, out of the token it just sent, and nothing about any policy is returned (`cellcast policy test`) |
 
 **Note for reviewers.** The usual way this control fails is a debug log line added later by someone
 who did not read this document, so there are two tests rather than a rule: one at the HTTP boundary

@@ -31,25 +31,34 @@ cellcast attaches to an existing pipeline is checked on every push rather than a
 and a credential bounded by what it can do. The emptiest cell in the fleet is the one policy refuses,
 which is the argument the recording exists to make.
 
+**Operator tooling.** `cellcast policy test` answers a refusal from the caller's side: it runs the
+decision without minting and prints the issuer, subject and claims the hub read from the token, which
+is usually the whole diagnosis when a policy names a subject in a format the issuer does not produce.
+A `PlacementPolicy` also reports on its own status when it names an issuer the hub does not verify, a
+mistake that was otherwise invisible until a deploy was refused.
+
 ## Next
 
-Shipping the launch milestone made the imbalance obvious: the engine is further along than the
-product around it. The client has two commands, `place` and `version`, and everything an operator
-does between installing the hub and running a pipeline is hand-written YAML.
-
-**A policy you can test without deploying.** Placement is deny by default, which is right for a
-broker, and a refusal reaches the caller as a reason and nothing else. Finding out why a policy did
-not match currently means reading the hub's logs, which an adopter does not have. Asking the hub
-"would this token be admitted, and if not, which selector missed" should be one command.
+The engine is further along than the product around it, and most of what is next is the operator's
+side: the steps between installing the hub and a pipeline's first placement.
 
 **One command to enrol a cell.** Registering a cell is three objects, and one of them needs the
-reporter's issuer and subject written exactly right. Getting it wrong is silent: the cell registers,
-reports capacity that is attributed to nothing, and never wins a placement.
+reporter's issuer written exactly right. Getting it wrong is silent: the cell registers, reports
+capacity that is attributed to nothing, and never wins a placement. The command reads the issuer from
+the cell itself.
+
+**Rate limiting per caller.** Placement sits in the deploy path, and one pipeline stuck in a retry
+loop can keep every replica busy minting. The threat model lists it as planned (T-06), and it is the
+only control in that section still planned.
 
 **Keeping a workload where it already is.** Nothing in the engine knows where a workload ran last
 time, so two deploys minutes apart can land in different cells as utilisation shifts, splitting a
 service across two cells with nobody having decided that. A placement should prefer the cell a
 workload is already in, and say so in the explain table when it does not.
+
+**A stable API.** Every resource is `v1alpha1`, which says the schema may change without notice.
+Graduating it comes after stickiness, which adds a field, and comes with a test that upgrades a
+running fleet from the previous release rather than installing onto an empty cluster.
 
 **OpenTelemetry.** The metrics surface is Prometheus and the placement path has no tracing at all.
 OTLP covers both and reaches a Datadog agent without linking a vendor SDK into a binary that mints
@@ -58,9 +67,12 @@ credentials.
 **A second trust provider.** The broker interface exists and Kubernetes `TokenRequest` is its only
 implementation, so nothing has tested whether it is an interface or a description of that one case.
 AWS STS `AssumeRoleWithWebIdentity` is the obvious second and it is not a variation on the first: the
-TTL floor, the ceiling, the failure modes and the audit fields all differ. It should also settle
-whether the client writing a kubeconfig is a decision taken on behalf of providers that do not exist
-yet.
+TTL floor, the ceiling, the failure modes and the audit fields all differ.
+
+**No stored credential at all.** A cell outside the hub's own cluster is reached through a kubeconfig
+held in a Secret, the one stored credential left (T-08). The replacement is federation: each cell's
+API server trusts the hub cluster's service account issuer, and the hub presents a short-lived token
+of its own.
 
 ## Under consideration
 

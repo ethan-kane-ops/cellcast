@@ -154,8 +154,8 @@ refused: NoPolicy
 the hub read this token as:
   issuer   https://token.actions.githubusercontent.com
   subject  repo:acme@56138094/app@1332281435:pull_request
-  claims    ref=refs/heads/main
-            repository=acme/app
+  claims   ref=refs/heads/main
+           repository=acme/app
 
 no policy names that caller. Compare the values above against spec.subjects:
   kubectl -n cellcast-system get placementpolicy -o yaml
