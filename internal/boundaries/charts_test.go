@@ -10,7 +10,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
+
+	"github.com/ethan-kane-ops/cellcast/internal/cli"
 )
 
 // chartFlags are the flags a chart hands to a binary, and binaryFlags are the
@@ -74,14 +77,27 @@ func binaryFlags(t *testing.T, cmd string, sub ...string) []string {
 }
 
 // clientFlags is every flag the client accepts, root and subcommands together.
+//
+// The subcommands are walked from the command tree rather than listed, so a new
+// one's flags are covered the day it is added. With a list, a command whose
+// flags all happen to be place's passes, and one with flags of its own fails
+// for a reason that has nothing to do with the page being checked.
 func clientFlags(t *testing.T) []string {
 	t.Helper()
+
 	flags := binaryFlags(t, "cellcast")
-	for _, flag := range binaryFlags(t, "cellcast", "place") {
-		if !slices.Contains(flags, flag) {
-			flags = append(flags, flag)
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		for _, m := range helpFlag.FindAllStringSubmatch(cmd.Flags().FlagUsages(), -1) {
+			if !slices.Contains(flags, m[1]) {
+				flags = append(flags, m[1])
+			}
+		}
+		for _, sub := range cmd.Commands() {
+			walk(sub)
 		}
 	}
+	walk(cli.NewRootCmd())
 	return flags
 }
 

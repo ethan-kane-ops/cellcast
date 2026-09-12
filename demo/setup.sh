@@ -144,54 +144,28 @@ kubectl -n apps create token deployer --audience cellcast --duration 4h > "$work
 kubectl -n apps create token intern --audience cellcast --duration 4h > "$work/intern.jwt"
 
 echo "==> registering the fleet"
-for cell in $cells; do
-    # cellcast holds no credential of its own, so the kubeconfig each cell is
-    # minted through is supplied out of band. These are throwaway kind clusters
-    # that `just demo-down` deletes.
-    kubectl -n "$ns" create secret generic "$cell-admin" \
-        --from-file=kubeconfig="$work/$cell.kubeconfig" > /dev/null
-done
-
 env_for() { case "$1" in apse1) echo dev ;; *) echo prod ;; esac; }
 
 for cell in $cells; do
-    issuer=$(cat "$work/$cell.issuer")
-    ca=$(base64 < "$work/$cell.ca" | tr -d '\n')
-    kubectl apply -f - > /dev/null <<YAML
-apiVersion: cellcast.io/v1alpha1
-kind: TrustConfig
-metadata:
-  name: $cell-trust
-  namespace: $ns
-spec:
-  provider: kubernetes
-  credentialSource:
-    secretRef:
-      name: $cell-admin
-      key: kubeconfig
-  kubernetes:
-    serviceAccountName: deployer
-    namespace: apps
----
-apiVersion: cellcast.io/v1alpha1
-kind: Cluster
-metadata:
-  name: $cell
-  namespace: $ns
-  labels:
-    env: $(env_for "$cell")
-    region: $cell
-spec:
-  endpoint: $issuer
-  caBundle: $ca
-  provider: generic
-  trustConfigRef:
-    name: $cell-trust
-  reporter:
-    issuer: $issuer
-    subject: system:serviceaccount:$ns:cellcast-agent
-  state: LIVE
-YAML
+    # The credential goes from disk to the API server and never through
+    # cellcast, which is why cell add prints the TrustConfig and the Cluster and
+    # leaves this Secret to kubectl. These are throwaway kind clusters that
+    # `just demo-down` deletes, so the kubeconfig here is the admin one.
+    kubectl -n "$ns" create secret generic "$cell-kubeconfig" \
+        --from-file=kubeconfig="$work/$cell.kubeconfig" > /dev/null
+
+    # The command an operator runs, rather than a fixture describing what it
+    # would print. The reporter issuer comes from the cell's own discovery
+    # document, so this fails if enrolment cannot build the demo fleet.
+    if ! manifests=$(./bin/cellcast cell add --kubeconfig "$work/$cell.kubeconfig" \
+        --name "$cell" --hub-namespace "$ns" --agent-namespace "$ns" \
+        --labels "env=$(env_for "$cell"),region=$cell" \
+        --mint-service-account deployer --mint-namespace apps \
+        2> "$work/$cell.enrol"); then
+        cat "$work/$cell.enrol" >&2
+        exit 1
+    fi
+    printf '%s\n' "$manifests" | kubectl apply -f - > /dev/null
 done
 
 # Pinned to the deploying account. Without the subject the policy would also

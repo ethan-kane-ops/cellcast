@@ -77,6 +77,12 @@ func TestTheDocsOnlyNameFlagsThatExist(t *testing.T) {
 		"--strict", "--with-requirements", "--kubeconfig",
 	}
 
+	// Flags the docs name only to say the client does not have them. Held to
+	// that at the end, in the other direction: "there is no --token flag" is a
+	// promise the threat model makes (T-05), and a flag added under that name
+	// would make it false without failing anything else.
+	absent := []string{"--token"}
+
 	accepted := clientFlags(t)
 	pages := []string{"getting-started.md", "pipeline-integration.md", "placement-policy.md", "troubleshooting.md", "index.md", "extending.md"}
 
@@ -88,12 +94,18 @@ func TestTheDocsOnlyNameFlagsThatExist(t *testing.T) {
 			}
 
 			for _, flag := range named {
-				if slices.Contains(foreign, flag) || slices.Contains(accepted, flag) {
+				if slices.Contains(foreign, flag) || slices.Contains(absent, flag) || slices.Contains(accepted, flag) {
 					continue
 				}
 				t.Errorf("docs/%s names %s, which the client does not accept", page, flag)
 			}
 		})
+	}
+
+	for _, flag := range absent {
+		if slices.Contains(accepted, flag) {
+			t.Errorf("the docs say the client has no %s flag, and it does", flag)
+		}
 	}
 }
 

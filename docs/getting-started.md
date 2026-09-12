@@ -54,12 +54,52 @@ A complete worked fleet, four cells and three policies, is in
 [examples/](https://github.com/ethan-kane-ops/cellcast/tree/main/examples). The
 rest of this page builds one of those objects at a time.
 
-## 2. Tell the hub how to reach a cell
+## 2. Enrol each cell
 
-Two objects per cell. A `TrustConfig` says how the hub authenticates to it, and
-a `Cluster` registers it.
+One command per cell, given a kubeconfig for that cell:
 
-The `TrustConfig` references a credential; it never contains one:
+```console
+$ cellcast cell add --kubeconfig ./prod-euw1.yaml --name prod-euw1 \
+    --labels env=prod,region=euw1 \
+    --mint-service-account deployer --mint-namespace apps \
+    | kubectl apply -f -
+```
+
+It reads the cell's service account issuer from the cell's own discovery
+document and prints a `TrustConfig` and a `Cluster`. The issuer is the value
+that is easy to get wrong by hand, and wrong it fails silently: the agent's
+capacity reports are refused and the cell never wins a placement. Nothing is
+applied until the output is piped.
+
+`--mint-service-account` and `--mint-namespace` decide what every deploy
+credential for this cell can do, which is why neither has a default.
+
+The command leaves two things to you, and says so on stderr.
+
+**The Secret holding the hub's credential for the cell.** cellcast does not put
+credential material on stdout, so the Secret goes straight from a file to the
+API server. Use a kubeconfig that can create tokens for `deployer` in `apps` and
+nothing more, not an administrative one:
+
+```bash
+kubectl -n cellcast-system create secret generic prod-euw1-kubeconfig \
+  --from-file=kubeconfig=./prod-euw1-minter.yaml
+```
+
+**The hub trusting the cell's issuer.** stderr prints the `--oidc-issuer` value
+for this cell. Add it to the hub's `hub.oidc.issuers`; a cell whose issuer the
+hub does not verify never reports capacity.
+
+A kubeconfig that authenticates through an exec plugin, such as
+`aws eks get-token`, works exactly as it does for `kubectl`. If the cell refuses
+its discovery document to that identity, pass the issuer yourself with
+`--issuer`. On EKS it is the cluster's OIDC provider URL, which
+`aws eks describe-cluster` reports.
+
+### What it generated
+
+A `TrustConfig` says how the hub authenticates to the cell. It references a
+credential and never contains one:
 
 ```yaml
 apiVersion: cellcast.io/v1alpha1
@@ -70,10 +110,10 @@ metadata:
 spec:
   provider: kubernetes
   credentialSource:
-    # A Secret in the hub namespace holding a kubeconfig for this cell. Use
-    # `inCluster: true` instead when the cell is the hub's own cluster.
+    # The Secret created above. When the cell is the hub's own cluster,
+    # `inCluster: true` replaces this and stores nothing at all.
     secretRef:
-      name: prod-euw1-admin
+      name: prod-euw1-kubeconfig
       key: kubeconfig
   kubernetes:
     # What gets minted: a token for this service account, in this namespace,
@@ -82,7 +122,7 @@ spec:
     namespace: apps
 ```
 
-Then the `Cluster`:
+A `Cluster` registers the cell and says who may report its capacity:
 
 ```yaml
 apiVersion: cellcast.io/v1alpha1
@@ -94,7 +134,7 @@ metadata:
     env: prod
     region: euw1
 spec:
-  endpoint: https://prod-euw1.example.com
+  endpoint: https://ABCDEF1234.gr7.eu-west-1.eks.amazonaws.com
   provider: eks
   state: LIVE
   trustConfigRef:

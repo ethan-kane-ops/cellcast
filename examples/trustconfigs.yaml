@@ -16,10 +16,10 @@ spec:
   provider: kubernetes
   credentialSource:
     # Created out of band, and never checked in:
-    #   kubectl -n cellcast-system create secret generic prod-euw1-admin \
+    #   kubectl -n cellcast-system create secret generic prod-euw1-kubeconfig \
     #     --from-file=kubeconfig=./prod-euw1.kubeconfig
     secretRef:
-      name: prod-euw1-admin
+      name: prod-euw1-kubeconfig
       key: kubeconfig
   kubernetes:
     # The whole of what cellcast can mint for this cell. A caller placed here
@@ -41,7 +41,7 @@ spec:
   provider: kubernetes
   credentialSource:
     secretRef:
-      name: prod-use1-admin
+      name: prod-use1-kubeconfig
       key: kubeconfig
   kubernetes:
     serviceAccountName: deployer
@@ -56,7 +56,7 @@ spec:
   provider: kubernetes
   credentialSource:
     secretRef:
-      name: prod-apse1-admin
+      name: prod-apse1-kubeconfig
       key: kubeconfig
   kubernetes:
     serviceAccountName: deployer
