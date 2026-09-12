@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -63,6 +65,11 @@ type Server struct {
 	// on it tolerates a nil receiver, so a hub with no metrics endpoint needs no
 	// guard at each call site.
 	metrics *metrics.Metrics
+
+	// tracerProvider starts the server span for every API request. Never nil:
+	// a no-op provider unless tracing was configured, which makes every span
+	// below it a no-op too.
+	tracerProvider trace.TracerProvider
 
 	// ready gates the readiness probe. A replica that has not finished starting
 	// must not accept traffic and answer placements it cannot score.
@@ -140,6 +147,15 @@ func WithMetrics(m *metrics.Metrics) Option {
 	return func(s *Server) { s.metrics = m }
 }
 
+// WithTracerProvider sends the API's spans to tp.
+//
+// Only the server span is started from it. Every span below that one starts
+// from its parent's provider, so this one option decides where the whole of a
+// request's trace goes.
+func WithTracerProvider(tp trace.TracerProvider) Option {
+	return func(s *Server) { s.tracerProvider = tp }
+}
+
 // WithWarmupCheck makes readiness wait for the fleet to check in.
 //
 // Without it a replica is warm from the first instant, which is what a test
@@ -166,7 +182,13 @@ func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 		return nil, fmt.Errorf("invalid hub config: %w", err)
 	}
 	// Built before the options, so a test can swap in a limiter of its own.
-	s := &Server{cfg: cfg, log: log, authn: denyAll{}, limiter: newCallerLimiter(cfg.PlacementRateLimit, cfg.PlacementBurst)}
+	s := &Server{
+		cfg:            cfg,
+		log:            log,
+		authn:          denyAll{},
+		limiter:        newCallerLimiter(cfg.PlacementRateLimit, cfg.PlacementBurst),
+		tracerProvider: noop.NewTracerProvider(),
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -180,6 +202,10 @@ func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 		// the auditor.
 		s.audit = audit.New(NewAuditLogger(cfg), s.clusterNotifier(), s.metrics)
 	}
+	// Spans see what the trail records whichever auditor the server ended up
+	// with. Not an option: with tracing off the notifier finds no recording
+	// span and returns, so there is nothing to turn off.
+	s.audit = s.audit.With(spanNotifier{})
 	return s, nil
 }
 
@@ -222,11 +248,12 @@ func (s *Server) apiHandler() http.Handler {
 	mux.HandleFunc("POST /api/v1/clusters/{name}/capacity", s.handleReportCapacity)
 	mux.HandleFunc("GET /api/v1/capacity", s.handleListCapacity)
 
-	return chain(mux,
+	return chain(nameSpanByRoute(mux),
 		requestID,
+		traceRequests(s.tracerProvider),
 		recoverPanic(s.log),
 		logging(s.log),
-		authenticate(s.authn, s.log, s.metrics),
+		authenticate(tracedAuthenticator{s.authn}, s.log, s.metrics),
 	)
 }
 

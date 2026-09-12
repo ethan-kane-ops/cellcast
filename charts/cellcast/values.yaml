@@ -243,6 +243,31 @@ metrics:
     # -- Extra labels, for a Prometheus that selects PrometheusRules by label.
     labels: {}
 
+observability:
+  otlp:
+    # -- OTLP collector base URL, for example
+    # `http://otel-collector.observability:4318`; the hub posts to /v1/traces
+    # and /v1/metrics under it, and the scheme decides TLS. Empty exports
+    # nothing unless OTEL_EXPORTER_OTLP_ENDPOINT arrives through extraEnv. For
+    # a Datadog agent on every node use `http://$(HOST_IP):4318`: the chart sets
+    # HOST_IP from the node's address whenever an endpoint is set.
+    endpoint: ""
+    # -- `http/protobuf` or `grpc`. By convention a collector listens for the
+    # first on 4318 and the second on 4317.
+    protocol: http/protobuf
+    # -- Share of the traces the hub starts that are kept, from 0 to 1. A trace
+    # that arrives already sampled, from an agent or a pipeline, is kept
+    # whatever this says.
+    traceSampleRatio: 1
+    headersSecret:
+      # -- Secret holding headers for the collector or backend, such as an API
+      # key, in the OTEL_EXPORTER_OTLP_HEADERS format (`key=value,key2=value2`).
+      # It reaches the hub through the environment, never as an argument, so
+      # it is not in the pod spec.
+      name: ""
+      # -- Key inside that Secret.
+      key: headers
+
 networkPolicy:
   # -- Restrict who may reach the hub. Off by default because a policy that
   # names the wrong callers is an outage, and the right callers differ per

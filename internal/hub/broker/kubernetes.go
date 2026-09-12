@@ -3,8 +3,11 @@ package broker
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -148,9 +151,31 @@ func (c *SecretConnector) Connect(
 	// timeout on it would apply to every other client built from it.
 	cfg = rest.CopyConfig(cfg)
 	cfg.Timeout = mintTimeout
+	// The mint's trace continues into the spoke. Its API server joins the trace
+	// when it has tracing enabled and ignores the header when it has not.
+	cfg.Wrap(propagateTrace)
 
 	return c.build(cfg)
 }
+
+// propagateTrace carries the mint's trace context on requests to a spoke: the
+// W3C traceparent and tracestate headers, only when there is a span to carry,
+// and never baggage.
+func propagateTrace(rt http.RoundTripper) http.RoundTripper {
+	return roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if !trace.SpanContextFromContext(r.Context()).IsValid() {
+			return rt.RoundTrip(r)
+		}
+		// A RoundTripper must not modify the request it was given.
+		r = r.Clone(r.Context())
+		propagation.TraceContext{}.Inject(r.Context(), propagation.HeaderCarrier(r.Header))
+		return rt.RoundTrip(r)
+	})
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func (c *SecretConnector) restConfigFor(ctx context.Context, trust *cellcastv1alpha1.TrustConfig) (*rest.Config, error) {
 	src := trust.Spec.CredentialSource

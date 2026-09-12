@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/ethan-kane-ops/cellcast/internal/hub/metrics"
 )
 
@@ -71,13 +73,19 @@ func logging(log *slog.Logger) middleware {
 
 			next.ServeHTTP(rec, r)
 
-			log.InfoContext(r.Context(), "request",
+			args := []any{
 				slog.String("request_id", requestIDFrom(r.Context())),
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", rec.status),
 				slog.Duration("duration", time.Since(start)),
-			)
+			}
+			// The join from a log line to the trace that timed the request. An
+			// unsampled trace was never exported, so its id leads nowhere.
+			if sc := trace.SpanContextFromContext(r.Context()); sc.IsSampled() {
+				args = append(args, slog.String("trace_id", sc.TraceID().String()))
+			}
+			log.InfoContext(r.Context(), "request", args...)
 		})
 	}
 }

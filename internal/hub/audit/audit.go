@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
@@ -187,6 +188,12 @@ func New(log *slog.Logger, notifiers ...Notifier) *Auditor {
 	return &Auditor{log: log, notifiers: notifiers}
 }
 
+// With returns an auditor writing to the same log with n added to its
+// notifiers.
+func (a *Auditor) With(n ...Notifier) *Auditor {
+	return &Auditor{log: a.log, notifiers: append(slices.Clone(a.notifiers), n...)}
+}
+
 // Record writes one record.
 //
 // The log is written first and unconditionally. A notifier that panics or
@@ -256,6 +263,38 @@ func (r Record) attrs() []slog.Attr {
 		"error", r.Error,
 	)
 	return attrs
+}
+
+// untraced are the audit fields a span does not carry.
+//
+// A trace backend is often a third party and is usually read by more people
+// than the audit trail, so a span gets the fields that answer "what happened to
+// this request" and not the rest:
+//
+//   - claims and candidates are structures, and the candidate table names every
+//     cell in the fleet on every placement;
+//   - token_sha256 matches a leaked token to the record that issued it, which
+//     is a job for the trail and nobody else;
+//   - error is internal detail naming service accounts and namespaces inside
+//     the target cell, which is why the caller never sees it either. The
+//     request_id on the span leads back to it.
+var untraced = map[string]bool{"claims": true, "candidates": true, "token_sha256": true, "error": true}
+
+// TraceAttrs renders a record for a span: the trail's own rendering, less the
+// untraced fields.
+//
+// Derived from attrs rather than written beside it, so that a span can never
+// carry something the trail does not, and TestRecordHasNoFieldThatCouldHoldAToken
+// rules on both at once.
+func (r Record) TraceAttrs() []slog.Attr {
+	all := r.attrs()
+	out := make([]slog.Attr, 0, len(all))
+	for _, a := range all {
+		if !untraced[a.Key] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // appendNonEmpty appends key/value pairs, skipping the empty ones.

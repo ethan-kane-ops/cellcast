@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	promb "go.opentelemetry.io/contrib/bridges/prometheus"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -19,12 +20,12 @@ import (
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
-// exported returns every cellcast metric name the hub can emit.
+// seeded returns a registry holding every cellcast metric the hub can emit.
 //
-// The registry is seeded rather than described, because Gather returns only
-// metrics that have values, and a name that is declared and never emitted is
-// not one a dashboard can plot.
-func exported(t *testing.T) []string {
+// Seeded rather than described, because Gather returns only metrics that have
+// values, and a name that is declared and never emitted is not one a dashboard
+// can plot.
+func seeded(t *testing.T) *prometheus.Registry {
 	t.Helper()
 
 	reg := prometheus.NewRegistry()
@@ -61,8 +62,14 @@ func exported(t *testing.T) []string {
 	if err := reg.Register(NewClusterStateCollector(k8s, testNamespace, discardLogger())); err != nil {
 		t.Fatalf("Register() = %v, want nil", err)
 	}
+	return reg
+}
 
-	families, err := reg.Gather()
+// exported returns every cellcast metric name the hub can emit.
+func exported(t *testing.T) []string {
+	t.Helper()
+
+	families, err := seeded(t).Gather()
 	if err != nil {
 		t.Fatalf("Gather() = %v, want nil", err)
 	}
@@ -143,6 +150,33 @@ func TestEveryExportedMetricIsOnTheDashboardOrInAnAlert(t *testing.T) {
 		if !slices.Contains(used, name) {
 			t.Errorf("%s is exported but neither plotted nor alerted on; plot it or drop it", name)
 		}
+	}
+}
+
+// TestTheOTLPExportCarriesTheScrapedNames holds the OTLP push to the names a
+// scrape reports.
+//
+// The hub exports this registry through the Prometheus bridge rather than
+// defining a second set of instruments, and this is what makes that a
+// guarantee instead of an intention: a dashboard or an alert written against
+// docs/metrics.md works on either path.
+func TestTheOTLPExportCarriesTheScrapedNames(t *testing.T) {
+	scopes, err := promb.NewMetricProducer(promb.WithGatherer(seeded(t))).Produce(t.Context())
+	if err != nil {
+		t.Fatalf("Produce() = %v, want nil", err)
+	}
+
+	var pushed []string
+	for _, sm := range scopes {
+		for _, m := range sm.Metrics {
+			if strings.HasPrefix(m.Name, "cellcast_") {
+				pushed = append(pushed, m.Name)
+			}
+		}
+	}
+	slices.Sort(pushed)
+	if scraped := exported(t); !slices.Equal(pushed, scraped) {
+		t.Errorf("OTLP carries %v, a scrape reports %v", pushed, scraped)
 	}
 }
 

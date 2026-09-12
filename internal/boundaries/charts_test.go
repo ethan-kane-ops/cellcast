@@ -133,6 +133,8 @@ func TestChartsPassOnlyFlagsTheBinariesAccept(t *testing.T) {
 			args: []string{
 				"--set", "hub.oidc.issuers[0].url=https://token.actions.githubusercontent.com",
 				"--set", "hub.oidc.issuers[0].provider=github",
+				"--set", "observability.otlp.endpoint=http://otel-collector:4318",
+				"--set", "observability.otlp.headersSecret.name=otlp-headers",
 			},
 		},
 		{
@@ -143,6 +145,8 @@ func TestChartsPassOnlyFlagsTheBinariesAccept(t *testing.T) {
 				"--set", "cellName=prod-euw1",
 				"--set", "hub.endpoint=https://hub.example.test",
 				"--set", "hub.caConfigMap=hub-ca",
+				"--set", "observability.otlp.endpoint=http://otel-collector:4318",
+				"--set", "observability.otlp.headersSecret.name=otlp-headers",
 			},
 		},
 	}
@@ -159,6 +163,34 @@ func TestChartsPassOnlyFlagsTheBinariesAccept(t *testing.T) {
 			for _, flag := range shipped {
 				if !slices.Contains(accepted, flag) {
 					t.Errorf("the chart passes %s, which %s does not accept; the pod would crash-loop on install", flag, tt.binary)
+				}
+			}
+		})
+	}
+}
+
+func TestTheChartsReadOTLPHeadersFromASecret(t *testing.T) {
+	// A backend's API key belongs in a Secret and reaches the process through
+	// the environment. As an argument it would sit in the pod spec, readable by
+	// anyone who can get the Deployment (docs/threat-model.md T-05).
+	for _, tt := range []struct {
+		chart string
+		args  []string
+	}{
+		{chart: "cellcast"},
+		{chart: "cellcast-agent", args: []string{"--set", "cellName=prod-euw1", "--set", "hub.endpoint=https://hub.example.test"}},
+	} {
+		t.Run(tt.chart, func(t *testing.T) {
+			out := render(t, tt.chart, append(tt.args,
+				"--set", "observability.otlp.endpoint=http://$(HOST_IP):4318",
+				"--set", "observability.otlp.headersSecret.name=otlp-headers",
+			)...)
+			for _, want := range []string{
+				"name: OTEL_EXPORTER_OTLP_HEADERS", "name: otlp-headers", "key: headers",
+				"name: HOST_IP", "fieldPath: status.hostIP", "--otlp-endpoint=http://$(HOST_IP):4318",
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the rendered %s chart has no %q", tt.chart, want)
 				}
 			}
 		})

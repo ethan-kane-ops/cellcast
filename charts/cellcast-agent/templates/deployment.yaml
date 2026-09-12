@@ -79,6 +79,13 @@ spec:
             {{- if .Values.hub.caConfigMap }}
             - --hub-ca-file=/etc/cellcast/hub-ca/{{ .Values.hub.caConfigMapKey }}
             {{- end }}
+            {{- with .Values.observability.otlp }}
+            {{- if .endpoint }}
+            - --otlp-endpoint={{ .endpoint }}
+            - --otlp-protocol={{ .protocol }}
+            {{- end }}
+            - --trace-sample-ratio={{ .traceSampleRatio }}
+            {{- end }}
             {{- with .Values.agent.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -89,6 +96,24 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            {{- $otlp := .Values.observability.otlp }}
+            {{- if $otlp.endpoint }}
+            # The node's address, so that an endpoint of http://$(HOST_IP):4318
+            # reaches a collector or Datadog agent running on every node.
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            {{- end }}
+            {{- with $otlp.headersSecret.name }}
+            # Read by the exporter from the environment, so the headers are
+            # never an argument and never in the pod spec.
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $otlp.headersSecret.key }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

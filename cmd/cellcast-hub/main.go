@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	promb "go.opentelemetry.io/contrib/bridges/prometheus"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
@@ -22,6 +23,7 @@ import (
 	"github.com/ethan-kane-ops/cellcast/internal/hub/metrics"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
+	"github.com/ethan-kane-ops/cellcast/internal/telemetry"
 	"github.com/ethan-kane-ops/cellcast/internal/version"
 )
 
@@ -49,6 +51,7 @@ func newRootCmd() *cobra.Command {
 		LeaderElection: true,
 	}
 	authCfg := oidc.DefaultConfig()
+	telCfg := telemetry.DefaultConfig()
 	var issuerFlags []string
 
 	cmd := &cobra.Command{
@@ -75,7 +78,10 @@ what a compromise of this process does and does not grant.`,
 			if err := mgrOpts.ValidateAgainst(cfg); err != nil {
 				return err
 			}
-			return run(cmd.Context(), cfg, mgrOpts, authCfg)
+			if err := telCfg.Validate(); err != nil {
+				return err
+			}
+			return run(cmd.Context(), cfg, mgrOpts, authCfg, telCfg)
 		},
 	}
 
@@ -104,6 +110,7 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&authCfg.RefreshInterval, "oidc-refresh-interval", authCfg.RefreshInterval, "how often issuer metadata is re-resolved")
 	f.DurationVar(&authCfg.HTTPTimeout, "oidc-http-timeout", authCfg.HTTPTimeout, "timeout for issuer discovery and JWKS fetches")
 	f.StringVar(&authCfg.CAFile, "oidc-ca-file", authCfg.CAFile, "PEM bundle trusted when fetching issuer metadata, on top of the system roots (default: system roots)")
+	telCfg.AddFlags(f)
 
 	cmd.AddCommand(version.NewCommand())
 	return cmd
@@ -145,7 +152,7 @@ func issuerURLs(cfg oidc.Config) []string {
 	return out
 }
 
-func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCfg oidc.Config) error {
+func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCfg oidc.Config, telCfg telemetry.Config) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -154,6 +161,22 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		"version", version.Get().Version,
 		"namespace", cfg.Namespace,
 	)
+
+	// Before anything that could start a span, and flushed after the server has
+	// drained, so the last requests a replica served are exported rather than
+	// lost with the process.
+	tel, err := telemetry.Start(ctx, telCfg, "cellcast-hub", log,
+		// The registry the metrics endpoint serves, exported as it stands: one
+		// surface and one set of names, whether it is scraped or pushed.
+		telemetry.WithMetrics(promb.NewMetricProducer(promb.WithGatherer(ctrlmetrics.Registry))))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := tel.Shutdown(ctx); err != nil {
+			log.Warn("flushing telemetry failed", slog.Any("error", err))
+		}
+	}()
 
 	mgr, err := hub.NewManager(mgrOpts, log)
 	if err != nil {
@@ -212,6 +235,7 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		// cluster` answers "who has been deploying here".
 		hub.WithEventRecorder(mgr.GetEventRecorder("cellcast-hub")),
 		hub.WithMetrics(hubMetrics),
+		hub.WithTracerProvider(tel.TracerProvider()),
 	}
 
 	authn, err := buildAuthenticator(ctx, authCfg, log)

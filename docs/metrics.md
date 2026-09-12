@@ -8,6 +8,10 @@ operator would know it broke.
 `cellcast-hub` serves Prometheus metrics on `:8082/metrics` by default. `--metrics-addr` moves it;
 `--metrics-addr=0` turns it off.
 
+The same registry can also be pushed over OTLP, as well as or instead of being scraped: see [OTLP
+export](observability.md#otlp-export). The names, labels and buckets are the ones below either way,
+and a test holds the two paths to the same set.
+
 It is a separate listener from the API (`:8080`) and from the probes (`:8081`), and it serves
 controller-runtime's own collectors alongside cellcast's, because both register with the same
 process-wide registry. There is no fourth port and no second registry.

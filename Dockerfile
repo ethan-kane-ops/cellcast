@@ -50,7 +50,9 @@ if [ ! -d "./cmd/${BINARY}" ]; then
     echo "BINARY must name a directory under cmd/, got '${BINARY}'" >&2
     exit 1
 fi
-GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath \
+# grpcnotrace keeps html/template out of the binary: the justfile's go_tags
+# says why, and TestServerBuildsLeaveOutGRPCTrace holds the two together.
+GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -tags grpcnotrace \
     -ldflags "-s -w \
         -X github.com/ethan-kane-ops/cellcast/internal/version.version=${VERSION} \
         -X github.com/ethan-kane-ops/cellcast/internal/version.commit=${COMMIT} \

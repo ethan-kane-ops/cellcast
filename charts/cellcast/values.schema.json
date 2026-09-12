@@ -175,6 +175,26 @@
         }
       }
     },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "otlp": {
+          "type": "object",
+          "properties": {
+            "endpoint": { "type": "string", "pattern": "^(https?://.+)?$" },
+            "protocol": { "type": "string", "enum": ["http/protobuf", "grpc"] },
+            "traceSampleRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+            "headersSecret": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
     "networkPolicy": {
       "type": "object",
       "properties": {

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"sync"
 
+	"go.opentelemetry.io/otel/trace"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -200,6 +201,54 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 		return nil, ErrNoPolicy
 	}
 
+	policy, err := e.policyFor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Asking for a dark cell under a policy that forbids it is refused rather
+	// than downgraded. A smoke test that silently lands on a live cell is worse
+	// than one that fails.
+	if req.TargetDark && !policy.Spec.AllowDarkTargeting {
+		return nil, &RefusedError{Err: ErrDarkNotPermitted, Policy: policy.Name}
+	}
+
+	candidates, err := e.candidates(ctx, policy, req.TargetDark)
+	if err != nil {
+		return nil, err
+	}
+
+	decision := &Decision{
+		Policy:       policy.Name,
+		Strategy:     strategyOf(policy),
+		TargetedDark: req.TargetDark,
+		TokenTTL:     policy.Spec.TokenTTL,
+		Candidates:   candidates,
+	}
+
+	admitted := decision.Admitted()
+	if len(admitted) == 0 {
+		// The candidate table goes with the refusal rather than being discarded
+		// with the decision. It is the only record of which cells were looked
+		// at and what stopped each one, and it is what the audit trail reports.
+		return nil, &RefusedError{
+			Err:        refusalFor(decision.Candidates),
+			Policy:     policy.Name,
+			Candidates: decision.Candidates,
+		}
+	}
+
+	_, span := startSpan(ctx, "score")
+	decision.Cell = e.score(policy, decision.Strategy, admitted)
+	span.End()
+	return decision, nil
+}
+
+// policyFor selects the policy that governs this caller.
+func (e *Engine) policyFor(ctx context.Context, id *identity.Identity) (*cellcastv1alpha1.PlacementPolicy, error) {
+	ctx, span := startSpan(ctx, "select policy")
+	defer span.End()
+
 	var policies cellcastv1alpha1.PlacementPolicyList
 	if err := e.reader.List(ctx, &policies, client.InNamespace(e.ns)); err != nil {
 		return nil, fmt.Errorf("listing placement policies: %w", err)
@@ -223,13 +272,14 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 			slog.String("subject", id.Subject),
 		)
 	}
+	return policy, nil
+}
 
-	// Asking for a dark cell under a policy that forbids it is refused rather
-	// than downgraded. A smoke test that silently lands on a live cell is worse
-	// than one that fails.
-	if req.TargetDark && !policy.Spec.AllowDarkTargeting {
-		return nil, &RefusedError{Err: ErrDarkNotPermitted, Policy: policy.Name}
-	}
+// candidates runs every registered cell through the filter stages under the
+// policy's selector.
+func (e *Engine) candidates(ctx context.Context, policy *cellcastv1alpha1.PlacementPolicy, wantDark bool) ([]Candidate, error) {
+	ctx, span := startSpan(ctx, "filter")
+	defer span.End()
 
 	selector, err := metav1.LabelSelectorAsSelector(&policy.Spec.PermittedCells)
 	if err != nil {
@@ -245,29 +295,15 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 	if e.capacity != nil {
 		snapshot = e.capacity.Snapshot()
 	}
+	return filter(clusters.Items, selector, wantDark, snapshot), nil
+}
 
-	decision := &Decision{
-		Policy:       policy.Name,
-		Strategy:     strategyOf(policy),
-		TargetedDark: req.TargetDark,
-		TokenTTL:     policy.Spec.TokenTTL,
-		Candidates:   filter(clusters.Items, selector, req.TargetDark, snapshot),
-	}
-
-	admitted := decision.Admitted()
-	if len(admitted) == 0 {
-		// The candidate table goes with the refusal rather than being discarded
-		// with the decision. It is the only record of which cells were looked
-		// at and what stopped each one, and it is what the audit trail reports.
-		return nil, &RefusedError{
-			Err:        refusalFor(decision.Candidates),
-			Policy:     policy.Name,
-			Candidates: decision.Candidates,
-		}
-	}
-
-	decision.Cell = e.score(policy, decision.Strategy, admitted)
-	return decision, nil
+// startSpan starts a child of the span in ctx, from that span's own provider,
+// so that with tracing off it is a no-op like its parent. Timing only: the
+// hub's tracing.go is the one place that puts anything on a span.
+func startSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	return trace.SpanFromContext(ctx).TracerProvider().
+		Tracer("github.com/ethan-kane-ops/cellcast/internal/hub/placement").Start(ctx, name)
 }
 
 func strategyOf(policy *cellcastv1alpha1.PlacementPolicy) cellcastv1alpha1.ScoringStrategy {
