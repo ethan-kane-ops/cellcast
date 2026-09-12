@@ -604,3 +604,69 @@ func TestASuccessfulPlacementAlsoNamesTheCaller(t *testing.T) {
 		t.Errorf("identity = %+v, want the subject the hub authenticated", body.Identity)
 	}
 }
+
+// headerIdentity authenticates each request as the subject in its X-Caller
+// header, so one test can speak to one hub as two pipelines.
+type headerIdentity struct{}
+
+func (headerIdentity) Authenticate(_ context.Context, r *http.Request) (*identity.Identity, error) {
+	return &identity.Identity{Issuer: githubIssuer, Subject: r.Header.Get("X-Caller")}, nil
+}
+
+func withLimiter(l *callerLimiter) Option { return func(s *Server) { s.limiter = l } }
+
+func postAs(t *testing.T, h http.Handler, caller, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/placement", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Caller", caller)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestAPlacementFloodIsRefusedForThatCallerOnly is T-06's limit through the
+// API. A caller past its burst gets a refusal the client contract defines, told
+// when to come back and named back to itself, and a different caller in the
+// same second is placed as if nothing were happening.
+func TestAPlacementFloodIsRefusedForThatCallerOnly(t *testing.T) {
+	scheme, err := NewScheme()
+	if err != nil {
+		t.Fatalf("NewScheme() = %v, want nil", err)
+	}
+	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(registeredCell("prod-euw1")).Build()
+	h := testServer(t,
+		WithClusterClient(k8s),
+		WithAuthenticator(headerIdentity{}),
+		WithPlacer(&stubPlacer{decision: testDecision()}),
+		WithMinter(&stubMinter{}),
+		withLimiter(newCallerLimiter(1, 2)),
+	).apiHandler()
+
+	const flood, quiet = "repo:acme/flood:ref:refs/heads/main", "repo:acme/quiet:ref:refs/heads/main"
+	body := `{"workload":"checkout-api","dryRun":true}`
+	for i := range 2 {
+		if rec := postAs(t, h, flood, body); rec.Code != http.StatusOK {
+			t.Fatalf("request %d inside the burst = %d (%s), want 200", i+1, rec.Code, rec.Body)
+		}
+	}
+
+	rec := postAs(t, h, flood, body)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("the request past the burst = %d (%s), want 429", rec.Code, rec.Body)
+	}
+	got := decodeRefusal(t, rec.Body.Bytes())
+	if refusal.Reason(got.Reason) != refusal.RateLimited {
+		t.Errorf("reason = %q, want %q", got.Reason, refusal.RateLimited)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a 429 without Retry-After leaves the caller to guess when to come back")
+	}
+	if got.Identity == nil || got.Identity.Subject != flood {
+		t.Errorf("identity = %+v, want the flooding caller named back", got.Identity)
+	}
+
+	if rec := postAs(t, h, quiet, body); rec.Code != http.StatusOK {
+		t.Errorf("a different caller in the same second = %d (%s), want 200", rec.Code, rec.Body)
+	}
+}

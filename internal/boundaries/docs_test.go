@@ -75,6 +75,7 @@ func TestTheDocsOnlyNameFlagsThatExist(t *testing.T) {
 		"--audience", "--lifetime", "--jq",
 		"--previous", "--certificate-identity-regexp", "--certificate-oidc-issuer",
 		"--strict", "--with-requirements", "--kubeconfig",
+		"--placement-rate-limit", "--placement-burst",
 	}
 
 	// Flags the docs name only to say the client does not have them. Held to

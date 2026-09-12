@@ -25,6 +25,10 @@ type Server struct {
 	log   *slog.Logger
 	authn Authenticator
 
+	// limiter bounds placements per caller identity. Nil when the limit is
+	// off, which allows everything.
+	limiter *callerLimiter
+
 	// k8s is the registry. Reads are served from the manager's informer cache,
 	// so listing the fleet on every placement costs no API server traffic.
 	k8s client.Client
@@ -161,7 +165,8 @@ func NewServer(cfg Config, log *slog.Logger, opts ...Option) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid hub config: %w", err)
 	}
-	s := &Server{cfg: cfg, log: log, authn: denyAll{}}
+	// Built before the options, so a test can swap in a limiter of its own.
+	s := &Server{cfg: cfg, log: log, authn: denyAll{}, limiter: newCallerLimiter(cfg.PlacementRateLimit, cfg.PlacementBurst)}
 	for _, opt := range opts {
 		opt(s)
 	}

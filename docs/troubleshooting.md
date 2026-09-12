@@ -21,6 +21,7 @@ NoPolicy
 | `CapacityUnknown` | Every permitted, eligible cell has stale or missing capacity | The agents |
 | `DarkNotPermitted` | `--dark` under a policy with `allowDarkTargeting: false` | The policy |
 | `PlacementUnavailable` | The hub is running but cannot decide yet | Usually a replica still warming up. Retry |
+| `RateLimited` | This caller asked for more placements than its share | A retry loop in the pipeline. `Retry-After` says when to ask again |
 | `MintUnavailable` / `MintFailed` | The decision was made and the credential was not | The cell's `TrustConfig` |
 | `InvalidRequest` | The request itself was malformed | The client's arguments |
 

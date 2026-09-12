@@ -46,6 +46,14 @@ hub:
   # exist.
   tokenMaxTTL: 1h
 
+  rateLimit:
+    # -- Placements a second one caller may make, per hub replica. With N
+    # replicas a caller gets N times this. 0 turns the limit off.
+    placementsPerSecond: 5
+    # -- Placements one caller may make at once before the rate applies. Sized
+    # for a matrix build, which deploys every leg under one caller identity.
+    burst: 50
+
   capacity:
     # -- How long an agent report stays usable. Past it the cell is Unknown and
     # excluded from scoring rather than read as empty.

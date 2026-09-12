@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -175,6 +177,16 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec.Issuer, rec.Subject, rec.Claims = id.Issuer, id.Subject, id.Claims
+
+	// After authentication, because the bucket is keyed on who is asking, and
+	// before any other work, because not doing the work is the point. A
+	// limited request is a refusal like any other: audited, counted under its
+	// reason, and it names the caller back (docs/threat-model.md T-06).
+	if ok, wait := s.limiter.allow(id.Issuer, id.Subject, time.Now()); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
+		refuse(http.StatusTooManyRequests, refusal.RateLimited, "too many placement requests from this caller", nil)
+		return
+	}
 
 	if s.placer == nil {
 		// Distinct from MintUnavailable, which looks identical on the wire and

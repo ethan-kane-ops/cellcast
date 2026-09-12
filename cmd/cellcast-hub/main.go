@@ -93,6 +93,8 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&cfg.CapacityRetention, "capacity-retention", cfg.CapacityRetention, "how long a stale capacity entry is kept before it is dropped entirely")
 	f.IntVar(&cfg.CapacityMaxCells, "capacity-max-cells", cfg.CapacityMaxCells, "maximum number of cells held in the in-memory capacity index")
 	f.DurationVar(&cfg.TokenTTLCeiling, "token-max-ttl", cfg.TokenTTLCeiling, "absolute ceiling on minted credential lifetime; no policy or request may exceed it")
+	f.Float64Var(&cfg.PlacementRateLimit, "placement-rate-limit", cfg.PlacementRateLimit, "placements a second one caller may make, per replica; 0 turns the limit off")
+	f.IntVar(&cfg.PlacementBurst, "placement-burst", cfg.PlacementBurst, "placements one caller may make at once before the rate limit applies")
 	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for the Prometheus metrics endpoint (0 disables)")
 	f.BoolVar(&mgrOpts.LeaderElection, "leader-election", mgrOpts.LeaderElection, "elect a leader for the reconciler path")
 	f.StringVar(&mgrOpts.LeaderElectionNamespace, "leader-election-namespace", mgrOpts.LeaderElectionNamespace, "namespace holding the leader election lease (defaults to --namespace)")

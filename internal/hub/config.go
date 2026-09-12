@@ -67,6 +67,18 @@ type Config struct {
 	// certain to exist (docs/threat-model.md T-01).
 	TokenTTLCeiling time.Duration
 
+	// PlacementRateLimit is how many placements a second one caller may make,
+	// per replica. Zero turns the limit off.
+	//
+	// Sized for a pipeline rather than a person. A GitHub matrix build deploys
+	// every leg under one subject, so fifty placements in a second from one
+	// caller is ordinary, and a retry loop is what this exists for
+	// (docs/threat-model.md T-06).
+	PlacementRateLimit float64
+	// PlacementBurst is how many placements one caller may make at once
+	// before PlacementRateLimit applies.
+	PlacementBurst int
+
 	// Namespace is where the hub reads and writes its own resources.
 	//
 	// Cluster and PlacementPolicy are namespaced so that one hub cluster can
@@ -96,14 +108,16 @@ func DefaultConfig() Config {
 		// checks in three times inside it, so a replica that is still cold at
 		// the deadline is not waiting on timing, it is waiting on something
 		// that is broken.
-		WarmupTimeout:     capacity.DefaultStaleness,
-		LogLevel:          "info",
-		LogFormat:         "json",
-		CapacityStaleness: capacity.DefaultStaleness,
-		CapacityRetention: capacity.DefaultRetention,
-		CapacityMaxCells:  capacity.DefaultMaxCells,
-		TokenTTLCeiling:   time.Hour,
-		Namespace:         "cellcast-system",
+		WarmupTimeout:      capacity.DefaultStaleness,
+		LogLevel:           "info",
+		LogFormat:          "json",
+		CapacityStaleness:  capacity.DefaultStaleness,
+		CapacityRetention:  capacity.DefaultRetention,
+		CapacityMaxCells:   capacity.DefaultMaxCells,
+		TokenTTLCeiling:    time.Hour,
+		PlacementRateLimit: 5,
+		PlacementBurst:     50,
+		Namespace:          "cellcast-system",
 	}
 }
 
@@ -160,6 +174,14 @@ func (c Config) Validate() error {
 		// every placement and then refuses to mint for any of them.
 		return fmt.Errorf("token-max-ttl (%s) is below the %s floor the kubernetes TokenRequest API enforces; "+
 			"no credential could ever be minted", c.TokenTTLCeiling, broker.KubernetesMinTTL)
+	}
+	if c.PlacementRateLimit < 0 {
+		return fmt.Errorf("placement-rate-limit must not be negative, got %v", c.PlacementRateLimit)
+	}
+	if c.PlacementRateLimit > 0 && c.PlacementBurst < 1 {
+		// A bucket that holds nothing admits nobody: a hub that refuses every
+		// placement and calls it a rate limit.
+		return fmt.Errorf("placement-burst must be at least 1 when placement-rate-limit is set, got %d", c.PlacementBurst)
 	}
 	if c.Namespace == "" {
 		return fmt.Errorf("namespace must not be empty")
