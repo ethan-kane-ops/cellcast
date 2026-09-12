@@ -40,7 +40,7 @@ for that cell. cellcast never contains a credential, so those Secrets are
 created out of band and are not in this directory:
 
 ```bash
-kubectl -n cellcast-system create secret generic prod-euw1-admin \
+kubectl -n cellcast-system create secret generic prod-euw1-kubeconfig \
   --from-file=kubeconfig=./prod-euw1.kubeconfig
 ```
 

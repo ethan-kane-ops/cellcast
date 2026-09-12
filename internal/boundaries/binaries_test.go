@@ -81,3 +81,18 @@ func TestHubIsTheOnlyMinter(t *testing.T) {
 	}
 	t.Errorf("cellcast-hub does not link %s; it is the binary that mints", broker)
 }
+
+func TestTheClientDoesNotCarryTheTypedClientset(t *testing.T) {
+	// A distribution boundary rather than a security one. Every pipeline
+	// downloads the client on every run, and the typed clientset alone takes it
+	// from 13 MB to 37 MB. Nothing the client does needs it: the kubeconfig
+	// loader and rest.TransportFor are already linked, and together they
+	// authenticate to a cluster the way kubectl does, exec plugins included.
+	clientset := "k8s.io/client-go/kubernetes"
+
+	for _, dep := range deps(t, mod+"/cmd/cellcast") {
+		if dep == clientset || strings.HasPrefix(dep, clientset+"/") {
+			t.Errorf("cmd/cellcast links %s; talk to the cluster through rest.TransportFor instead", dep)
+		}
+	}
+}

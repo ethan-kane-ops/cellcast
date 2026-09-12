@@ -19,7 +19,7 @@ spec:
   provider: kubernetes
   credentialSource:
     secretRef:
-      name: prod-euw1-admin
+      name: prod-euw1-kubeconfig
       key: kubeconfig
   kubernetes:
     serviceAccountName: deployer
@@ -101,7 +101,7 @@ rather than when a deploy needs it:
 $ kubectl -n cellcast-system get trustconfig
 NAME        PROVIDER     READY   DETAIL
 prod-euw1   kubernetes   True
-prod-euw2   kubernetes   False   secret "prod-euw2-admin" has no key "kubeconfig"
+prod-euw2   kubernetes   False   secret "prod-euw2-kubeconfig" has no key "kubeconfig"
 ```
 
 It checks configuration, not permission. Whether `apps/deployer` can actually do
