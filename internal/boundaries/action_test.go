@@ -2,6 +2,7 @@ package boundaries_test
 
 import (
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -195,13 +196,20 @@ func TestTheTagTheExamplesNameContainsTheAction(t *testing.T) {
 	// was written. Agreement is not resolvability.
 	//
 	// This asks git directly, and so it is the one that fires on the real
-	// failure. It needs the tag present, which a release branch and a shallow
-	// CI checkout both lack, so a missing tag skips rather than fails: the
-	// version-agreement test above is what covers those.
+	// failure. A release branch has not cut its tag yet, so a missing tag
+	// skips and the version-agreement test above covers it. A CI checkout with
+	// no tags at all fails instead: that is a job that dropped fetch-tags, and
+	// a skip there would hide this test on every run without anyone noticing.
 	tag := chartYAML(t, "cellcast").AppVersion
 	root := repoRoot(t)
 
 	if err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", tag+"^{commit}").Run(); err != nil {
+		if os.Getenv("CI") != "" {
+			tags, _ := exec.Command("git", "-C", root, "tag", "--list").Output()
+			if strings.TrimSpace(string(tags)) == "" {
+				t.Fatal("this CI checkout has no tags, so this test could never run here; the job's checkout needs fetch-tags: true")
+			}
+		}
 		t.Skipf("%s is not a tag in this clone yet", tag)
 	}
 

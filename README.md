@@ -118,6 +118,29 @@ Kubernetes takes it out of the Service, so a rolling update of cellcast does not
 running through it. The details, including the deadlock that bounds the warmup wait, are in
 [ADR-011](docs/architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect).
 
+## When the answer is no
+
+A refusal is not an outage, and no stance answers one. `NoPolicy` is the refusal that needs
+explaining, because the caller authenticated perfectly well and was still turned away.
+`cellcast policy test` runs the same decision without minting and prints what the hub read out of the
+token:
+
+```console
+$ cellcast policy test --workload checkout-api
+refused: NoPolicy
+  no placement policy permits this caller
+
+the hub read this token as:
+  issuer   https://token.actions.githubusercontent.com
+  subject  repo:acme@56138094/app@1332281435:pull_request
+  claims   ref=refs/heads/main
+           repository=acme/app
+```
+
+Compare those with the policy's `spec.subjects`. The commonest cause is a subject written in a
+format the issuer does not produce: every GitHub repository created after 15 July 2026 issues the
+immutable form shown above.
+
 ## Verifying what you install
 
 Images and charts are signed with [cosign](https://docs.sigstore.dev/) keyless signing. There is no
