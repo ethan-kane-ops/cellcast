@@ -46,6 +46,16 @@
             }
           }
         },
+        "stickiness": {
+          "type": "object",
+          "properties": {
+            "expireAfter": { "$ref": "#/definitions/duration" },
+            "maxPerPolicy": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
         "warmupTimeout": { "$ref": "#/definitions/duration" },
         "drainDelay": { "$ref": "#/definitions/duration" },
         "shutdownTimeout": { "$ref": "#/definitions/duration" },

@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -111,6 +112,11 @@ type placementResponse struct {
 	// decided. Always sent, because a recommendation that does not state its
 	// own confidence is being read as a command.
 	Confidence string `json:"confidence"`
+	// PreviousCell is where this workload was last placed under the same
+	// policy. Equal to Cell when the placement kept it there, different when
+	// that cell could no longer take it, and absent when nothing was
+	// remembered.
+	PreviousCell string `json:"previousCell,omitempty"`
 	// DecidedFor is the subject the hub resolved the caller's token to. It
 	// answers "who did the hub think I was", and it is what lets a cached
 	// decision record whose decision it was.
@@ -266,6 +272,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec.Cell = decision.Cell
+	rec.PreviousCell = decision.Previous
 	rec.Policy = decision.Policy
 	rec.Strategy = string(decision.Strategy)
 	rec.Confidence = string(decision.Confidence())
@@ -281,6 +288,7 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 		Policy:       decision.Policy,
 		Strategy:     string(decision.Strategy),
 		Confidence:   string(decision.Confidence()),
+		PreviousCell: decision.Previous,
 		DecidedFor:   id.Subject,
 		TargetedDark: decision.TargetedDark,
 		DryRun:       req.DryRun,
@@ -360,6 +368,22 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	rec.TokenSHA256 = audit.HashToken(cred.Token)
 	s.audit.Record(ctx, rec)
 
+	// After the mint, so that a cell which could not issue a credential is not
+	// where the workload is kept, and on this path only, so that a dry run
+	// changes nothing. A write that fails costs the next placement its memory
+	// and costs this one nothing (docs/architecture.md ADR-012).
+	if err := s.placer.Remember(ctx, decision); err != nil {
+		logWorkload := strings.ReplaceAll(req.Workload, "\n", "")
+		logWorkload = strings.ReplaceAll(logWorkload, "\r", "")
+		s.log.WarnContext(ctx, "the placement was not remembered; the workload's next placement is decided afresh",
+			slog.String("request_id", requestIDFrom(ctx)),
+			slog.String("workload", logWorkload),
+			slog.String("policy", decision.Policy),
+			slog.String("cell", decision.Cell),
+			slog.Any("error", err),
+		)
+	}
+
 	resp.Credential = &credentialResponse{
 		Server:         cred.Server,
 		Namespace:      cred.Namespace,
@@ -393,14 +417,21 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 func explain(d *placement.Decision) []candidateResponse {
 	out := make([]candidateResponse, 0, len(d.Candidates))
 	for _, c := range d.Candidates {
-		out = append(out, candidateResponse{
+		row := candidateResponse{
 			Cell:        c.Cell,
 			Admitted:    c.Admitted,
 			Stage:       c.Stage,
 			Reason:      c.Reason,
 			Utilisation: c.Utilisation,
 			Chosen:      c.Cell == d.Cell,
-		})
+		}
+		// A kept cell was not chosen on its score, and a row showing only its
+		// utilisation would say it was. When the workload moved instead, the
+		// cell it left already carries the stage that refused it.
+		if row.Chosen && d.Kept() {
+			row.Stage, row.Reason = placement.StageStickiness, "placed here last time, and still eligible"
+		}
+		out = append(out, row)
 	}
 	return out
 }

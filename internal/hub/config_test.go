@@ -71,6 +71,18 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "log-format must be one of",
 		},
 		{
+			// A record is refreshed at most hourly, so an expiry close to that
+			// would forget workloads that deploy all day long.
+			name:    "stickiness expiry under a day",
+			mutate:  func(c *Config) { c.StickinessExpireAfter = 23 * time.Hour },
+			wantErr: "stickiness-expire-after must be at least",
+		},
+		{
+			name:    "no room to remember any workload",
+			mutate:  func(c *Config) { c.StickinessMaxPerPolicy = 0 },
+			wantErr: "stickiness-max-per-policy must be at least 1",
+		},
+		{
 			name:    "empty namespace",
 			mutate:  func(c *Config) { c.Namespace = "" },
 			wantErr: "namespace must not be empty",

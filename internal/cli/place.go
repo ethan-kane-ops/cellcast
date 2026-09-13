@@ -300,6 +300,20 @@ func writeTextResult(w io.Writer, res *result, opts *placeOptions) error {
 		}
 		out.printf("%s %s on %s (policy %s, %s, confidence %s)\n",
 			verb, opts.workload, p.Cell, p.Policy, p.Strategy, p.Confidence)
+
+		// A move is the line that matters. Stickiness exists so that a service
+		// is not split across cells without anyone deciding it, and a move is
+		// the hub deciding exactly that because the old cell could no longer
+		// take the workload. cellcast removes nothing, so what runs there
+		// stays until somebody removes it.
+		switch p.PreviousCell {
+		case "":
+		case p.Cell:
+			out.printf("%s stays on %s, where it was placed last time\n", opts.workload, p.Cell)
+		default:
+			out.printf("%s moves from %s, which cannot take it now (--explain says why); "+
+				"whatever runs there keeps running until it is removed\n", opts.workload, p.PreviousCell)
+		}
 	}
 
 	if p.TTL != nil {

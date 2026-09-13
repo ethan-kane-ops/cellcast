@@ -73,6 +73,16 @@ has expired.
 means at least one permitted cell was excluded because its capacity was stale, so the chosen cell is
 the best of what the hub could see, which is not the same claim as the best there is.
 
+`previous_cell` is where the workload was last placed under the same policy, present whenever the
+hub remembered one (see [stickiness](placement-policy.md#stickiness)). It equals `cell` when the
+placement kept the workload there. When the two differ, the workload moved because its old cell could
+no longer take it, and the old cell may still be running a copy. Every move, from the trail alone:
+
+```bash
+kubectl -n cellcast-system logs deploy/cellcast-hub \
+  | jq -c 'select(.msg == "audit" and .event == "mint" and .previous_cell != null and .previous_cell != .cell)'
+```
+
 ## Token material
 
 **No record holds a token, or any prefix of one.** `token_sha256` is a SHA-256 digest of the whole

@@ -173,6 +173,18 @@ ranked badly.
 For a deploy that already happened, the audit record has the same table, keyed
 by `request_id`. See the [audit trail reference](audit.md).
 
+A chosen cell at stage `stickiness` is one the workload was placed in last time,
+kept although another cell is less loaded. That is deliberate: a service stays in
+one cell until that cell stops being eligible. To move it, drain the cell, or
+delete the workload's record and let the next placement decide afresh:
+
+```console
+$ kubectl -n cellcast-system get workloadplacements | grep checkout-api
+$ kubectl -n cellcast-system delete workloadplacement <name>
+```
+
+See [stickiness](placement-policy.md#stickiness).
+
 ## A credential expires mid-deploy
 
 Read the line the client printed:

@@ -93,6 +93,43 @@ type PlacementPolicySpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	AllowDarkTargeting bool `json:"allowDarkTargeting,omitempty"`
+
+	// Stickiness keeps a workload in the cell it was last placed in.
+	//
+	// On unless set to None. Without it, two deploys of one service minutes
+	// apart can land in different cells as utilisation shifts, and the service
+	// ends up split across both with nobody having decided that. None suits
+	// workloads meant to spread, such as batch jobs under RoundRobin.
+	// +kubebuilder:default={}
+	// +optional
+	Stickiness *Stickiness `json:"stickiness,omitempty"`
+}
+
+// StickinessMode says whether a placement prefers the cell a workload was last
+// placed in.
+// +kubebuilder:validation:Enum=Preferred;None
+type StickinessMode string
+
+const (
+	// StickinessPreferred keeps a workload in the cell it was last placed in
+	// while that cell stays permitted, eligible and reporting capacity, and
+	// places it afresh when it does not.
+	StickinessPreferred StickinessMode = "Preferred"
+	// StickinessNone decides every placement afresh.
+	StickinessNone StickinessMode = "None"
+)
+
+// Stickiness is what a placement does with where a workload already is.
+type Stickiness struct {
+	// Mode is Preferred or None.
+	//
+	// Preferred is a preference and never a refusal. A workload whose cell is
+	// draining, has left the policy's selector or has stopped reporting is
+	// placed afresh and remembered where it lands. A cell that is merely busy
+	// keeps its workloads: moving them off is what DRAINING is for.
+	// +kubebuilder:default=Preferred
+	// +optional
+	Mode StickinessMode `json:"mode,omitempty"`
 }
 
 // PlacementPolicyStatus is the observed state of a policy.

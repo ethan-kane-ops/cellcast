@@ -111,6 +111,7 @@ on that split, so a client never has to match on prose to find it.
 | [ADR-009](#adr-009-an-agent-may-only-report-for-the-cell-that-names-it) | Reporter identity | Each `Cluster` names the issuer and subject allowed to report for it | Trusting any authenticated caller, or matching on the subject alone |
 | [ADR-010](#adr-010-the-audit-trail-is-structured-stdout-and-cannot-be-levelled-off) | Audit trail | Structured JSON on stdout, unlevelled, plus a lossy Events view | A database, a bespoke sink, a retention policy of our own |
 | [ADR-011](#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) | High availability | Every replica answers placements; a lease covers only the reconcilers | Leader-only serving, an active-standby pair, sharing capacity between replicas |
+| [ADR-012](#adr-012-a-workload-stays-where-it-was-placed-and-the-record-lives-in-the-api-server) | Stickiness | The last cell per policy and workload, kept in a `WorkloadPlacement` and preferred while it stays eligible | Per-replica memory, a caller naming its previous cell, asking the spokes |
 
 ---
 
@@ -425,9 +426,11 @@ not a safe target for a smoke test either, so `DRAINING` is not a synonym for "d
 except QA".
 
 **Nothing has to be done to protect placements already issued.** A placement is an advisory decision
-returned to the caller and never retained by the hub (ADR-006). There is no in-flight record for a
-state change to invalidate, which is why the guarantee is structural rather than a piece of
-transition-handling code.
+returned to the caller (ADR-006). The hub does remember where each workload was placed (ADR-012), but
+that record is a preference for the next decision rather than a claim on the cell: draining a cell
+sends each workload's next deploy elsewhere and invalidates nothing already issued. There is no
+in-flight record for a state change to invalidate, which is why the guarantee is structural rather
+than a piece of transition-handling code.
 
 ---
 
@@ -528,7 +531,9 @@ over the same status subresource and emitting every event three times.
 This works because of ADR-002 and ADR-005 together: placement reads the informer cache, which every
 replica keeps synced whether or not it holds the lease, and the capacity index that ranks the
 survivors is per-replica and rebuilt from heartbeats. A follower therefore answers a placement
-exactly as well as the leader does. Nothing in the decision path writes.
+exactly as well as the leader does. Nothing in the decision path writes. The one write a placement
+causes comes after the decision and the mint, is made by whichever replica served it, and costs the
+placement nothing if it fails (ADR-012).
 
 Three consequences follow, and each one needed code:
 
@@ -577,6 +582,74 @@ only the leader exits; followers stay in their acquisition loop and keep serving
 restarted replica cannot sync, so it stays unready and out of the Service until the partition
 clears.
 
+---
+
+### ADR-012: a workload stays where it was placed, and the record lives in the API server
+
+**Status:** accepted
+
+**Context.** Every placement used to be decided afresh. Two deploys of one service ten minutes apart
+could land in different cells because utilisation shifted between them, and nothing would prevent it
+or mention it: one service running in two cells with nobody having decided that. It is the first
+question anyone running multi-cluster deploys in anger asks.
+
+**Decision.** The hub remembers the cell each workload was last placed in, per policy, and the next
+placement prefers that cell while it stays permitted, eligible and reporting capacity.
+`PlacementPolicy.spec.stickiness.mode` declares it: `Preferred` by default, `None` for workloads
+meant to spread. The record is a `WorkloadPlacement` object in the hub's namespace.
+
+**Where the record lives is the real decision.** Capacity is held in process memory because it is
+written constantly and worthless once stale (ADR-002). A placement record is the opposite: written
+rarely, and worthless if it does not survive a restart, because a rolling update of the hub is
+exactly when a fleet of pipelines is deploying through it. So it lives where everything else durable
+here lives. Every replica reads it from the same informer cache it reads policy from, so any replica
+can keep a workload that another one placed.
+
+Four rules stop it becoming a second placement engine:
+
+- **Memory chooses among the admitted and readmits nothing.** It runs in place of the score, after
+  the filter, over the same survivors. A remembered cell that is draining, has left the policy's
+  selector or has stopped reporting is passed over, and the workload is placed afresh and remembered
+  where it lands. Memory can steer between cells the caller could have been given anyway, and never
+  past the filter (ADR-005).
+- **Only a minted placement is remembered.** The write happens after the mint, so a cell that could
+  not issue a credential is not where a workload is kept. A dry run writes nothing, so `--dry-run`
+  and `cellcast policy test` change nothing and a debugging session cannot pin a workload.
+- **A dark placement is neither read nor written.** A smoke test on a dark cell would otherwise make
+  the next real deploy forget where the workload lives, because the dark cell is never eligible for
+  it.
+- **A busy cell keeps its workloads.** Moving a service because its cell got busier is the silent
+  split this exists to prevent. Moving workloads off a cell is what `DRAINING` is for (ADR-008).
+
+**Consequences.** Deciding still does not write, so ADR-011 holds for the decision path. Handing out
+a placement now does: at most one object per workload per policy, rewritten at most once an hour when
+nothing changed. A write that fails never fails the placement, and its whole cost is that the next
+placement of that workload is decided afresh. That is ADR-006's fail open on optimisation.
+
+Two replicas placing the same new workload in the same second can choose different cells, since
+replicas already disagree about capacity (ADR-011). The record ends up naming one of them, and the
+next deploy goes there.
+
+The records are bounded, because a workload name is the caller's own string. There is one per
+policy and workload; `--stickiness-max-per-policy` caps a policy's total, past which new workloads
+are placed and not remembered; a record not placed for `--stickiness-expire-after` (90 days by
+default) reads as absent and the leader deletes it. Each record is owned by its policy, so deleting
+the policy deletes what was remembered under it.
+
+An operator may edit a record's `cell` to move a workload on its next deploy, or delete the record to
+have the next placement decide afresh. The edited cell still has to pass the filter.
+
+**Rejected: per-replica memory.** It forgets on every restart and disagrees across replicas, which is
+losing stickiness exactly when it matters.
+
+**Rejected: the caller naming its previous cell.** A request field for a preferred cell is the
+steering ADR-005 exists to prevent, and a CI runner's cache rarely outlives the job anyway.
+
+**Rejected: asking the spokes where a workload runs.** The agent would have to read every
+namespace's workloads in every cell and rely on a labelling convention nobody has adopted. That
+widens the largest attack surface in the system (ADR-007) to answer a question the hub can answer
+from its own decisions.
+
 ### Deployment
 
 Two charts, not one: `charts/cellcast` installs the hub into the hub cluster and
@@ -593,7 +666,7 @@ uninstalling the hub does not delete the registry with it.
 
 ## Data model
 
-Two custom resources, both `v1alpha1`, versioned from the start so a `v1beta1` is additive rather
+Four custom resources, all `v1alpha1`, versioned from the start so a `v1beta1` is additive rather
 than breaking.
 
 **`Cluster`** is the durable registry entry: endpoint, CA bundle, provider (`eks`, `gke`, `aks`,
@@ -603,7 +676,13 @@ Registration writes trust configuration only. A registration payload carrying a 
 token is rejected, which is the invariant that keeps ADR-004 true.
 
 **`PlacementPolicy`** maps authenticated caller claims to a permitted label selector, a scoring
-strategy, and TTL bounds.
+strategy, TTL bounds, and whether a workload stays where it was last placed.
+
+**`TrustConfig`** is how the hub reaches one cell to mint: which service account, in which namespace,
+through which credential source. A reference, never inline material (T-08).
+
+**`WorkloadPlacement`** is the cell one workload was last placed in under one policy. The hub writes
+it after a mint and prefers that cell next time (ADR-012). It holds names and a timestamp.
 
 Capacity is not a resource. It lives in memory, per ADR-002.
 
@@ -626,3 +705,6 @@ Capacity is not a resource. It lives in memory, per ADR-002.
 | Hub replica still warming up | Ready, so agents can reach it, but every placement is refused with `PlacementUnavailable` until it is warm (ADR-011) |
 | Hub replica being rolled | Reports unready, keeps serving for `--drain-delay`, then drains in-flight requests (ADR-011) |
 | Leader loses its lease | That replica exits and restarts; the others keep serving placements from cache (ADR-011) |
+| A workload's remembered cell is draining, unpermitted or not reporting | Placed afresh like a new workload, and remembered where it lands (ADR-012) |
+| Recording where a workload landed fails | The placement succeeds; that workload's next placement is decided afresh (ADR-012) |
+| A policy reaches `--stickiness-max-per-policy` | New workloads under it are placed and not remembered; records already held are kept (ADR-012) |

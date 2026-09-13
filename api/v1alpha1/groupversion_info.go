@@ -36,6 +36,7 @@ func addKnownTypes(s *runtime.Scheme) error {
 		&Cluster{}, &ClusterList{},
 		&PlacementPolicy{}, &PlacementPolicyList{},
 		&TrustConfig{}, &TrustConfigList{},
+		&WorkloadPlacement{}, &WorkloadPlacementList{},
 	)
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil

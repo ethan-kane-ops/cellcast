@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
+	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
 )
 
 // Config is the hub's runtime configuration.
@@ -79,6 +80,19 @@ type Config struct {
 	// before PlacementRateLimit applies.
 	PlacementBurst int
 
+	// StickinessExpireAfter is how long the hub remembers where a workload was
+	// placed, if that workload is not placed again.
+	//
+	// A bound on storage rather than a schedule for moving anything: it only
+	// ever forgets workloads that stopped deploying, such as a preview
+	// environment per pull request.
+	StickinessExpireAfter time.Duration
+	// StickinessMaxPerPolicy bounds how many workloads one policy may have
+	// remembered. A workload name is the caller's own string, so without it
+	// one pipeline inventing names could fill the hub's namespace
+	// (docs/threat-model.md T-06).
+	StickinessMaxPerPolicy int
+
 	// Namespace is where the hub reads and writes its own resources.
 	//
 	// Cluster and PlacementPolicy are namespaced so that one hub cluster can
@@ -108,16 +122,18 @@ func DefaultConfig() Config {
 		// checks in three times inside it, so a replica that is still cold at
 		// the deadline is not waiting on timing, it is waiting on something
 		// that is broken.
-		WarmupTimeout:      capacity.DefaultStaleness,
-		LogLevel:           "info",
-		LogFormat:          "json",
-		CapacityStaleness:  capacity.DefaultStaleness,
-		CapacityRetention:  capacity.DefaultRetention,
-		CapacityMaxCells:   capacity.DefaultMaxCells,
-		TokenTTLCeiling:    time.Hour,
-		PlacementRateLimit: 5,
-		PlacementBurst:     50,
-		Namespace:          "cellcast-system",
+		WarmupTimeout:          capacity.DefaultStaleness,
+		LogLevel:               "info",
+		LogFormat:              "json",
+		CapacityStaleness:      capacity.DefaultStaleness,
+		CapacityRetention:      capacity.DefaultRetention,
+		CapacityMaxCells:       capacity.DefaultMaxCells,
+		TokenTTLCeiling:        time.Hour,
+		PlacementRateLimit:     5,
+		PlacementBurst:         50,
+		StickinessExpireAfter:  placement.DefaultExpireAfter,
+		StickinessMaxPerPolicy: placement.DefaultMaxPerPolicy,
+		Namespace:              "cellcast-system",
 	}
 }
 
@@ -182,6 +198,15 @@ func (c Config) Validate() error {
 		// A bucket that holds nothing admits nobody: a hub that refuses every
 		// placement and calls it a rate limit.
 		return fmt.Errorf("placement-burst must be at least 1 when placement-rate-limit is set, got %d", c.PlacementBurst)
+	}
+	if c.StickinessExpireAfter < placement.MinExpireAfter {
+		// A record is refreshed at most hourly, so an expiry close to that
+		// forgets workloads that are deploying all the time.
+		return fmt.Errorf("stickiness-expire-after must be at least %s, got %s",
+			placement.MinExpireAfter, c.StickinessExpireAfter)
+	}
+	if c.StickinessMaxPerPolicy < 1 {
+		return fmt.Errorf("stickiness-max-per-policy must be at least 1, got %d", c.StickinessMaxPerPolicy)
 	}
 	if c.Namespace == "" {
 		return fmt.Errorf("namespace must not be empty")

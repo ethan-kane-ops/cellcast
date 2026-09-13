@@ -101,6 +101,8 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&cfg.TokenTTLCeiling, "token-max-ttl", cfg.TokenTTLCeiling, "absolute ceiling on minted credential lifetime; no policy or request may exceed it")
 	f.Float64Var(&cfg.PlacementRateLimit, "placement-rate-limit", cfg.PlacementRateLimit, "placements a second one caller may make, per replica; 0 turns the limit off")
 	f.IntVar(&cfg.PlacementBurst, "placement-burst", cfg.PlacementBurst, "placements one caller may make at once before the rate limit applies")
+	f.DurationVar(&cfg.StickinessExpireAfter, "stickiness-expire-after", cfg.StickinessExpireAfter, "how long the hub remembers where a workload was placed, if it is not placed again")
+	f.IntVar(&cfg.StickinessMaxPerPolicy, "stickiness-max-per-policy", cfg.StickinessMaxPerPolicy, "most workloads one policy may have remembered; new ones past it are placed and not remembered")
 	f.StringVar(&mgrOpts.MetricsAddr, "metrics-addr", mgrOpts.MetricsAddr, "listen address for the Prometheus metrics endpoint (0 disables)")
 	f.BoolVar(&mgrOpts.LeaderElection, "leader-election", mgrOpts.LeaderElection, "elect a leader for the reconciler path")
 	f.StringVar(&mgrOpts.LeaderElectionNamespace, "leader-election-namespace", mgrOpts.LeaderElectionNamespace, "namespace holding the leader election lease (defaults to --namespace)")
@@ -202,7 +204,16 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		broker.NewKubernetesProvider(connector.Connect),
 	)
 
-	engine := placement.NewEngine(mgr.GetClient(), index, cfg.Namespace, log)
+	// Where each workload was last placed, kept in the API server so that it
+	// survives the hub's own rolling update (docs/architecture.md ADR-012).
+	memory := placement.NewMemory(mgr.GetClient(), cfg.Namespace, placement.MemoryOptions{
+		ExpireAfter:  cfg.StickinessExpireAfter,
+		MaxPerPolicy: cfg.StickinessMaxPerPolicy,
+	}, log)
+	if err := memory.SetupWithManager(ctx, mgr); err != nil {
+		return err
+	}
+	engine := placement.NewEngine(mgr.GetClient(), index, cfg.Namespace, log, placement.WithMemory(memory))
 
 	// Registered with controller-runtime's registry, which is what the
 	// manager's metrics endpoint already serves. A second listener would mean a

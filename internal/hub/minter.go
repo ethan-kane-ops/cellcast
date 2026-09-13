@@ -17,6 +17,12 @@ import (
 // capacity index for every case.
 type Placer interface {
 	Place(ctx context.Context, id *identity.Identity, req placement.Request) (*placement.Decision, error)
+
+	// Remember records the cell a decision chose, so the next placement of the
+	// same workload can keep it there. Called once a credential has been
+	// minted and never for a dry run. An error is logged, and never fails the
+	// placement it describes.
+	Remember(ctx context.Context, d *placement.Decision) error
 }
 
 // WithPlacer supplies the placement engine.

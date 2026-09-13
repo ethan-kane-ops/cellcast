@@ -63,6 +63,10 @@ type Placement struct {
 	// decision that did not come from the hub carries its own value here; see
 	// the confidence constants.
 	Confidence string `json:"confidence,omitempty"`
+	// PreviousCell is where the hub last placed this workload under the same
+	// policy: the same as Cell when it kept it there, different when it moved
+	// it, and empty when the hub remembered nothing.
+	PreviousCell string `json:"previousCell,omitempty"`
 	// DecidedFor is the subject the hub resolved the caller to.
 	DecidedFor   string      `json:"decidedFor,omitempty"`
 	TargetedDark bool        `json:"targetedDark"`

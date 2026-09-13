@@ -57,6 +57,10 @@ const (
 	StageState      = "state"
 	StageCapacity   = "capacity"
 	StageScore      = "score"
+
+	// StageStickiness refuses nothing. It is how the explain table marks a
+	// chosen cell that was kept because the workload was placed there last.
+	StageStickiness = "stickiness"
 )
 
 // Request is what a caller asked for.
@@ -65,8 +69,11 @@ const (
 // strategy: a caller that can pick either can steer itself into the cell it
 // wants, which is the whole attack this package exists to prevent.
 type Request struct {
-	// Workload names what is being deployed. It appears in the trace and in
-	// audit records and does not affect the decision.
+	// Workload names what is being deployed. With the policy, it is the key a
+	// placement is remembered under, so that a deploy can stay in the cell the
+	// last one went to. That only ever chooses among cells that passed the
+	// filter: a caller naming a workload remembered elsewhere reaches nothing
+	// its policy does not already permit.
 	Workload string
 
 	// TargetDark asks for a dark cell, for a QA smoke test against a cell
@@ -111,6 +118,18 @@ type Decision struct {
 	TokenTTL *cellcastv1alpha1.TokenTTLPolicy
 	// Candidates is every registered cell with its verdict, ordered by name.
 	Candidates []Candidate
+	// Previous is the cell the workload was last placed in under this policy.
+	// Empty when nothing was remembered, which includes every request under a
+	// policy whose stickiness is None and every dark-targeted request.
+	Previous string
+
+	// memo is what Remember writes back, nil when there is nothing to write.
+	memo *memo
+}
+
+// Kept reports whether the workload stayed in the cell it was last placed in.
+func (d *Decision) Kept() bool {
+	return d.Previous != "" && d.Previous == d.Cell
 }
 
 // Confidence levels a decision can carry.
@@ -170,6 +189,19 @@ type Engine struct {
 	// hub is therefore approximate, which is the correct trade for a hint.
 	mu      sync.Mutex
 	cursors map[string]uint64
+
+	// memory is where each workload was last placed. Nil places every request
+	// afresh, whatever a policy's stickiness says.
+	memory *Memory
+}
+
+// Option configures an Engine.
+type Option func(*Engine)
+
+// WithMemory keeps a workload in the cell it was last placed in, under every
+// policy whose stickiness is Preferred.
+func WithMemory(m *Memory) Option {
+	return func(e *Engine) { e.memory = m }
 }
 
 // NewEngine builds a placement engine.
@@ -178,14 +210,33 @@ type Engine struct {
 // every request fails with ErrCapacityUnknown. That is the fail-closed
 // behaviour: a hub with no capacity view must not fall back to picking
 // arbitrarily.
-func NewEngine(reader client.Reader, index *capacity.Registry, namespace string, log *slog.Logger) *Engine {
-	return &Engine{
+func NewEngine(reader client.Reader, index *capacity.Registry, namespace string, log *slog.Logger, opts ...Option) *Engine {
+	e := &Engine{
 		reader:   reader,
 		capacity: index,
 		ns:       namespace,
 		log:      log,
 		cursors:  make(map[string]uint64),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// Remember records the cell a decision chose, so that the next placement of the
+// same workload under the same policy can keep it there.
+//
+// The hub calls it once a credential has been minted: after, so that a cell
+// which could not issue one is not where the workload is kept, and never for a
+// dry run, which changes nothing. Nothing is written when there is nothing to
+// remember, or when the record already names the same cell and is under an
+// hour old.
+//
+// An error is for the log. Placement is advisory, and the whole cost of a write
+// that failed is that the next placement is decided afresh.
+func (e *Engine) Remember(ctx context.Context, d *Decision) error {
+	return e.memory.remember(ctx, d)
 }
 
 // Place resolves a caller and a request to a cell.
@@ -238,10 +289,56 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 		}
 	}
 
+	// Stickiness runs in place of the score, over the same survivors. A
+	// remembered cell is chosen only from among cells the caller could have been
+	// given anyway, so memory steers between permitted, eligible cells and never
+	// past the filter.
+	if decision.Cell = e.keep(ctx, policy, req, decision, admitted); decision.Cell != "" {
+		return decision, nil
+	}
+
 	_, span := startSpan(ctx, "score")
 	decision.Cell = e.score(policy, decision.Strategy, admitted)
 	span.End()
 	return decision, nil
+}
+
+// keep returns the cell the workload was last placed in when that cell is
+// admitted, and records on d what Remember needs whether or not it is.
+func (e *Engine) keep(ctx context.Context, policy *cellcastv1alpha1.PlacementPolicy, req Request, d *Decision, admitted []Candidate) string {
+	// A dark request is a smoke test. Remembering it would make the next real
+	// deploy forget where the workload lives, because a dark cell is never
+	// eligible for that deploy.
+	if e.memory == nil || req.TargetDark || req.Workload == "" || stickinessOf(policy) == cellcastv1alpha1.StickinessNone {
+		return ""
+	}
+
+	ctx, span := startSpan(ctx, "recall")
+	defer span.End()
+
+	rec := e.memory.recall(ctx, policy.Name, req.Workload)
+	d.memo = &memo{workload: req.Workload, policyUID: policy.UID, record: rec}
+	if rec == nil || !e.memory.live(rec) {
+		return ""
+	}
+
+	d.Previous = rec.Spec.Cell
+	for _, c := range admitted {
+		if c.Cell == d.Previous {
+			return c.Cell
+		}
+	}
+	return ""
+}
+
+// stickinessOf resolves an unset stickiness to Preferred, which is what the CRD
+// defaults it to, so a policy written by a client that skipped defaulting
+// behaves like one that did not.
+func stickinessOf(policy *cellcastv1alpha1.PlacementPolicy) cellcastv1alpha1.StickinessMode {
+	if policy.Spec.Stickiness == nil || policy.Spec.Stickiness.Mode == "" {
+		return cellcastv1alpha1.StickinessPreferred
+	}
+	return policy.Spec.Stickiness.Mode
 }
 
 // policyFor selects the policy that governs this caller.

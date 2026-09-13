@@ -41,6 +41,8 @@ func (steadyPlacer) Place(context.Context, *identity.Identity, placement.Request
 	return testDecision(), nil
 }
 
+func (steadyPlacer) Remember(context.Context, *placement.Decision) error { return nil }
+
 // replica is one hub process: its two listeners and the context that ends it.
 type replica struct {
 	apiAddr   string

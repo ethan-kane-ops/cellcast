@@ -45,19 +45,20 @@ metrics over OTLP, configured from the charts, and reach a Datadog agent without
 binary that mints credentials. A span carries only what the audit record's classification allows, so
 a trace backend receives no token material.
 
+**Stickiness.** A workload stays in the cell it was last placed in while that cell is still
+permitted, eligible and reporting, so two deploys of one service minutes apart no longer land in
+different cells as utilisation shifts. The record is a `WorkloadPlacement` in the hub's namespace and
+survives the hub's own rolling update. The explain table says when a cell was kept, and the client
+says when a workload moved.
+
 ## Next
 
-What a fleet that has been running for a while needs next: placements that stay where they are, a
-schema that stops moving, and less stored trust.
-
-**Keeping a workload where it already is.** Nothing in the engine knows where a workload ran last
-time, so two deploys minutes apart can land in different cells as utilisation shifts, splitting a
-service across two cells with nobody having decided that. A placement should prefer the cell a
-workload is already in, and say so in the explain table when it does not.
+What a fleet that has been running for a while needs next: a schema that stops moving, and less
+stored trust.
 
 **A stable API.** Every resource is `v1alpha1`, which says the schema may change without notice.
-Graduating it comes after stickiness, which adds a field, and comes with a test that upgrades a
-running fleet from the previous release rather than installing onto an empty cluster.
+Graduating it comes with a test that upgrades a running fleet from the previous release rather than
+installing onto an empty cluster.
 
 **A second trust provider.** The broker interface exists and Kubernetes `TokenRequest` is its only
 implementation, so nothing has tested whether it is an interface or a description of that one case.

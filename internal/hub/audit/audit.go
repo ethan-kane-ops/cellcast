@@ -114,6 +114,10 @@ type Record struct {
 	// Cell is the chosen cell, empty when the request was refused before one
 	// was chosen.
 	Cell string
+	// PreviousCell is where the workload was last placed under the same policy,
+	// empty when nothing was remembered. Equal to Cell when the placement kept
+	// it there, and the only record of a move when it did not.
+	PreviousCell string
 	// Policy is the PlacementPolicy that governed the decision. Present on a
 	// refusal too whenever a policy matched and then permitted nothing, which
 	// is the case an operator most often has to debug.
@@ -238,6 +242,7 @@ func (r Record) attrs() []slog.Attr {
 	}
 	attrs = appendNonEmpty(attrs,
 		"cell", r.Cell,
+		"previous_cell", r.PreviousCell,
 		"policy", r.Policy,
 		"strategy", r.Strategy,
 		"confidence", r.Confidence,

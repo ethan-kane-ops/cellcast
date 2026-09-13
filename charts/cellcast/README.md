@@ -67,6 +67,8 @@ API. Reaching it is a NetworkPolicy decision: `networkPolicy.enabled`.
 | hub.tokenMaxTTL | string | `"1h"` | Absolute ceiling on minted credential lifetime. No policy and no request may exceed it. The Kubernetes TokenRequest API applies no maximum of its own unless the operator configured one, so this is the bound that is certain to exist. |
 | hub.rateLimit.placementsPerSecond | int | `5` | Placements a second one caller may make, per hub replica. With N replicas a caller gets N times this. 0 turns the limit off. |
 | hub.rateLimit.burst | int | `50` | Placements one caller may make at once before the rate applies. Sized for a matrix build, which deploys every leg under one caller identity. |
+| hub.stickiness.expireAfter | string | `"2160h"` | How long the hub remembers where a workload was placed, if it is not placed again. It bounds storage and never moves a workload that is still deploying. At least 24h. |
+| hub.stickiness.maxPerPolicy | int | `10000` | Most workloads one PlacementPolicy may have remembered. Past it, new workloads are placed and not remembered, and existing records are kept. |
 | hub.capacity.staleness | string | `"90s"` | How long an agent report stays usable. Past it the cell is Unknown and excluded from scoring rather than read as empty. |
 | hub.capacity.retention | string | `"1h"` | How long an Unknown entry is kept before being dropped, which is what keeps "went quiet" distinguishable from "was never here". |
 | hub.capacity.maxCells | int | `1000` | Bound on the in-memory capacity index. |
