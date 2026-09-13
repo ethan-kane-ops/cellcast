@@ -12,7 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // maxStateChangeBytes bounds a state change payload. The body is one short
@@ -24,11 +24,11 @@ type stateChange struct {
 	State string `json:"state"`
 }
 
-func (sc *stateChange) validate() (cellcastv1alpha1.ClusterState, error) {
-	switch state := cellcastv1alpha1.ClusterState(sc.State); state {
-	case cellcastv1alpha1.ClusterStateLive,
-		cellcastv1alpha1.ClusterStateDark,
-		cellcastv1alpha1.ClusterStateDraining:
+func (sc *stateChange) validate() (cellcastv1beta1.ClusterState, error) {
+	switch state := cellcastv1beta1.ClusterState(sc.State); state {
+	case cellcastv1beta1.ClusterStateLive,
+		cellcastv1beta1.ClusterStateDark,
+		cellcastv1beta1.ClusterStateDraining:
 		return state, nil
 	case "":
 		// An omitted state is not read as "reset to the default". Draining a
@@ -71,7 +71,7 @@ func (s *Server) handleSetClusterState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: s.cfg.Namespace, Name: name}
 	if err := s.k8s.Get(r.Context(), key, &cl); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -113,7 +113,7 @@ func (s *Server) handleSetClusterState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newClusterResponse(&cl))
 }
 
-func decodeStateChange(w http.ResponseWriter, r *http.Request) (cellcastv1alpha1.ClusterState, error) {
+func decodeStateChange(w http.ResponseWriter, r *http.Request) (cellcastv1beta1.ClusterState, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxStateChangeBytes))
 	if err != nil {
 		return "", fmt.Errorf("reading request body: %w", err)

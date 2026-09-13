@@ -112,6 +112,7 @@ on that split, so a client never has to match on prose to find it.
 | [ADR-010](#adr-010-the-audit-trail-is-structured-stdout-and-cannot-be-levelled-off) | Audit trail | Structured JSON on stdout, unlevelled, plus a lossy Events view | A database, a bespoke sink, a retention policy of our own |
 | [ADR-011](#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) | High availability | Every replica answers placements; a lease covers only the reconcilers | Leader-only serving, an active-standby pair, sharing capacity between replicas |
 | [ADR-012](#adr-012-a-workload-stays-where-it-was-placed-and-the-record-lives-in-the-api-server) | Stickiness | The last cell per policy and workload, kept in a `WorkloadPlacement` and preferred while it stays eligible | Per-replica memory, a caller naming its previous cell, asking the spokes |
+| [ADR-013](#adr-013-the-api-graduates-to-v1beta1-and-v1alpha1-stays-served-with-the-same-schema) | API version | `v1beta1` served and stored; `v1alpha1` served beside it with the same schema, conversion `None` | A conversion webhook, going straight to `v1`, dropping `v1alpha1` at once |
 
 ---
 
@@ -650,6 +651,57 @@ namespace's workloads in every cell and rely on a labelling convention nobody ha
 widens the largest attack surface in the system (ADR-007) to answer a question the hub can answer
 from its own decisions.
 
+### ADR-013: the API graduates to v1beta1, and v1alpha1 stays served with the same schema
+
+**Status:** accepted
+
+**Context.** Every resource was `v1alpha1`, which tells a reader the schema may change without
+notice, and nothing tested an upgrade: the chart install test starts from an empty cluster. An
+adopter's second install is an upgrade, and it is where a renamed field, a changed default or a CRD
+the chart cannot patch in place shows up.
+
+**Decision.** Every resource is served at `v1beta1`, which is also the storage version, and the hub
+reads and writes only `v1beta1`. `v1alpha1` stays served with an identical schema and a deprecation
+warning, so manifests and GitOps repositories written against it keep applying. The API server
+converts between the two with strategy `None`.
+
+**`None` is sound only while the schemas match.** It converts by rewriting `apiVersion`, then prunes
+whatever the requested version does not declare. A field present in `v1beta1` and absent from
+`v1alpha1` would vanish from every object a `v1alpha1` client reads, and be lost when that client
+wrote the object back, with no validation error to say so. So `api/v1alpha1` mirrors `api/v1beta1`
+field for field, and `TestServedVersionsShareOneSchema` fails the gate when a schema, a subresource
+or a printer column differs. A field that has to differ needs a conversion webhook, and that is a new
+decision with its own record.
+
+**Removing the old version has a procedure.** Objects written before the upgrade stay stored at
+`v1alpha1` until something rewrites them, and each CRD's `status.storedVersions` records that. A
+release that stops serving `v1alpha1` needs every object rewritten and `v1alpha1` trimmed from
+`storedVersions` first, or the objects still stored at it stop decoding. [Upgrading](upgrading.md)
+gives the commands.
+
+**Consequences.** An upgrade touches no object. The chart templates its CRDs (Deployment, below), so
+`helm upgrade` moves the storage version in place, and replicas from the previous release keep
+working through the rolling update because `v1alpha1` is still served. Until `v1alpha1` is removed,
+every schema change is made in both packages, and the test catches the one that was forgotten.
+
+`just verify-upgrade` installs the newest release from GHCR, builds a fleet on it at `v1alpha1`,
+upgrades to the current tree with the same values, and checks that every object keeps its UID and
+every field and that placement answers the same before and after. It then runs the migration and
+removes `v1alpha1` from the live cluster, which fails if any object was left behind.
+
+**Rejected: a conversion webhook now.** Nothing differs between the versions, so it would convert
+nothing, and it is a server the API server calls on every read and write of every cellcast object.
+While it is down nobody can read or edit a `Cluster`, including to drain a cell during the incident
+that took it down.
+
+**Rejected: going straight to `v1`.** `v1` promises the schema will not change incompatibly, and the
+second trust provider and federation to spokes on the roadmap both add to `TrustConfig`. `v1beta1`
+makes the narrower promise: the shape is settled and upgrades are tested.
+
+**Rejected: dropping `v1alpha1` in the same release.** Every manifest in every adopter's repository
+names it, and every existing object is stored at it. Removing it now would fail every `kubectl apply`
+of an existing manifest.
+
 ### Deployment
 
 Two charts, not one: `charts/cellcast` installs the hub into the hub cluster and
@@ -666,8 +718,8 @@ uninstalling the hub does not delete the registry with it.
 
 ## Data model
 
-Four custom resources, all `v1alpha1`, versioned from the start so a `v1beta1` is additive rather
-than breaking.
+Four custom resources, served at `v1beta1`, which is also the version stored. `v1alpha1` is served
+beside it with the same schema and a deprecation warning (ADR-013).
 
 **`Cluster`** is the durable registry entry: endpoint, CA bundle, provider (`eks`, `gke`, `aks`,
 `generic`), a reference to trust configuration, the identity permitted to report capacity for the

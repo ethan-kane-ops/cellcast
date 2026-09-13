@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
@@ -98,7 +98,7 @@ func heartbeats(t *testing.T, util map[string]float64) *capacity.Registry {
 }
 
 // seedTwoCells registers two cells and a policy permitting both.
-func seedTwoCells(t *testing.T, c client.Client, ns string) *cellcastv1alpha1.PlacementPolicy {
+func seedTwoCells(t *testing.T, c client.Client, ns string) *cellcastv1beta1.PlacementPolicy {
 	t.Helper()
 	ctx := context.Background()
 
@@ -109,10 +109,10 @@ func seedTwoCells(t *testing.T, c client.Client, ns string) *cellcastv1alpha1.Pl
 			t.Fatalf("creating %s: %v", name, err)
 		}
 	}
-	pol := &cellcastv1alpha1.PlacementPolicy{
+	pol := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "checkout", Namespace: ns},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{
 				Issuer: envtestIssuer,
 				Claims: map[string]string{"repository": "acme/checkout"},
 			}},
@@ -162,7 +162,7 @@ func TestAWorkloadStaysInItsCellAcrossAHubRestart(t *testing.T) {
 
 	// What survived is an object in the API server, owned by the policy it was
 	// placed under so that deleting the policy deletes it.
-	var recs cellcastv1alpha1.WorkloadPlacementList
+	var recs cellcastv1beta1.WorkloadPlacementList
 	if err := c.List(ctx, &recs, client.InNamespace(ns)); err != nil {
 		t.Fatalf("listing workload placements: %v", err)
 	}
@@ -186,24 +186,24 @@ func TestAPolicyDeclaresItsStickiness(t *testing.T) {
 	ns := newNamespace(t, c)
 	ctx := context.Background()
 
-	pol := &cellcastv1alpha1.PlacementPolicy{
+	pol := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "defaulted", Namespace: ns},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{Issuer: envtestIssuer}},
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{Issuer: envtestIssuer}},
 		},
 	}
 	if err := c.Create(ctx, pol); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if pol.Spec.Stickiness == nil || pol.Spec.Stickiness.Mode != cellcastv1alpha1.StickinessPreferred {
+	if pol.Spec.Stickiness == nil || pol.Spec.Stickiness.Mode != cellcastv1beta1.StickinessPreferred {
 		t.Errorf("stickiness = %+v, want mode Preferred filled in by the API server", pol.Spec.Stickiness)
 	}
 
-	bad := &cellcastv1alpha1.PlacementPolicy{
+	bad := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "bad-mode", Namespace: ns},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects:   []cellcastv1alpha1.SubjectSelector{{Issuer: envtestIssuer}},
-			Stickiness: &cellcastv1alpha1.Stickiness{Mode: "Always"},
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects:   []cellcastv1beta1.SubjectSelector{{Issuer: envtestIssuer}},
+			Stickiness: &cellcastv1beta1.Stickiness{Mode: "Always"},
 		},
 	}
 	err := c.Create(ctx, bad)
@@ -224,9 +224,9 @@ func TestAWorkloadPlacementCanBeMovedAndNotRekeyed(t *testing.T) {
 	ns := newNamespace(t, c)
 	ctx := context.Background()
 
-	wp := &cellcastv1alpha1.WorkloadPlacement{
+	wp := &cellcastv1beta1.WorkloadPlacement{
 		ObjectMeta: metav1.ObjectMeta{Name: "wp-rekey", Namespace: ns},
-		Spec: cellcastv1alpha1.WorkloadPlacementSpec{
+		Spec: cellcastv1beta1.WorkloadPlacementSpec{
 			Policy:       "checkout",
 			Workload:     "checkout-api",
 			Cell:         "c-a",
@@ -242,11 +242,11 @@ func TestAWorkloadPlacementCanBeMovedAndNotRekeyed(t *testing.T) {
 		t.Fatalf("moving the workload to c-b: %v", err)
 	}
 
-	for field, edit := range map[string]func(*cellcastv1alpha1.WorkloadPlacement){
-		"policy":   func(w *cellcastv1alpha1.WorkloadPlacement) { w.Spec.Policy = "payments" },
-		"workload": func(w *cellcastv1alpha1.WorkloadPlacement) { w.Spec.Workload = "payments-api" },
+	for field, edit := range map[string]func(*cellcastv1beta1.WorkloadPlacement){
+		"policy":   func(w *cellcastv1beta1.WorkloadPlacement) { w.Spec.Policy = "payments" },
+		"workload": func(w *cellcastv1beta1.WorkloadPlacement) { w.Spec.Workload = "payments-api" },
 	} {
-		var current cellcastv1alpha1.WorkloadPlacement
+		var current cellcastv1beta1.WorkloadPlacement
 		if err := c.Get(ctx, client.ObjectKeyFromObject(wp), &current); err != nil {
 			t.Fatalf("get: %v", err)
 		}

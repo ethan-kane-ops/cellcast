@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -132,7 +132,7 @@ type TrustConfigStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=cctrust
-// +kubebuilder:deprecatedversion:warning="cellcast.io/v1alpha1 is deprecated; use cellcast.io/v1beta1"
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=`.spec.provider`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Detail",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`

@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,7 +41,7 @@ type WorkloadPlacementSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=ccwp
-// +kubebuilder:deprecatedversion:warning="cellcast.io/v1alpha1 is deprecated; use cellcast.io/v1beta1"
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="Policy",type=string,JSONPath=`.spec.policy`
 // +kubebuilder:printcolumn:name="Workload",type=string,JSONPath=`.spec.workload`
 // +kubebuilder:printcolumn:name="Cell",type=string,JSONPath=`.spec.cell`

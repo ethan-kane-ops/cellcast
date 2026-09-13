@@ -8,7 +8,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
@@ -34,7 +34,7 @@ type WarmupCheck func(ctx context.Context) (warm bool, missing []string)
 // excluded the other five as Unknown.
 func FleetCoverage(reader client.Reader, index *capacity.Registry, namespace string) WarmupCheck {
 	return func(ctx context.Context) (bool, []string) {
-		var list cellcastv1alpha1.ClusterList
+		var list cellcastv1beta1.ClusterList
 		if err := reader.List(ctx, &list, client.InNamespace(namespace)); err != nil {
 			// A replica that cannot read the registry cannot know what it is
 			// missing, which is not the same as missing nothing.
@@ -58,7 +58,7 @@ func FleetCoverage(reader client.Reader, index *capacity.Registry, namespace str
 }
 
 // expectedToReport reports whether a cell's silence should hold up readiness.
-func expectedToReport(cluster *cellcastv1alpha1.Cluster) bool {
+func expectedToReport(cluster *cellcastv1beta1.Cluster) bool {
 	// A cell with no declared reporter accepts no heartbeats at all, so waiting
 	// for one is waiting for something the hub itself refuses (ADR-009).
 	if cluster.Spec.Reporter == nil {
@@ -68,7 +68,7 @@ func expectedToReport(cluster *cellcastv1alpha1.Cluster) bool {
 	// decision. Holding up a hub rollout for a cell an operator is
 	// emptied is the wrong way round: draining a cell is the moment you most
 	// want the hub healthy.
-	return cluster.Spec.State != cellcastv1alpha1.ClusterStateDraining
+	return cluster.Spec.State != cellcastv1beta1.ClusterStateDraining
 }
 
 // trackWarmth polls until the capacity index covers the fleet, then latches.

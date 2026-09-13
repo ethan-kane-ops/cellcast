@@ -20,7 +20,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
@@ -262,10 +262,10 @@ func registryClient(t *testing.T, kubeconfig string) client.Client {
 func seedAgentFleet(t *testing.T, k8s client.Client, fleet []liveCell) {
 	t.Helper()
 
-	objs := []client.Object{&cellcastv1alpha1.PlacementPolicy{
+	objs := []client.Object{&cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "fleet-deployer", Namespace: testNamespace},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{
 				Issuer: fleet[0].Issuer,
 				// Pinned to the deploying account. Without this the policy
 				// would also cover the agent, which authenticates through the
@@ -273,25 +273,25 @@ func seedAgentFleet(t *testing.T, k8s client.Client, fleet []liveCell) {
 				Subject: "system:serviceaccount:apps:deployer",
 			}},
 			PermittedCells: metav1.LabelSelector{MatchLabels: map[string]string{"fleet": "verify"}},
-			Strategy:       cellcastv1alpha1.ScoringLeastLoaded,
+			Strategy:       cellcastv1beta1.ScoringLeastLoaded,
 		},
 	}}
 
 	for _, cell := range fleet {
-		objs = append(objs, &cellcastv1alpha1.Cluster{
+		objs = append(objs, &cellcastv1beta1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: cell.Name, Namespace: testNamespace,
 				Labels: map[string]string{"fleet": "verify"},
 			},
-			Spec: cellcastv1alpha1.ClusterSpec{
+			Spec: cellcastv1beta1.ClusterSpec{
 				Endpoint:       "https://" + cell.Name + ".invalid",
-				Provider:       cellcastv1alpha1.ProviderGeneric,
-				TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "unused-in-dry-run"},
-				Reporter: &cellcastv1alpha1.ReporterIdentity{
+				Provider:       cellcastv1beta1.ProviderGeneric,
+				TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "unused-in-dry-run"},
+				Reporter: &cellcastv1beta1.ReporterIdentity{
 					Issuer:  cell.Issuer,
 					Subject: agentSubject,
 				},
-				State: cellcastv1alpha1.ClusterStateLive,
+				State: cellcastv1beta1.ClusterStateLive,
 			},
 		})
 	}

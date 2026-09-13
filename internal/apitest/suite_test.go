@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
 )
 
@@ -224,13 +224,13 @@ func asConditions(in []apiextensionsv1.CustomResourceDefinitionCondition) []meta
 
 // validCluster is the smallest Cluster the schema accepts. Tests mutate a copy
 // to isolate the one field under test.
-func validCluster(ns, name string) *cellcastv1alpha1.Cluster {
-	return &cellcastv1alpha1.Cluster{
+func validCluster(ns, name string) *cellcastv1beta1.Cluster {
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint: "https://cell.example.internal:6443",
-			Provider: cellcastv1alpha1.ProviderGeneric,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{
+			Provider: cellcastv1beta1.ProviderGeneric,
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{
 				Name: "shared-trust",
 			},
 		},

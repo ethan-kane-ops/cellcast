@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
@@ -52,15 +52,15 @@ type stubMinter struct {
 	err         error
 	gotTTL      time.Duration
 	gotSubject  string
-	gotPolicy   *cellcastv1alpha1.TokenTTLPolicy
+	gotPolicy   *cellcastv1beta1.TokenTTLPolicy
 	resolution  broker.Resolution
 	calledTimes int
 }
 
 func (m *stubMinter) Mint(
 	_ context.Context,
-	cluster *cellcastv1alpha1.Cluster,
-	ttlPolicy *cellcastv1alpha1.TokenTTLPolicy,
+	cluster *cellcastv1beta1.Cluster,
+	ttlPolicy *cellcastv1beta1.TokenTTLPolicy,
 	requested time.Duration,
 	subject string,
 ) (*broker.Credential, broker.Resolution, error) {
@@ -122,7 +122,7 @@ func testDecision() *placement.Decision {
 	return &placement.Decision{
 		Cell:     "prod-euw1",
 		Policy:   "app-prod",
-		Strategy: cellcastv1alpha1.ScoringLeastLoaded,
+		Strategy: cellcastv1beta1.ScoringLeastLoaded,
 		Candidates: []placement.Candidate{
 			{Cell: "dev-euw1", Stage: placement.StagePermission, Reason: "cell is not permitted by this caller's policy"},
 			{Cell: "prod-euw1", Admitted: true, Utilisation: 0.42},
@@ -131,13 +131,13 @@ func testDecision() *placement.Decision {
 	}
 }
 
-func registeredCell(name string) *cellcastv1alpha1.Cluster {
-	return &cellcastv1alpha1.Cluster{
+func registeredCell(name string) *cellcastv1beta1.Cluster {
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Labels: map[string]string{"env": "prod"}},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       "https://" + name + ".example.test",
-			Provider:       cellcastv1alpha1.ProviderEKS,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "trust"},
+			Provider:       cellcastv1beta1.ProviderEKS,
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "trust"},
 		},
 	}
 }
@@ -378,7 +378,7 @@ func TestMintFailureTellsTheCallerNothingUseful(t *testing.T) {
 // authorised the placement.
 func TestPlacementPassesThePolicyTTLToTheBroker(t *testing.T) {
 	decision := testDecision()
-	decision.TokenTTL = &cellcastv1alpha1.TokenTTLPolicy{
+	decision.TokenTTL = &cellcastv1beta1.TokenTTLPolicy{
 		Max: &metav1.Duration{Duration: 20 * time.Minute},
 	}
 

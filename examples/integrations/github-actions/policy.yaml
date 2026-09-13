@@ -16,7 +16,7 @@
 # the prefix rather than assuming it:
 #
 #   gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: github-actions-checkout

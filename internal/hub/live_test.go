@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
@@ -153,9 +153,9 @@ func TestLiveEndToEnd(t *testing.T) {
 	})
 
 	t.Run("draining the chosen cell moves the next placement", func(t *testing.T) {
-		setState(t.Context(), t, k8s, "prod-euw1", cellcastv1alpha1.ClusterStateDraining)
+		setState(t.Context(), t, k8s, "prod-euw1", cellcastv1beta1.ClusterStateDraining)
 		t.Cleanup(func() {
-			setState(context.Background(), t, k8s, "prod-euw1", cellcastv1alpha1.ClusterStateLive)
+			setState(context.Background(), t, k8s, "prod-euw1", cellcastv1beta1.ClusterStateLive)
 		})
 
 		out := runCLI(t, addr, "--workload", "checkout-api", "--dry-run", "--explain")
@@ -268,27 +268,27 @@ func kubectl(t *testing.T, kubeconfig string, args ...string) string {
 func seedFleet(t *testing.T, k8s client.Client, endpoint string, ca []byte) {
 	t.Helper()
 
-	trust := &cellcastv1alpha1.TrustConfig{
+	trust := &cellcastv1beta1.TrustConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "cell-trust", Namespace: testNamespace},
-		Spec: cellcastv1alpha1.TrustConfigSpec{
-			Provider:         cellcastv1alpha1.TrustProviderKubernetes,
-			CredentialSource: cellcastv1alpha1.CredentialSource{InCluster: true},
-			Kubernetes: &cellcastv1alpha1.KubernetesTrust{
+		Spec: cellcastv1beta1.TrustConfigSpec{
+			Provider:         cellcastv1beta1.TrustProviderKubernetes,
+			CredentialSource: cellcastv1beta1.CredentialSource{InCluster: true},
+			Kubernetes: &cellcastv1beta1.KubernetesTrust{
 				ServiceAccountName: "deployer",
 				Namespace:          "apps",
 			},
 		},
 	}
 
-	policy := &cellcastv1alpha1.PlacementPolicy{
+	policy := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "checkout-prod", Namespace: testNamespace},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{
 				Issuer: "https://token.actions.githubusercontent.com",
 				Claims: map[string]string{"repository": "acme/checkout"},
 			}},
 			PermittedCells: metav1.LabelSelector{MatchLabels: map[string]string{"env": "prod"}},
-			Strategy:       cellcastv1alpha1.ScoringLeastLoaded,
+			Strategy:       cellcastv1beta1.ScoringLeastLoaded,
 		},
 	}
 
@@ -296,17 +296,17 @@ func seedFleet(t *testing.T, k8s client.Client, endpoint string, ca []byte) {
 	for _, spec := range []struct{ name, env string }{
 		{"prod-euw1", "prod"}, {"prod-euw2", "prod"}, {"dev-euw1", "dev"},
 	} {
-		objs = append(objs, &cellcastv1alpha1.Cluster{
+		objs = append(objs, &cellcastv1beta1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: spec.name, Namespace: testNamespace,
 				Labels: map[string]string{"env": spec.env},
 			},
-			Spec: cellcastv1alpha1.ClusterSpec{
+			Spec: cellcastv1beta1.ClusterSpec{
 				Endpoint:       endpoint,
 				CABundle:       ca,
-				Provider:       cellcastv1alpha1.ProviderGeneric,
-				TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "cell-trust"},
-				State:          cellcastv1alpha1.ClusterStateLive,
+				Provider:       cellcastv1beta1.ProviderGeneric,
+				TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "cell-trust"},
+				State:          cellcastv1beta1.ClusterStateLive,
 			},
 		})
 	}
@@ -323,10 +323,10 @@ func seedFleet(t *testing.T, k8s client.Client, endpoint string, ca []byte) {
 
 // setState takes a context rather than using t.Context, because it also runs
 // from t.Cleanup, by which point the test's own context is already cancelled.
-func setState(ctx context.Context, t *testing.T, k8s client.Client, name string, state cellcastv1alpha1.ClusterState) {
+func setState(ctx context.Context, t *testing.T, k8s client.Client, name string, state cellcastv1beta1.ClusterState) {
 	t.Helper()
 
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: testNamespace, Name: name}
 	if err := k8s.Get(ctx, key, &cl); err != nil {
 		t.Fatalf("Get(%s): %v", name, err)

@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
@@ -106,7 +106,7 @@ type Decision struct {
 	// Policy is the PlacementPolicy that governed the decision.
 	Policy string
 	// Strategy is the scoring strategy that policy selected.
-	Strategy cellcastv1alpha1.ScoringStrategy
+	Strategy cellcastv1beta1.ScoringStrategy
 	// TargetedDark is whether the decision was made against dark cells.
 	TargetedDark bool
 	// TokenTTL is the credential lifetime the governing policy declared, nil
@@ -115,7 +115,7 @@ type Decision struct {
 	// Carried on the decision so the broker is bounded by the same policy that
 	// authorised the placement. Looking it up again afterwards would open a
 	// window where the two could disagree.
-	TokenTTL *cellcastv1alpha1.TokenTTLPolicy
+	TokenTTL *cellcastv1beta1.TokenTTLPolicy
 	// Candidates is every registered cell with its verdict, ordered by name.
 	Candidates []Candidate
 	// Previous is the cell the workload was last placed in under this policy.
@@ -305,11 +305,11 @@ func (e *Engine) Place(ctx context.Context, id *identity.Identity, req Request) 
 
 // keep returns the cell the workload was last placed in when that cell is
 // admitted, and records on d what Remember needs whether or not it is.
-func (e *Engine) keep(ctx context.Context, policy *cellcastv1alpha1.PlacementPolicy, req Request, d *Decision, admitted []Candidate) string {
+func (e *Engine) keep(ctx context.Context, policy *cellcastv1beta1.PlacementPolicy, req Request, d *Decision, admitted []Candidate) string {
 	// A dark request is a smoke test. Remembering it would make the next real
 	// deploy forget where the workload lives, because a dark cell is never
 	// eligible for that deploy.
-	if e.memory == nil || req.TargetDark || req.Workload == "" || stickinessOf(policy) == cellcastv1alpha1.StickinessNone {
+	if e.memory == nil || req.TargetDark || req.Workload == "" || stickinessOf(policy) == cellcastv1beta1.StickinessNone {
 		return ""
 	}
 
@@ -334,19 +334,19 @@ func (e *Engine) keep(ctx context.Context, policy *cellcastv1alpha1.PlacementPol
 // stickinessOf resolves an unset stickiness to Preferred, which is what the CRD
 // defaults it to, so a policy written by a client that skipped defaulting
 // behaves like one that did not.
-func stickinessOf(policy *cellcastv1alpha1.PlacementPolicy) cellcastv1alpha1.StickinessMode {
+func stickinessOf(policy *cellcastv1beta1.PlacementPolicy) cellcastv1beta1.StickinessMode {
 	if policy.Spec.Stickiness == nil || policy.Spec.Stickiness.Mode == "" {
-		return cellcastv1alpha1.StickinessPreferred
+		return cellcastv1beta1.StickinessPreferred
 	}
 	return policy.Spec.Stickiness.Mode
 }
 
 // policyFor selects the policy that governs this caller.
-func (e *Engine) policyFor(ctx context.Context, id *identity.Identity) (*cellcastv1alpha1.PlacementPolicy, error) {
+func (e *Engine) policyFor(ctx context.Context, id *identity.Identity) (*cellcastv1beta1.PlacementPolicy, error) {
 	ctx, span := startSpan(ctx, "select policy")
 	defer span.End()
 
-	var policies cellcastv1alpha1.PlacementPolicyList
+	var policies cellcastv1beta1.PlacementPolicyList
 	if err := e.reader.List(ctx, &policies, client.InNamespace(e.ns)); err != nil {
 		return nil, fmt.Errorf("listing placement policies: %w", err)
 	}
@@ -374,7 +374,7 @@ func (e *Engine) policyFor(ctx context.Context, id *identity.Identity) (*cellcas
 
 // candidates runs every registered cell through the filter stages under the
 // policy's selector.
-func (e *Engine) candidates(ctx context.Context, policy *cellcastv1alpha1.PlacementPolicy, wantDark bool) ([]Candidate, error) {
+func (e *Engine) candidates(ctx context.Context, policy *cellcastv1beta1.PlacementPolicy, wantDark bool) ([]Candidate, error) {
 	ctx, span := startSpan(ctx, "filter")
 	defer span.End()
 
@@ -383,7 +383,7 @@ func (e *Engine) candidates(ctx context.Context, policy *cellcastv1alpha1.Placem
 		return nil, fmt.Errorf("policy %s has an invalid permittedCells selector: %w", policy.Name, err)
 	}
 
-	var clusters cellcastv1alpha1.ClusterList
+	var clusters cellcastv1beta1.ClusterList
 	if err := e.reader.List(ctx, &clusters, client.InNamespace(e.ns)); err != nil {
 		return nil, fmt.Errorf("listing clusters: %w", err)
 	}
@@ -403,9 +403,9 @@ func startSpan(ctx context.Context, name string) (context.Context, trace.Span) {
 		Tracer("github.com/ethan-kane-ops/cellcast/internal/hub/placement").Start(ctx, name)
 }
 
-func strategyOf(policy *cellcastv1alpha1.PlacementPolicy) cellcastv1alpha1.ScoringStrategy {
+func strategyOf(policy *cellcastv1beta1.PlacementPolicy) cellcastv1beta1.ScoringStrategy {
 	if policy.Spec.Strategy == "" {
-		return cellcastv1alpha1.ScoringLeastLoaded
+		return cellcastv1beta1.ScoringLeastLoaded
 	}
 	return policy.Spec.Strategy
 }
@@ -417,7 +417,7 @@ func strategyOf(policy *cellcastv1alpha1.PlacementPolicy) cellcastv1alpha1.Scori
 // a caller can never learn the state or utilisation of a cell it is not
 // permitted to reach.
 func filter(
-	clusters []cellcastv1alpha1.Cluster,
+	clusters []cellcastv1beta1.Cluster,
 	selector labels.Selector,
 	wantDark bool,
 	snapshot map[string]capacity.Entry,
@@ -487,11 +487,11 @@ func refusalFor(candidates []Candidate) error {
 //
 // Strategy comes from the policy, never the request. A caller that can choose
 // the strategy can choose the cell.
-func (e *Engine) score(policy *cellcastv1alpha1.PlacementPolicy, strategy cellcastv1alpha1.ScoringStrategy, admitted []Candidate) string {
+func (e *Engine) score(policy *cellcastv1beta1.PlacementPolicy, strategy cellcastv1beta1.ScoringStrategy, admitted []Candidate) string {
 	// Admitted is already ordered by cell name, which is what makes both
 	// strategies reproducible: least-loaded breaks ties by name, and
 	// round-robin walks a stable sequence.
-	if strategy == cellcastv1alpha1.ScoringRoundRobin {
+	if strategy == cellcastv1beta1.ScoringRoundRobin {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		n := e.cursors[policy.Name]

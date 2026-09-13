@@ -8,7 +8,7 @@
 # `organization_slug`, `pipeline_slug` and `build_branch` are the claims the
 # hub's buildkite provider extracts. A claim it does not extract cannot be
 # matched here, however clearly it appears in the token (docs/extending.md).
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: buildkite-checkout

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,9 +24,9 @@ var testAgent = identity.Identity{
 }
 
 // reportingCell returns a registered cell whose declared reporter is testAgent.
-func reportingCell(name string) *cellcastv1alpha1.Cluster {
-	cl := clusterFixture(name, 1, cellcastv1alpha1.ClusterStateLive)
-	cl.Spec.Reporter = &cellcastv1alpha1.ReporterIdentity{
+func reportingCell(name string) *cellcastv1beta1.Cluster {
+	cl := clusterFixture(name, 1, cellcastv1beta1.ClusterStateLive)
+	cl.Spec.Reporter = &cellcastv1beta1.ReporterIdentity{
 		Issuer:  testAgent.Issuer,
 		Subject: testAgent.Subject,
 	}
@@ -239,12 +239,12 @@ func TestCapacityConfigRejectsRetentionUnderStaleness(t *testing.T) {
 func TestReportCapacityRequiresTheDeclaredReporter(t *testing.T) {
 	tests := []struct {
 		name     string
-		reporter *cellcastv1alpha1.ReporterIdentity
+		reporter *cellcastv1beta1.ReporterIdentity
 		want     int
 	}{
 		{
 			name:     "the declared reporter is accepted",
-			reporter: &cellcastv1alpha1.ReporterIdentity{Issuer: testAgent.Issuer, Subject: testAgent.Subject},
+			reporter: &cellcastv1beta1.ReporterIdentity{Issuer: testAgent.Issuer, Subject: testAgent.Subject},
 			want:     http.StatusAccepted,
 		},
 		{
@@ -252,7 +252,7 @@ func TestReportCapacityRequiresTheDeclaredReporter(t *testing.T) {
 			// the same ServiceAccount, so this subject is identical fleet-wide
 			// and only the issuer separates one cell's agent from another's.
 			name: "the same subject from another cell's issuer is refused",
-			reporter: &cellcastv1alpha1.ReporterIdentity{
+			reporter: &cellcastv1beta1.ReporterIdentity{
 				Issuer:  "https://oidc.c2.example.test",
 				Subject: testAgent.Subject,
 			},
@@ -260,7 +260,7 @@ func TestReportCapacityRequiresTheDeclaredReporter(t *testing.T) {
 		},
 		{
 			name: "a different subject from the right issuer is refused",
-			reporter: &cellcastv1alpha1.ReporterIdentity{
+			reporter: &cellcastv1beta1.ReporterIdentity{
 				Issuer:  testAgent.Issuer,
 				Subject: "system:serviceaccount:default:someone-else",
 			},
@@ -279,7 +279,7 @@ func TestReportCapacityRequiresTheDeclaredReporter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cell := clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive)
+			cell := clusterFixture("c1", 1, cellcastv1beta1.ClusterStateLive)
 			cell.Spec.Reporter = tt.reporter
 			srv, index, _ := capacityServer(t, cell)
 

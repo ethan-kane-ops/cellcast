@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // NewScheme returns a scheme with the Kubernetes and cellcast types registered.
@@ -21,7 +21,7 @@ func NewScheme() (*runtime.Scheme, error) {
 	if err := clientgoscheme.AddToScheme(s); err != nil {
 		return nil, fmt.Errorf("registering client-go scheme: %w", err)
 	}
-	if err := cellcastv1alpha1.AddToScheme(s); err != nil {
+	if err := cellcastv1beta1.AddToScheme(s); err != nil {
 		return nil, fmt.Errorf("registering cellcast scheme: %w", err)
 	}
 	return s, nil

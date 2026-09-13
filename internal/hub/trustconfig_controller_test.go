@@ -12,16 +12,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
-func trustConfig(name string, mutate func(*cellcastv1alpha1.TrustConfig)) *cellcastv1alpha1.TrustConfig {
-	tc := &cellcastv1alpha1.TrustConfig{
+func trustConfig(name string, mutate func(*cellcastv1beta1.TrustConfig)) *cellcastv1beta1.TrustConfig {
+	tc := &cellcastv1beta1.TrustConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
-		Spec: cellcastv1alpha1.TrustConfigSpec{
-			Provider:         cellcastv1alpha1.TrustProviderKubernetes,
-			CredentialSource: cellcastv1alpha1.CredentialSource{InCluster: true},
-			Kubernetes: &cellcastv1alpha1.KubernetesTrust{
+		Spec: cellcastv1beta1.TrustConfigSpec{
+			Provider:         cellcastv1beta1.TrustProviderKubernetes,
+			CredentialSource: cellcastv1beta1.CredentialSource{InCluster: true},
+			Kubernetes: &cellcastv1beta1.KubernetesTrust{
 				ServiceAccountName: "deployer",
 				Namespace:          "apps",
 			},
@@ -33,7 +33,7 @@ func trustConfig(name string, mutate func(*cellcastv1alpha1.TrustConfig)) *cellc
 	return tc
 }
 
-func reconcileTrust(t *testing.T, objs ...client.Object) (*cellcastv1alpha1.TrustConfig, ctrl.Result, client.Client) {
+func reconcileTrust(t *testing.T, objs ...client.Object) (*cellcastv1beta1.TrustConfig, ctrl.Result, client.Client) {
 	t.Helper()
 
 	scheme, err := NewScheme()
@@ -43,7 +43,7 @@ func reconcileTrust(t *testing.T, objs ...client.Object) (*cellcastv1alpha1.Trus
 	k8s := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithStatusSubresource(&cellcastv1alpha1.TrustConfig{}).
+		WithStatusSubresource(&cellcastv1beta1.TrustConfig{}).
 		Build()
 
 	r := &TrustConfigReconciler{Client: k8s, Secrets: k8s, Namespace: testNamespace}
@@ -54,7 +54,7 @@ func reconcileTrust(t *testing.T, objs ...client.Object) (*cellcastv1alpha1.Trus
 		t.Fatalf("Reconcile() = %v, want nil", err)
 	}
 
-	var got cellcastv1alpha1.TrustConfig
+	var got cellcastv1beta1.TrustConfig
 	if err := k8s.Get(t.Context(), types.NamespacedName{Namespace: testNamespace, Name: "cell-trust"}, &got); err != nil {
 		t.Fatalf("Get() = %v, want the reconciled trust config", err)
 	}
@@ -69,7 +69,7 @@ func TestTrustConfigReadiness(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		trust       *cellcastv1alpha1.TrustConfig
+		trust       *cellcastv1beta1.TrustConfig
 		extra       []client.Object
 		wantStatus  metav1.ConditionStatus
 		wantReason  string
@@ -79,48 +79,48 @@ func TestTrustConfigReadiness(t *testing.T) {
 			name:       "an in-cluster kubernetes config is ready",
 			trust:      trustConfig("cell-trust", nil),
 			wantStatus: metav1.ConditionTrue,
-			wantReason: cellcastv1alpha1.TrustReasonValid,
+			wantReason: cellcastv1beta1.TrustReasonValid,
 		},
 		{
 			name: "a secret reference that resolves is ready",
-			trust: trustConfig("cell-trust", func(tc *cellcastv1alpha1.TrustConfig) {
-				tc.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{
-					SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig", Key: "kubeconfig"},
+			trust: trustConfig("cell-trust", func(tc *cellcastv1beta1.TrustConfig) {
+				tc.Spec.CredentialSource = cellcastv1beta1.CredentialSource{
+					SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig", Key: "kubeconfig"},
 				}
 			}),
 			extra:      []client.Object{kubeconfigSecret},
 			wantStatus: metav1.ConditionTrue,
-			wantReason: cellcastv1alpha1.TrustReasonValid,
+			wantReason: cellcastv1beta1.TrustReasonValid,
 		},
 		{
 			// The whole point of the condition: this is discovered when the
 			// operator applies the config, not by the pipeline that needed it.
 			name: "a secret reference that does not resolve is not ready",
-			trust: trustConfig("cell-trust", func(tc *cellcastv1alpha1.TrustConfig) {
-				tc.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{
-					SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "absent"},
+			trust: trustConfig("cell-trust", func(tc *cellcastv1beta1.TrustConfig) {
+				tc.Spec.CredentialSource = cellcastv1beta1.CredentialSource{
+					SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "absent"},
 				}
 			}),
 			wantStatus:  metav1.ConditionFalse,
-			wantReason:  cellcastv1alpha1.TrustReasonCredentialMissing,
+			wantReason:  cellcastv1beta1.TrustReasonCredentialMissing,
 			wantRequeue: true,
 		},
 		{
 			name: "a provider this build cannot use is called out as such",
-			trust: trustConfig("cell-trust", func(tc *cellcastv1alpha1.TrustConfig) {
-				tc.Spec.Provider = cellcastv1alpha1.TrustProviderAWS
+			trust: trustConfig("cell-trust", func(tc *cellcastv1beta1.TrustConfig) {
+				tc.Spec.Provider = cellcastv1beta1.TrustProviderAWS
 			}),
 			wantStatus:  metav1.ConditionFalse,
-			wantReason:  cellcastv1alpha1.TrustReasonProviderNotImplemented,
+			wantReason:  cellcastv1beta1.TrustReasonProviderNotImplemented,
 			wantRequeue: true,
 		},
 		{
 			name: "an internally inconsistent config is invalid",
-			trust: trustConfig("cell-trust", func(tc *cellcastv1alpha1.TrustConfig) {
+			trust: trustConfig("cell-trust", func(tc *cellcastv1beta1.TrustConfig) {
 				tc.Spec.Kubernetes = nil
 			}),
 			wantStatus:  metav1.ConditionFalse,
-			wantReason:  cellcastv1alpha1.TrustReasonInvalidConfiguration,
+			wantReason:  cellcastv1beta1.TrustReasonInvalidConfiguration,
 			wantRequeue: true,
 		},
 	}
@@ -130,7 +130,7 @@ func TestTrustConfigReadiness(t *testing.T) {
 			objs := append([]client.Object{tt.trust}, tt.extra...)
 			got, res, _ := reconcileTrust(t, objs...)
 
-			cond := meta.FindStatusCondition(got.Status.Conditions, cellcastv1alpha1.TrustConfigConditionReady)
+			cond := meta.FindStatusCondition(got.Status.Conditions, cellcastv1beta1.TrustConfigConditionReady)
 			if cond == nil {
 				t.Fatal("no Ready condition was published")
 			}
@@ -155,14 +155,14 @@ func TestTrustConfigReadiness(t *testing.T) {
 // must still see the condition clear without editing the TrustConfig to prompt
 // a reconcile.
 func TestTrustConfigRecoversWhenTheSecretAppears(t *testing.T) {
-	trust := trustConfig("cell-trust", func(tc *cellcastv1alpha1.TrustConfig) {
-		tc.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{
-			SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig"},
+	trust := trustConfig("cell-trust", func(tc *cellcastv1beta1.TrustConfig) {
+		tc.Spec.CredentialSource = cellcastv1beta1.CredentialSource{
+			SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig"},
 		}
 	})
 
 	got, res, k8s := reconcileTrust(t, trust)
-	if meta.IsStatusConditionTrue(got.Status.Conditions, cellcastv1alpha1.TrustConfigConditionReady) {
+	if meta.IsStatusConditionTrue(got.Status.Conditions, cellcastv1beta1.TrustConfigConditionReady) {
 		t.Fatal("Ready is True with no secret present")
 	}
 	if res.RequeueAfter != recheckInterval {
@@ -187,12 +187,12 @@ func TestTrustConfigRecoversWhenTheSecretAppears(t *testing.T) {
 		t.Errorf("RequeueAfter = %s, want no requeue once ready", res.RequeueAfter)
 	}
 
-	var after cellcastv1alpha1.TrustConfig
+	var after cellcastv1beta1.TrustConfig
 	if err := k8s.Get(t.Context(), types.NamespacedName{Namespace: testNamespace, Name: "cell-trust"}, &after); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}
-	if !meta.IsStatusConditionTrue(after.Status.Conditions, cellcastv1alpha1.TrustConfigConditionReady) {
-		cond := meta.FindStatusCondition(after.Status.Conditions, cellcastv1alpha1.TrustConfigConditionReady)
+	if !meta.IsStatusConditionTrue(after.Status.Conditions, cellcastv1beta1.TrustConfigConditionReady) {
+		cond := meta.FindStatusCondition(after.Status.Conditions, cellcastv1beta1.TrustConfigConditionReady)
 		t.Errorf("Ready = %+v, want True once the secret exists", cond)
 	}
 }
@@ -206,7 +206,7 @@ func TestTrustConfigRecoversWhenTheSecretAppears(t *testing.T) {
 func TestTrustConfigMessageNamesTheBoundary(t *testing.T) {
 	got, _, _ := reconcileTrust(t, trustConfig("cell-trust", nil))
 
-	cond := meta.FindStatusCondition(got.Status.Conditions, cellcastv1alpha1.TrustConfigConditionReady)
+	cond := meta.FindStatusCondition(got.Status.Conditions, cellcastv1beta1.TrustConfigConditionReady)
 	if cond == nil {
 		t.Fatal("no Ready condition was published")
 	}

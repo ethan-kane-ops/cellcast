@@ -15,16 +15,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
 // reportingCellInState is a registered cell, in a given placement state, whose
 // agent is entitled to heartbeat.
-func reportingCellInState(name string, state cellcastv1alpha1.ClusterState) *cellcastv1alpha1.Cluster {
+func reportingCellInState(name string, state cellcastv1beta1.ClusterState) *cellcastv1beta1.Cluster {
 	cluster := clusterFixture(name, 1, state)
-	cluster.Spec.Reporter = &cellcastv1alpha1.ReporterIdentity{
+	cluster.Spec.Reporter = &cellcastv1beta1.ReporterIdentity{
 		Issuer:  testAgent.Issuer,
 		Subject: testAgent.Subject,
 	}
@@ -74,13 +74,13 @@ func TestFleetCoverageWaitsOnlyForCellsThatCouldReport(t *testing.T) {
 		},
 		{
 			name:     "every reporting cell has been heard from",
-			fleet:    []client.Object{reportingCellInState("prod-euw1", cellcastv1alpha1.ClusterStateLive)},
+			fleet:    []client.Object{reportingCellInState("prod-euw1", cellcastv1beta1.ClusterStateLive)},
 			reported: []string{"prod-euw1"},
 			wantWarm: true,
 		},
 		{
 			name:        "one cell is still silent",
-			fleet:       []client.Object{reportingCellInState("prod-euw1", cellcastv1alpha1.ClusterStateLive), reportingCellInState("prod-euw2", cellcastv1alpha1.ClusterStateLive)},
+			fleet:       []client.Object{reportingCellInState("prod-euw1", cellcastv1beta1.ClusterStateLive), reportingCellInState("prod-euw2", cellcastv1beta1.ClusterStateLive)},
 			reported:    []string{"prod-euw1"},
 			wantWarm:    false,
 			wantMissing: []string{"prod-euw2"},
@@ -97,14 +97,14 @@ func TestFleetCoverageWaitsOnlyForCellsThatCouldReport(t *testing.T) {
 			// Draining a cell is the moment the hub most needs to be healthy,
 			// so an emptied cell's silence must not hold up a rollout.
 			name:     "a draining cell is not waited for",
-			fleet:    []client.Object{reportingCellInState("prod-euw1", cellcastv1alpha1.ClusterStateDraining)},
+			fleet:    []client.Object{reportingCellInState("prod-euw1", cellcastv1beta1.ClusterStateDraining)},
 			wantWarm: true,
 		},
 		{
 			// Dark cells still take placements from a caller that asks for
 			// one, so a hub that cannot score them is not warm.
 			name:        "a dark cell is waited for",
-			fleet:       []client.Object{reportingCellInState("qa-euw1", cellcastv1alpha1.ClusterStateDark)},
+			fleet:       []client.Object{reportingCellInState("qa-euw1", cellcastv1beta1.ClusterStateDark)},
 			wantWarm:    false,
 			wantMissing: []string{"qa-euw1"},
 		},
@@ -137,7 +137,7 @@ func TestAStaleReportIsNotCoverage(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	check := FleetCoverage(
-		fleetReader(t, reportingCellInState("prod-euw1", cellcastv1alpha1.ClusterStateLive)), index, testNamespace)
+		fleetReader(t, reportingCellInState("prod-euw1", cellcastv1beta1.ClusterStateLive)), index, testNamespace)
 
 	warm, missing := check(t.Context())
 	if warm {
@@ -358,9 +358,9 @@ func TestTheCellsAReplicaIsWaitingForAreOrdered(t *testing.T) {
 	// three cells should print in the same order every time rather than in map
 	// order.
 	fleet := []client.Object{
-		reportingCellInState("prod-euw3", cellcastv1alpha1.ClusterStateLive),
-		reportingCellInState("prod-euw1", cellcastv1alpha1.ClusterStateLive),
-		reportingCellInState("prod-euw2", cellcastv1alpha1.ClusterStateLive),
+		reportingCellInState("prod-euw3", cellcastv1beta1.ClusterStateLive),
+		reportingCellInState("prod-euw1", cellcastv1beta1.ClusterStateLive),
+		reportingCellInState("prod-euw2", cellcastv1beta1.ClusterStateLive),
 	}
 	check := FleetCoverage(fleetReader(t, fleet...), warmIndex(t), testNamespace)
 

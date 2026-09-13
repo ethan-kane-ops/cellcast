@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // tokenIssuer stands in for a spoke's TokenRequest endpoint.
@@ -84,7 +84,7 @@ func (ti *tokenIssuer) clientset() kubernetes.Interface {
 func TestKubernetesProviderMint(t *testing.T) {
 	issuer := &tokenIssuer{saExists: true}
 	provider := NewKubernetesProvider(
-		func(context.Context, *cellcastv1alpha1.Cluster, *cellcastv1alpha1.TrustConfig) (kubernetes.Interface, error) {
+		func(context.Context, *cellcastv1beta1.Cluster, *cellcastv1beta1.TrustConfig) (kubernetes.Interface, error) {
 			return issuer.clientset(), nil
 		})
 
@@ -124,7 +124,7 @@ func TestKubernetesProviderMint(t *testing.T) {
 func TestMintReportsTheIssuedExpiryNotTheRequestedOne(t *testing.T) {
 	issuer := &tokenIssuer{saExists: true, grantedSeconds: 600}
 	provider := NewKubernetesProvider(
-		func(context.Context, *cellcastv1alpha1.Cluster, *cellcastv1alpha1.TrustConfig) (kubernetes.Interface, error) {
+		func(context.Context, *cellcastv1beta1.Cluster, *cellcastv1beta1.TrustConfig) (kubernetes.Interface, error) {
 			return issuer.clientset(), nil
 		})
 
@@ -143,7 +143,7 @@ func TestMintReportsTheIssuedExpiryNotTheRequestedOne(t *testing.T) {
 func TestMintWhenTheServiceAccountIsMissing(t *testing.T) {
 	issuer := &tokenIssuer{saExists: false}
 	provider := NewKubernetesProvider(
-		func(context.Context, *cellcastv1alpha1.Cluster, *cellcastv1alpha1.TrustConfig) (kubernetes.Interface, error) {
+		func(context.Context, *cellcastv1beta1.Cluster, *cellcastv1beta1.TrustConfig) (kubernetes.Interface, error) {
 			return issuer.clientset(), nil
 		})
 
@@ -226,8 +226,8 @@ func TestSecretConnector(t *testing.T) {
 	t.Run("a secret reference is parsed into a config for the spoke", func(t *testing.T) {
 		c := newConnector(t, nil, secret)
 		trust := testTrust("cell-trust")
-		trust.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{
-			SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig"},
+		trust.Spec.CredentialSource = cellcastv1beta1.CredentialSource{
+			SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig"},
 		}
 
 		var got *rest.Config
@@ -247,19 +247,19 @@ func TestSecretConnector(t *testing.T) {
 	refusals := []struct {
 		name   string
 		objs   []client.Object
-		ref    *cellcastv1alpha1.SecretKeyReference
+		ref    *cellcastv1beta1.SecretKeyReference
 		want   error
 		reject string
 	}{
 		{
 			name: "the secret does not exist",
-			ref:  &cellcastv1alpha1.SecretKeyReference{Name: "absent"},
+			ref:  &cellcastv1beta1.SecretKeyReference{Name: "absent"},
 			want: ErrCredentialMissing,
 		},
 		{
 			name: "the secret has no such key",
 			objs: []client.Object{secret},
-			ref:  &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig", Key: "other"},
+			ref:  &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig", Key: "other"},
 			want: ErrCredentialMissing,
 		},
 	}
@@ -268,7 +268,7 @@ func TestSecretConnector(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newConnector(t, nil, tt.objs...)
 			trust := testTrust("cell-trust")
-			trust.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{SecretRef: tt.ref}
+			trust.Spec.CredentialSource = cellcastv1beta1.CredentialSource{SecretRef: tt.ref}
 
 			_, err := c.Connect(t.Context(), testCluster("spoke", nil), trust)
 			if !errors.Is(err, tt.want) {
@@ -291,8 +291,8 @@ func TestConnectErrorsCarryNoCredentialMaterial(t *testing.T) {
 
 	c := newConnector(t, nil, broken)
 	trust := testTrust("cell-trust")
-	trust.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{
-		SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig"},
+	trust.Spec.CredentialSource = cellcastv1beta1.CredentialSource{
+		SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig"},
 	}
 
 	_, err := c.Connect(t.Context(), testCluster("spoke", nil), trust)
@@ -314,14 +314,14 @@ func TestConnectErrorsCarryNoCredentialMaterial(t *testing.T) {
 func TestTheKubernetesProviderRegistersUnderTheKindTheCRDNames(t *testing.T) {
 	provider := NewKubernetesProvider(nil)
 
-	if got := provider.Kind(); got != cellcastv1alpha1.TrustProviderKubernetes {
-		t.Errorf("Kind() = %q, want %q", got, cellcastv1alpha1.TrustProviderKubernetes)
+	if got := provider.Kind(); got != cellcastv1beta1.TrustProviderKubernetes {
+		t.Errorf("Kind() = %q, want %q", got, cellcastv1beta1.TrustProviderKubernetes)
 	}
 
 	b := New(nil, "cellcast-system", time.Hour, nil, provider)
-	if _, ok := b.providers[cellcastv1alpha1.TrustProviderKubernetes]; !ok {
+	if _, ok := b.providers[cellcastv1beta1.TrustProviderKubernetes]; !ok {
 		t.Errorf("a broker built with the Kubernetes provider has no provider for %q",
-			cellcastv1alpha1.TrustProviderKubernetes)
+			cellcastv1beta1.TrustProviderKubernetes)
 	}
 }
 

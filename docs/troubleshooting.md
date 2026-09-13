@@ -217,3 +217,13 @@ kubectl -n cellcast-system logs deploy/cellcast --previous
 
 A chart newer than the image can pass a flag the binary does not know. Keep the
 chart's `appVersion` and the image tag in step.
+
+## kubectl warns that `cellcast.io/v1alpha1` is deprecated
+
+```text
+Warning: cellcast.io/v1alpha1 is deprecated; use cellcast.io/v1beta1
+```
+
+The manifest names the previous API version. It still applies, to the same
+object, which is stored at `v1beta1`. Change its `apiVersion` to
+`cellcast.io/v1beta1` and the warning stops. See [Upgrading](upgrading.md).

@@ -11,14 +11,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
-func policyFixture(name string, permitted map[string]string) *cellcastv1alpha1.PlacementPolicy {
-	return &cellcastv1alpha1.PlacementPolicy{
+func policyFixture(name string, permitted map[string]string) *cellcastv1beta1.PlacementPolicy {
+	return &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Generation: 1},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{
 				Issuer: "https://token.actions.githubusercontent.com",
 				Claims: map[string]string{"repository": "example/app"},
 			}},
@@ -35,13 +35,13 @@ func policyClient(t *testing.T, objs ...client.Object) client.Client {
 	}
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&cellcastv1alpha1.Cluster{}, &cellcastv1alpha1.PlacementPolicy{}).
+		WithStatusSubresource(&cellcastv1beta1.Cluster{}, &cellcastv1beta1.PlacementPolicy{}).
 		WithObjects(objs...).
 		Build()
 }
 
-func labelledCluster(name string, labels map[string]string) *cellcastv1alpha1.Cluster {
-	cl := clusterFixture(name, 1, cellcastv1alpha1.ClusterStateLive)
+func labelledCluster(name string, labels map[string]string) *cellcastv1beta1.Cluster {
+	cl := clusterFixture(name, 1, cellcastv1beta1.ClusterStateLive)
 	cl.Labels = labels
 	return cl
 }
@@ -90,7 +90,7 @@ func TestPolicyReportsItsMatchCount(t *testing.T) {
 				t.Fatalf("Reconcile() = %v, want nil", err)
 			}
 
-			var got cellcastv1alpha1.PlacementPolicy
+			var got cellcastv1beta1.PlacementPolicy
 			if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 				t.Fatalf("Get() = %v, want nil", err)
 			}
@@ -126,7 +126,7 @@ func TestPolicyStatusFollowsTheFleet(t *testing.T) {
 		if _, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key}); err != nil {
 			t.Fatalf("Reconcile() = %v, want nil", err)
 		}
-		var got cellcastv1alpha1.PlacementPolicy
+		var got cellcastv1beta1.PlacementPolicy
 		if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 			t.Fatalf("Get() = %v, want nil", err)
 		}
@@ -145,7 +145,7 @@ func TestPolicyStatusFollowsTheFleet(t *testing.T) {
 	}
 
 	// Relabelling the cell out of the policy's reach must move it back.
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	if err := k8s.Get(t.Context(), client.ObjectKey{Namespace: testNamespace, Name: "c1"}, &cl); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}
@@ -172,7 +172,7 @@ func TestPolicyReconcilerIsIdempotent(t *testing.T) {
 		}
 	}
 
-	var got cellcastv1alpha1.PlacementPolicy
+	var got cellcastv1beta1.PlacementPolicy
 	if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}
@@ -207,11 +207,11 @@ func TestPolicyReconcilerIgnoresDeleted(t *testing.T) {
 
 // policyWithIssuers is a policy whose subject selectors name exactly these
 // issuers, one selector each.
-func policyWithIssuers(name string, issuers ...string) *cellcastv1alpha1.PlacementPolicy {
+func policyWithIssuers(name string, issuers ...string) *cellcastv1beta1.PlacementPolicy {
 	policy := policyFixture(name, map[string]string{"env": "dev"})
 	policy.Spec.Subjects = nil
 	for _, issuer := range issuers {
-		policy.Spec.Subjects = append(policy.Spec.Subjects, cellcastv1alpha1.SubjectSelector{
+		policy.Spec.Subjects = append(policy.Spec.Subjects, cellcastv1beta1.SubjectSelector{
 			Issuer: issuer,
 			Claims: map[string]string{"repository": "example/app"},
 		})
@@ -281,7 +281,7 @@ func TestPolicyReportsWhetherTheHubTrustsItsIssuers(t *testing.T) {
 				t.Fatalf("Reconcile() = %v, want nil", err)
 			}
 
-			var got cellcastv1alpha1.PlacementPolicy
+			var got cellcastv1beta1.PlacementPolicy
 			if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 				t.Fatalf("Get() = %v, want nil", err)
 			}
@@ -316,7 +316,7 @@ func TestTheIssuerConditionDoesNotReplaceTheReadyOne(t *testing.T) {
 		t.Fatalf("Reconcile() = %v, want nil", err)
 	}
 
-	var got cellcastv1alpha1.PlacementPolicy
+	var got cellcastv1beta1.PlacementPolicy
 	if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}

@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
@@ -230,11 +230,11 @@ func TestAStaleCellReportsStalenessAndNoRatio(t *testing.T) {
 
 func TestClusterStateCollector(t *testing.T) {
 	scheme := runtime.NewScheme()
-	if err := cellcastv1alpha1.AddToScheme(scheme); err != nil {
+	if err := cellcastv1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() = %v, want nil", err)
 	}
 	k8s := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		cell("prod-euw1", cellcastv1alpha1.ClusterStateDraining),
+		cell("prod-euw1", cellcastv1beta1.ClusterStateDraining),
 		// State unset, so it normalizes to LIVE the same way placement does.
 		cell("prod-euw2", ""),
 	).Build()
@@ -293,13 +293,13 @@ func report(t *testing.T, index *capacity.Registry, name string, committed, allo
 	}
 }
 
-func cell(name string, state cellcastv1alpha1.ClusterState) *cellcastv1alpha1.Cluster {
-	return &cellcastv1alpha1.Cluster{
+func cell(name string, state cellcastv1beta1.ClusterState) *cellcastv1beta1.Cluster {
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       "https://" + name + ".example.test",
-			Provider:       cellcastv1alpha1.ProviderEKS,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "t1"},
+			Provider:       cellcastv1beta1.ProviderEKS,
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "t1"},
 			State:          state,
 		},
 	}

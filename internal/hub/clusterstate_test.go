@@ -8,7 +8,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 func decodeCluster(t *testing.T, body string) clusterResponse {
@@ -37,11 +37,11 @@ func TestSetClusterState(t *testing.T) {
 		name     string
 		body     string
 		want     int
-		wantSate cellcastv1alpha1.ClusterState
+		wantSate cellcastv1beta1.ClusterState
 	}{
-		{name: "drain", body: `{"state":"DRAINING"}`, want: http.StatusOK, wantSate: cellcastv1alpha1.ClusterStateDraining},
-		{name: "darken", body: `{"state":"DARK"}`, want: http.StatusOK, wantSate: cellcastv1alpha1.ClusterStateDark},
-		{name: "back to live", body: `{"state":"LIVE"}`, want: http.StatusOK, wantSate: cellcastv1alpha1.ClusterStateLive},
+		{name: "drain", body: `{"state":"DRAINING"}`, want: http.StatusOK, wantSate: cellcastv1beta1.ClusterStateDraining},
+		{name: "darken", body: `{"state":"DARK"}`, want: http.StatusOK, wantSate: cellcastv1beta1.ClusterStateDark},
+		{name: "back to live", body: `{"state":"LIVE"}`, want: http.StatusOK, wantSate: cellcastv1beta1.ClusterStateLive},
 		{name: "unknown state", body: `{"state":"RETIRED"}`, want: http.StatusBadRequest},
 		{name: "omitted state", body: `{}`, want: http.StatusBadRequest},
 		{name: "lowercase is not accepted", body: `{"state":"draining"}`, want: http.StatusBadRequest},
@@ -51,7 +51,7 @@ func TestSetClusterState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			k8s := newFakeClient(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive))
+			k8s := newFakeClient(t, clusterFixture("c1", 1, cellcastv1beta1.ClusterStateLive))
 			srv := registryServer(t, k8s)
 
 			rec := do(t, srv, http.MethodPatch, "/api/v1/clusters/c1/state", tt.body)
@@ -62,7 +62,7 @@ func TestSetClusterState(t *testing.T) {
 				return
 			}
 
-			var stored cellcastv1alpha1.Cluster
+			var stored cellcastv1beta1.Cluster
 			key := client.ObjectKey{Namespace: testNamespace, Name: "c1"}
 			if err := k8s.Get(t.Context(), key, &stored); err != nil {
 				t.Fatalf("Get() = %v, want nil", err)
@@ -82,7 +82,7 @@ func TestSetClusterState(t *testing.T) {
 // update would let a drain silently revert an endpoint or label edit made in
 // between.
 func TestSetClusterStateLeavesTheRestOfSpecAlone(t *testing.T) {
-	fixture := clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive)
+	fixture := clusterFixture("c1", 1, cellcastv1beta1.ClusterStateLive)
 	fixture.Labels = map[string]string{"env": "prd"}
 	k8s := newFakeClient(t, fixture)
 	srv := registryServer(t, k8s)
@@ -91,7 +91,7 @@ func TestSetClusterStateLeavesTheRestOfSpecAlone(t *testing.T) {
 		t.Fatalf("PATCH state = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var stored cellcastv1alpha1.Cluster
+	var stored cellcastv1beta1.Cluster
 	if err := k8s.Get(t.Context(), client.ObjectKey{Namespace: testNamespace, Name: "c1"}, &stored); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}
@@ -127,7 +127,7 @@ func TestSetClusterStateWithoutRegistry(t *testing.T) {
 // TestSetClusterStateRejectsOversizedBody keeps a one-enum endpoint from being
 // a memory sink (docs/threat-model.md T-06).
 func TestSetClusterStateRejectsOversizedBody(t *testing.T) {
-	srv := registryServer(t, newFakeClient(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive)))
+	srv := registryServer(t, newFakeClient(t, clusterFixture("c1", 1, cellcastv1beta1.ClusterStateLive)))
 
 	body := `{"state":"` + strings.Repeat("A", maxStateChangeBytes) + `"}`
 	rec := do(t, srv, http.MethodPatch, "/api/v1/clusters/c1/state", body)
@@ -137,7 +137,7 @@ func TestSetClusterStateRejectsOversizedBody(t *testing.T) {
 }
 
 func TestGetCluster(t *testing.T) {
-	fixture := clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateDraining)
+	fixture := clusterFixture("c1", 1, cellcastv1beta1.ClusterStateDraining)
 	srv := registryServer(t, newFakeClient(t, fixture))
 
 	rec := do(t, srv, http.MethodGet, "/api/v1/clusters/c1", "")
@@ -149,7 +149,7 @@ func TestGetCluster(t *testing.T) {
 	if got.Name != "c1" {
 		t.Errorf("name = %q, want %q", got.Name, "c1")
 	}
-	if got.State != string(cellcastv1alpha1.ClusterStateDraining) {
+	if got.State != string(cellcastv1beta1.ClusterStateDraining) {
 		t.Errorf("state = %q, want DRAINING", got.State)
 	}
 }

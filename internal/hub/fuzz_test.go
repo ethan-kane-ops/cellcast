@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
 )
 
@@ -165,7 +165,7 @@ func FuzzClusterRegistration(f *testing.F) {
 			t.Fatalf("body %q was accepted while carrying credential field %q", body, field)
 		}
 
-		var stored cellcastv1alpha1.ClusterList
+		var stored cellcastv1beta1.ClusterList
 		if err := k8s.List(t.Context(), &stored, client.InNamespace(srv.cfg.Namespace)); err != nil {
 			t.Fatalf("listing the registry: %v", err)
 		}
@@ -181,8 +181,8 @@ func FuzzClusterRegistration(f *testing.F) {
 			t.Fatalf("a 201 stored the plaintext endpoint %q", cell.Spec.Endpoint)
 		}
 		switch cell.Spec.Provider {
-		case cellcastv1alpha1.ProviderEKS, cellcastv1alpha1.ProviderGKE,
-			cellcastv1alpha1.ProviderAKS, cellcastv1alpha1.ProviderGeneric:
+		case cellcastv1beta1.ProviderEKS, cellcastv1beta1.ProviderGKE,
+			cellcastv1beta1.ProviderAKS, cellcastv1beta1.ProviderGeneric:
 		default:
 			t.Fatalf("a 201 stored the unknown provider %q", cell.Spec.Provider)
 		}

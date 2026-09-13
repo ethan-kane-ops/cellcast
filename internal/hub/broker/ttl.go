@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // EnvLabel is the cell label TTL defaults are derived from.
@@ -93,7 +93,7 @@ type Resolution struct {
 // A caller may ask for less. A caller may never ask for more.
 func ResolveTTL(
 	cellLabels map[string]string,
-	policy *cellcastv1alpha1.TokenTTLPolicy,
+	policy *cellcastv1beta1.TokenTTLPolicy,
 	requested, hubCeiling, providerFloor time.Duration,
 ) (Resolution, error) {
 	b := BoundsFor(cellLabels)

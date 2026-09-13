@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
@@ -37,7 +37,7 @@ func newFleet(t *testing.T, util map[string]float64, objs ...client.Object) *fle
 	f.k8s = fake.NewClientBuilder().
 		WithScheme(testScheme(t)).
 		WithObjects(objs...).
-		WithIndex(&cellcastv1alpha1.WorkloadPlacement{}, PolicyIndex, IndexPolicy).
+		WithIndex(&cellcastv1beta1.WorkloadPlacement{}, PolicyIndex, IndexPolicy).
 		Build()
 	f.memory = NewMemory(f.k8s, testNamespace, MemoryOptions{
 		ExpireAfter:  DefaultExpireAfter,
@@ -79,18 +79,18 @@ func (f *fleet) load(t *testing.T, cell string, utilisation float64) {
 	}
 }
 
-func (f *fleet) records(t *testing.T) []cellcastv1alpha1.WorkloadPlacement {
+func (f *fleet) records(t *testing.T) []cellcastv1beta1.WorkloadPlacement {
 	t.Helper()
-	var list cellcastv1alpha1.WorkloadPlacementList
+	var list cellcastv1beta1.WorkloadPlacementList
 	if err := f.k8s.List(t.Context(), &list, client.InNamespace(testNamespace)); err != nil {
 		t.Fatalf("listing workload placements: %v", err)
 	}
 	return list.Items
 }
 
-func (f *fleet) editCell(t *testing.T, name string, edit func(*cellcastv1alpha1.Cluster)) {
+func (f *fleet) editCell(t *testing.T, name string, edit func(*cellcastv1beta1.Cluster)) {
 	t.Helper()
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	if err := f.k8s.Get(t.Context(), client.ObjectKey{Namespace: testNamespace, Name: name}, &cl); err != nil {
 		t.Fatalf("Get(%s) = %v", name, err)
 	}
@@ -102,17 +102,17 @@ func (f *fleet) editCell(t *testing.T, name string, edit func(*cellcastv1alpha1.
 
 // twoCells is the fleet most of these tests run on: c-a is the emptier, so
 // least-loaded places a new workload there.
-func twoCells(t *testing.T, pol *cellcastv1alpha1.PlacementPolicy) *fleet {
+func twoCells(t *testing.T, pol *cellcastv1beta1.PlacementPolicy) *fleet {
 	t.Helper()
 	return newFleet(t, map[string]float64{"c-a": 0.1, "c-b": 0.5},
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, devLabels),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, devLabels),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, devLabels),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, devLabels),
 		pol,
 	)
 }
 
-func anyCaller() *cellcastv1alpha1.PlacementPolicy {
-	return policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, devLabels)
+func anyCaller() *cellcastv1beta1.PlacementPolicy {
+	return policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, devLabels)
 }
 
 func verdictFor(t *testing.T, d *Decision, name string) Candidate {
@@ -172,14 +172,14 @@ func TestDecidingWritesNothing(t *testing.T) {
 // whose cell has become unavailable is placed afresh, and remembered where it
 // lands so that it does not bounce back when the old cell returns.
 func TestARememberedCellMustStillPassTheFilter(t *testing.T) {
-	setState := func(state cellcastv1alpha1.ClusterState) func(*testing.T, *fleet) {
+	setState := func(state cellcastv1beta1.ClusterState) func(*testing.T, *fleet) {
 		return func(t *testing.T, f *fleet) {
-			f.editCell(t, "c-a", func(cl *cellcastv1alpha1.Cluster) { cl.Spec.State = state })
+			f.editCell(t, "c-a", func(cl *cellcastv1beta1.Cluster) { cl.Spec.State = state })
 		}
 	}
 	setEnv := func(env string) func(*testing.T, *fleet) {
 		return func(t *testing.T, f *fleet) {
-			f.editCell(t, "c-a", func(cl *cellcastv1alpha1.Cluster) { cl.Labels = map[string]string{"env": env} })
+			f.editCell(t, "c-a", func(cl *cellcastv1beta1.Cluster) { cl.Labels = map[string]string{"env": env} })
 		}
 	}
 
@@ -193,8 +193,8 @@ func TestARememberedCellMustStillPassTheFilter(t *testing.T) {
 	}{
 		{
 			name:   "it is draining",
-			change: setState(cellcastv1alpha1.ClusterStateDraining),
-			undo:   setState(cellcastv1alpha1.ClusterStateLive),
+			change: setState(cellcastv1beta1.ClusterStateDraining),
+			undo:   setState(cellcastv1beta1.ClusterStateLive),
 			stage:  StageState,
 		},
 		{
@@ -206,7 +206,7 @@ func TestARememberedCellMustStillPassTheFilter(t *testing.T) {
 		{
 			name: "it was deregistered",
 			change: func(t *testing.T, f *fleet) {
-				if err := f.k8s.Delete(t.Context(), cell("c-a", cellcastv1alpha1.ClusterStateLive, devLabels)); err != nil {
+				if err := f.k8s.Delete(t.Context(), cell("c-a", cellcastv1beta1.ClusterStateLive, devLabels)); err != nil {
 					t.Fatalf("deleting c-a: %v", err)
 				}
 			},
@@ -249,7 +249,7 @@ func TestARememberedCellMustStillPassTheFilter(t *testing.T) {
 // meant to spread.
 func TestStickinessNoneDecidesEveryPlacementAfresh(t *testing.T) {
 	pol := anyCaller()
-	pol.Spec.Stickiness = &cellcastv1alpha1.Stickiness{Mode: cellcastv1alpha1.StickinessNone}
+	pol.Spec.Stickiness = &cellcastv1beta1.Stickiness{Mode: cellcastv1beta1.StickinessNone}
 	f := twoCells(t, pol)
 
 	f.deploy(t, caller(nil), "batch")
@@ -270,9 +270,9 @@ func TestADarkPlacementIsNeverRemembered(t *testing.T) {
 	pol := anyCaller()
 	pol.Spec.AllowDarkTargeting = true
 	f := newFleet(t, map[string]float64{"c-a": 0.1, "c-b": 0.5, "d-1": 0.0},
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, devLabels),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, devLabels),
-		cell("d-1", cellcastv1alpha1.ClusterStateDark, devLabels),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, devLabels),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, devLabels),
+		cell("d-1", cellcastv1beta1.ClusterStateDark, devLabels),
 		pol,
 	)
 	f.deploy(t, caller(nil), "checkout")
@@ -340,13 +340,13 @@ func TestRememberWritesOnlyWhatChanged(t *testing.T) {
 // TestRecordsBelongToOnePolicy: a workload name is the caller's own string,
 // and the same name under another policy is another team's workload.
 func TestRecordsBelongToOnePolicy(t *testing.T) {
-	teamA := policy("team-a", []cellcastv1alpha1.SubjectSelector{subject(map[string]string{"repository": "acme/a"})}, devLabels)
+	teamA := policy("team-a", []cellcastv1beta1.SubjectSelector{subject(map[string]string{"repository": "acme/a"})}, devLabels)
 	teamA.UID = "uid-team-a"
-	teamB := policy("team-b", []cellcastv1alpha1.SubjectSelector{subject(map[string]string{"repository": "acme/b"})}, devLabels)
+	teamB := policy("team-b", []cellcastv1beta1.SubjectSelector{subject(map[string]string{"repository": "acme/b"})}, devLabels)
 	teamB.UID = "uid-team-b"
 	f := newFleet(t, map[string]float64{"c-a": 0.1, "c-b": 0.5},
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, devLabels),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, devLabels),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, devLabels),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, devLabels),
 		teamA, teamB,
 	)
 
@@ -439,11 +439,11 @@ func TestTheSweepDeletesOnlyExpiredRecords(t *testing.T) {
 // stayed put does not use up a turn.
 func TestAKeptWorkloadDoesNotTurnTheRotation(t *testing.T) {
 	pol := anyCaller()
-	pol.Spec.Strategy = cellcastv1alpha1.ScoringRoundRobin
+	pol.Spec.Strategy = cellcastv1beta1.ScoringRoundRobin
 	f := newFleet(t, map[string]float64{"c-a": 0.5, "c-b": 0.5, "c-c": 0.5},
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, devLabels),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, devLabels),
-		cell("c-c", cellcastv1alpha1.ClusterStateLive, devLabels),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, devLabels),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, devLabels),
+		cell("c-c", cellcastv1beta1.ClusterStateLive, devLabels),
 		pol,
 	)
 

@@ -205,7 +205,7 @@ verify-generate: generate manifests
     # file for the same reason, one directory over: the hand-written types live
     # beside it, and comparing the directory fails on every uncommitted edit to
     # them, including the edit that this recipe exists to regenerate from.
-    generated="api/v1alpha1/zz_generated.deepcopy.go config/crd/ charts/cellcast/crd-bases/ charts/cellcast/files/"
+    generated="api/*/zz_generated.deepcopy.go config/crd/ charts/cellcast/crd-bases/ charts/cellcast/files/"
     if ! git diff --quiet -- $generated; then
         echo "generated output is stale; run 'just generate manifests' and commit the result" >&2
         git diff --stat -- $generated >&2
@@ -990,6 +990,273 @@ verify-chart:
 
     kubectl -n "$ns" get pods
     echo "both charts install, come up and stay up"
+
+# Upgrade the previous release in place and check the fleet on it survives
+verify-upgrade:
+    #!/usr/bin/env bash
+    # The path every adopter takes after the first install, and the one
+    # verify-chart never takes: it installs onto an empty cluster. This installs
+    # the newest release from the registry adopters pull it from, builds a fleet
+    # on it at the API version that release served, upgrades to this tree with
+    # the same values, and checks three things:
+    #
+    #   every object survives with its UID and no field lost or changed;
+    #   placement gives the same answer before and after;
+    #   the storage migration in docs/upgrading.md leaves nothing stored at
+    #   v1alpha1, proven by removing that version and reading every object
+    #   back, which is what a release that stops serving it will do.
+    #
+    # The agent stays on the previous release throughout. Cells are upgraded
+    # after the hub and often much later, so an old agent reporting to a new
+    # hub is the state a fleet spends longest in.
+    #
+    # Not part of `check`: it needs docker, pulls from GHCR and takes a few
+    # minutes.
+    set -euo pipefail
+    cluster=cellcast-upgrade
+    ns=cellcast-system
+    tag=upgrade-verify
+    # A stock kind cluster's service account issuer. The hub and the agent both
+    # run inside the cluster, where this name resolves and the cluster CA
+    # verifies it, so unlike verify-agent nothing here patches the issuer.
+    issuer=https://kubernetes.default.svc.cluster.local
+    resources="clusters placementpolicies trustconfigs workloadplacements"
+    work=$(mktemp -d)
+    kubeconfig="$work/kubeconfig"
+    forward=""
+
+    on_exit() {
+        status=$?
+        if [ -n "$forward" ]; then kill "$forward" 2>/dev/null || true; fi
+        if [ "$status" -ne 0 ] && [ -s "$kubeconfig" ]; then
+            export KUBECONFIG="$kubeconfig"
+            echo "=== pods ===" >&2
+            kubectl -n "$ns" get pods -o wide >&2 || true
+            for pod in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
+                echo "=== $pod ===" >&2
+                kubectl -n "$ns" logs "$pod" --tail=40 --all-containers >&2 || true
+            done
+        fi
+        kind delete cluster --name "$cluster" >/dev/null 2>&1 || true
+        rm -rf "$work"
+    }
+    trap on_exit EXIT
+    fail() { echo "$1" >&2; exit 1; }
+
+    # Every cellcast object in every namespace, read at one version: identity,
+    # UID and spec. Status is the hub's to rewrite and is left out.
+    snapshot() {
+        kubectl get "clusters.$1.cellcast.io,placementpolicies.$1.cellcast.io,trustconfigs.$1.cellcast.io" -A -o json \
+            | jq -S '[.items[] | {kind, namespace: .metadata.namespace, name: .metadata.name, uid: .metadata.uid, spec}]
+                | sort_by(.kind, .namespace, .name)'
+    }
+
+    # A dry-run placement, leaving the chosen cell in $cell. A replica that has
+    # not heard from the agent yet answers 503 until a heartbeat lands on it,
+    # which happens after the install and again after the upgrade replaces the
+    # replica (docs/high-availability.md). Any other refusal is final.
+    place() {
+        local port=18090 code=000
+        kubectl -n "$ns" port-forward svc/cellcast "$port:8080" > /dev/null 2>&1 &
+        forward=$!
+        for _ in $(seq 1 60); do
+            code=$(curl -s -o "$work/placement.json" -w '%{http_code}' -H @"$work/auth" \
+                -d '{"workload":"upgrade-probe","dryRun":true}' \
+                "http://127.0.0.1:$port/api/v1/placement" || true)
+            case "$code" in
+                200) break ;;
+                000|503) sleep 2 ;;
+                *) fail "placement refused with $code: $(cat "$work/placement.json")" ;;
+            esac
+        done
+        kill "$forward" 2>/dev/null || true
+        wait "$forward" 2>/dev/null || true
+        forward=""
+        [ "$code" = 200 ] || fail "placement never answered, last $code: $(cat "$work/placement.json" 2>/dev/null)"
+        cell=$(jq -r .cell "$work/placement.json")
+    }
+
+    kind create cluster --name "$cluster" --kubeconfig "$kubeconfig" --wait 90s
+    export KUBECONFIG="$kubeconfig"
+    # The hub fetches the issuer's discovery document before it holds any token
+    # to present, as it does for a CI platform's issuer.
+    kubectl create clusterrolebinding oidc-discovery \
+        --clusterrole=system:service-account-issuer-discovery \
+        --group=system:unauthenticated
+
+    # The same values at install and at upgrade, as an adopter's values file
+    # carries them. The short warmup keeps the rollout quick: a new replica is
+    # unready, so no heartbeat reaches it until warmup stops waiting for one.
+    #
+    # One replica, so the replica that answers the placement is the one the
+    # agent reports to. The agent holds one keep-alive connection and a Service
+    # balances connections rather than requests, so with several replicas every
+    # report from a cell lands on the replica that connection reached and the
+    # others never hear from the cell (ENG-214).
+    values=(
+        --set replicaCount=1
+        --set "hub.oidc.issuers[0].url=$issuer"
+        --set "hub.oidc.issuers[0].provider=generic"
+        --set hub.oidc.caConfigMap=kube-root-ca.crt
+        --set hub.warmupTimeout=20s
+    )
+
+    # No --version, so the newest release on the registry: the one an adopter
+    # is upgrading from.
+    helm install cellcast "{{chart_repo}}/cellcast" \
+        --namespace "$ns" --create-namespace "${values[@]}" --wait --timeout 5m
+    from=$(helm -n "$ns" list -o json | jq -r '.[] | select(.name == "cellcast") | .app_version')
+    echo "installed $from from {{chart_repo}}"
+
+    kubectl create ns apps
+    kubectl -n apps create sa deployer
+    printf 'Authorization: Bearer %s\n' \
+        "$(kubectl -n apps create token deployer --audience cellcast --duration 1h)" > "$work/auth"
+
+    # The fleet at v1alpha1, the version every release before the graduation
+    # served, and with no stickiness on the policies: releases before it had no
+    # such field, so the upgrade has to supply the default. The second policy
+    # is outside the hub's namespace, so no controller ever rewrites it and
+    # only the storage migration can move it off v1alpha1.
+    #
+    # Applied before the agent starts, which would otherwise be refused for a
+    # cell that does not exist yet and back off for minutes.
+    kubectl apply -f - <<EOF
+    apiVersion: cellcast.io/v1alpha1
+    kind: TrustConfig
+    metadata:
+      name: upgrade-cell
+      namespace: $ns
+    spec:
+      provider: kubernetes
+      credentialSource:
+        inCluster: true
+      kubernetes:
+        serviceAccountName: deployer
+        namespace: apps
+    ---
+    apiVersion: cellcast.io/v1alpha1
+    kind: Cluster
+    metadata:
+      name: upgrade-cell
+      namespace: $ns
+      labels:
+        env: upgrade
+    spec:
+      endpoint: https://kubernetes.default.svc
+      provider: generic
+      trustConfigRef:
+        name: upgrade-cell
+      reporter:
+        issuer: $issuer
+        subject: system:serviceaccount:$ns:cellcast-agent
+    ---
+    apiVersion: cellcast.io/v1alpha1
+    kind: PlacementPolicy
+    metadata:
+      name: deployers
+      namespace: $ns
+    spec:
+      subjects:
+        - issuer: $issuer
+          subject: system:serviceaccount:apps:deployer
+      permittedCells:
+        matchLabels:
+          env: upgrade
+    ---
+    apiVersion: cellcast.io/v1alpha1
+    kind: PlacementPolicy
+    metadata:
+      name: unwatched
+      namespace: apps
+    spec:
+      subjects:
+        - issuer: $issuer
+          subject: system:serviceaccount:apps:deployer
+      permittedCells:
+        matchLabels:
+          env: upgrade
+    EOF
+
+    helm install cellcast-agent "{{chart_repo}}/cellcast-agent" \
+        --namespace "$ns" --version "${from#v}" \
+        --set cellName=upgrade-cell \
+        --set hub.endpoint=http://cellcast."$ns".svc:8080 \
+        --set agent.heartbeatInterval=5s \
+        --set agent.requestTimeout=3s \
+        --wait --timeout 5m
+
+    place
+    before=$cell
+    [ "$before" = upgrade-cell ] || fail "placement chose $before before the upgrade, want upgrade-cell"
+    snapshot v1alpha1 > "$work/before.json"
+    echo "on $from: $(jq length "$work/before.json") objects, placement chose $before"
+
+    just image cellcast-hub "$tag"
+    kind load docker-image --name "$cluster" "{{registry}}/{{owner}}/cellcast-hub:$tag"
+    helm upgrade cellcast charts/cellcast --namespace "$ns" "${values[@]}" \
+        --set image.tag="$tag" --wait --timeout 10m
+
+    # The upgrade patched the CRDs in place rather than leaving the previous
+    # release's schema behind.
+    for r in $resources; do
+        storage=$(kubectl get crd "$r.cellcast.io" -o jsonpath='{.spec.versions[?(@.storage==true)].name}')
+        [ "$storage" = v1beta1 ] || fail "$r.cellcast.io stores $storage after the upgrade, want v1beta1"
+    done
+
+    # Every field the fleet had, at the same value, on an object with the same
+    # UID. A field the upgrade added is allowed: it is a default.
+    snapshot v1beta1 > "$work/after.json"
+    lost=$(jq -rn --slurpfile old "$work/before.json" --slurpfile new "$work/after.json" '
+        ($new[0] | map({key: "\(.kind)/\(.namespace)/\(.name)", value: .}) | from_entries) as $now
+        | $old[0][] as $o
+        | "\($o.kind)/\($o.namespace)/\($o.name)" as $id
+        | $now[$id] as $n
+        | if $n == null then "\($id) is gone"
+          elif $n.uid != $o.uid then "\($id) was recreated"
+          else ($o.spec | paths(scalars)) as $p
+            | select(($n.spec | getpath($p)) != ($o.spec | getpath($p)))
+            | "\($id) spec.\($p | map(tostring) | join(".")) changed"
+          end')
+    [ -z "$lost" ] || fail "the upgrade lost or changed fields: $lost"
+    modes=$(jq -r '[.[] | select(.kind == "PlacementPolicy") | .spec.stickiness.mode] | unique | join(",")' "$work/after.json")
+    [ "$modes" = Preferred ] || fail "the policies read stickiness [$modes] after the upgrade, want the default Preferred"
+
+    place
+    [ "$cell" = "$before" ] || fail "placement chose $cell after the upgrade and $before before it"
+    restarted=$(kubectl -n "$ns" get pods \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.containerStatuses[0].restartCount}{"\n"}{end}' \
+        | grep -v '=0$' || true)
+    [ -z "$restarted" ] || fail "containers restarted after the upgrade: $restarted"
+    echo "on this tree: every object intact, placement chose $cell"
+
+    # The migration docs/upgrading.md gives. Any write stores an object at the
+    # storage version, and an empty merge patch is a write with nothing in it
+    # to conflict with a controller's.
+    for r in $resources; do
+        echo "$r.cellcast.io was stored at $(kubectl get crd "$r.cellcast.io" -o jsonpath='{.status.storedVersions}')"
+        kubectl get "$r.cellcast.io" -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+            | while read -r n name; do
+                kubectl -n "$n" patch "$r.cellcast.io" "$name" --type=merge -p '{}' > /dev/null
+            done
+        kubectl patch crd "$r.cellcast.io" --subresource=status --type=merge \
+            -p '{"status":{"storedVersions":["v1beta1"]}}' > /dev/null
+    done
+
+    # What a release that stops serving v1alpha1 will do. An object still
+    # stored at v1alpha1 no longer decodes once its version is gone, so reading
+    # everything back is the proof that the migration missed nothing. The test
+    # operation makes the patch refuse to remove anything but v1alpha1.
+    for r in $resources; do
+        kubectl patch crd "$r.cellcast.io" --type=json -p \
+            '[{"op":"test","path":"/spec/versions/0/name","value":"v1alpha1"},{"op":"remove","path":"/spec/versions/0"}]' > /dev/null
+    done
+    snapshot v1beta1 > "$work/migrated.json"
+    diff -u "$work/after.json" "$work/migrated.json" || fail "objects changed across the storage migration"
+    place
+    [ "$cell" = "$before" ] || fail "placement chose $cell once v1alpha1 was gone, and $before before"
+
+    echo "upgraded $from to this tree: objects intact, placement unchanged, v1alpha1 removable"
 
 # Scan for known vulnerabilities in code that is actually reachable
 vuln:

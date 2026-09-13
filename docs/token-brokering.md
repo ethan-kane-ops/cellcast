@@ -10,7 +10,7 @@ For a Kubernetes cell, a `TokenRequest` for one service account in one
 namespace:
 
 ```yaml
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: TrustConfig
 metadata:
   name: prod-euw1
