@@ -80,6 +80,9 @@ func newCapacityEntryResponse(cell string, e capacity.Entry) capacityEntryRespon
 // `spec.reporter`. Authentication alone is not enough here: every agent in the
 // fleet holds a valid token, so without this an agent in any cell could report
 // for any other (docs/threat-model.md T-07).
+//
+// A report accepted here is relayed to the hub's other replicas, and each of
+// them runs both checks again for itself (docs/architecture.md ADR-014).
 func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 	if s.k8s == nil || s.capacity == nil {
 		writeError(w, http.StatusServiceUnavailable, "registry unavailable")
@@ -120,7 +123,7 @@ func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := decodeCapacityReport(w, r, name)
+	report, body, err := decodeCapacityReport(w, r, name)
 	if err == nil {
 		err = s.capacity.Report(report)
 	}
@@ -138,6 +141,14 @@ func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Relayed only once accepted, and only when it came from the agent rather
+	// than from another replica. Every replica runs the checks above for itself,
+	// so a refused report would only be refused again, and a relayed report
+	// relayed again would never stop.
+	if s.relay != nil && r.Header.Get(relayHeader) == "" {
+		s.relay.Relay(r.Context(), name, body, r.Header.Get("Authorization"))
+	}
+
 	entry, _ := s.capacity.Lookup(name)
 
 	// 202 rather than 201: a heartbeat updates a view, it does not create a
@@ -146,10 +157,12 @@ func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, newCapacityEntryResponse(name, entry))
 }
 
-func decodeCapacityReport(w http.ResponseWriter, r *http.Request, cell string) (capacity.Report, error) {
+// decodeCapacityReport reads and decodes a heartbeat, and returns the body as
+// the agent sent it, which is what a relay passes on.
+func decodeCapacityReport(w http.ResponseWriter, r *http.Request, cell string) (capacity.Report, []byte, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCapacityBytes))
 	if err != nil {
-		return capacity.Report{}, fmt.Errorf("reading request body: %w", err)
+		return capacity.Report{}, nil, fmt.Errorf("reading request body: %w", err)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(body))
@@ -157,10 +170,10 @@ func decodeCapacityReport(w http.ResponseWriter, r *http.Request, cell string) (
 
 	var in capacityReport
 	if err := dec.Decode(&in); err != nil {
-		return capacity.Report{}, fmt.Errorf("decoding capacity report: %w", err)
+		return capacity.Report{}, nil, fmt.Errorf("decoding capacity report: %w", err)
 	}
 	if dec.More() {
-		return capacity.Report{}, errors.New("body must contain exactly one JSON object")
+		return capacity.Report{}, nil, errors.New("body must contain exactly one JSON object")
 	}
 
 	return capacity.Report{
@@ -172,7 +185,7 @@ func decodeCapacityReport(w http.ResponseWriter, r *http.Request, cell string) (
 		MemoryBytesCommitted:   in.MemoryBytesCommitted,
 		Pods:                   in.Pods,
 		PodCapacity:            in.PodCapacity,
-	}, nil
+	}, body, nil
 }
 
 // handleListCapacity serves GET /api/v1/capacity.

@@ -27,3 +27,29 @@ spec:
     {{- end }}
   selector:
     {{- include "cellcast.selectorLabels" . | nindent 4 }}
+---
+# The replicas themselves, which relay each capacity report among them.
+# Headless, so the name resolves to every pod's own address, and publishing
+# unready ones, because a replica that is still starting is the one that most
+# needs the reports: it cannot go ready until it holds them
+# (docs/high-availability.md).
+#
+# No metrics port, so the ServiceMonitor, which matches this Service's labels
+# too, still scrapes each replica once.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cellcast.peersName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cellcast.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: api
+      port: {{ .Values.ports.api }}
+      targetPort: api
+      protocol: TCP
+  selector:
+    {{- include "cellcast.selectorLabels" . | nindent 4 }}

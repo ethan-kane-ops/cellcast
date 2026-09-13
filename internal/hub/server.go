@@ -43,6 +43,10 @@ type Server struct {
 	// endpoints report 503 rather than panicking.
 	capacity *capacity.Registry
 
+	// relay passes each capacity report this replica accepts on to the other
+	// replicas. Nil relays nothing, which is right for a hub with no peers.
+	relay Relayer
+
 	// minter issues credentials for a chosen cell. Nil means the placement
 	// route refuses rather than returning a cell with no way to reach it.
 	minter Minter
@@ -117,6 +121,16 @@ func WithClusterClient(c client.Client) Option {
 // index is lost on one (docs/architecture.md ADR-002).
 func WithCapacityRegistry(c *capacity.Registry) Option {
 	return func(s *Server) { s.capacity = c }
+}
+
+// WithRelay passes every capacity report this replica accepts on to the others.
+//
+// Without it a report reaches only the replica the agent's connection landed
+// on. An agent keeps one connection open and a Service balances connections
+// rather than requests, so with more than one replica the rest never hear from
+// that cell (docs/architecture.md ADR-014).
+func WithRelay(r Relayer) Option {
+	return func(s *Server) { s.relay = r }
 }
 
 // WithCacheSync defers readiness until the registry cache has synced.

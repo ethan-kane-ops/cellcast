@@ -1,6 +1,8 @@
 package boundaries_test
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/ethan-kane-ops/cellcast/internal/cli"
@@ -349,6 +354,89 @@ func TestTheHubChartCanLeaveTheCRDsAlone(t *testing.T) {
 	}
 	if !strings.Contains(manifests, "kind: Deployment") {
 		t.Error("crds.install=false rendered no Deployment; the rest of the chart must still install")
+	}
+}
+
+func TestTheHubChartLetsEveryReplicaReachTheOthers(t *testing.T) {
+	// A capacity report reaches one replica, which relays it to the others
+	// through the peers Service. Three pieces have to agree, and none of them
+	// fails visibly when it does not: the flag has to name the Service and the
+	// port the hub listens on, the Service has to publish replicas that are not
+	// ready yet, and the NetworkPolicy has to admit the replicas to each other.
+	// Get one wrong and the chart installs, goes ready, and each replica places
+	// only on the cells whose agents happened to connect to it.
+	manifests := render(t, "cellcast", "--set", "networkPolicy.enabled=true")
+
+	var (
+		peers  *corev1.Service
+		hub    *appsv1.Deployment
+		policy *networkingv1.NetworkPolicy
+	)
+	for _, doc := range strings.Split(manifests, "\n---\n") {
+		var meta struct {
+			Kind string `json:"kind"`
+		}
+		if err := yaml.Unmarshal([]byte(doc), &meta); err != nil {
+			continue
+		}
+		var err error
+		switch meta.Kind {
+		case "Service":
+			var svc corev1.Service
+			if err = yaml.Unmarshal([]byte(doc), &svc); err == nil && svc.Spec.ClusterIP == corev1.ClusterIPNone {
+				peers = &svc
+			}
+		case "Deployment":
+			hub = &appsv1.Deployment{}
+			err = yaml.Unmarshal([]byte(doc), hub)
+		case "NetworkPolicy":
+			policy = &networkingv1.NetworkPolicy{}
+			err = yaml.Unmarshal([]byte(doc), policy)
+		}
+		if err != nil {
+			t.Fatalf("parsing a rendered %s: %v", meta.Kind, err)
+		}
+	}
+	if peers == nil || hub == nil || policy == nil {
+		t.Fatalf("rendered a headless Service: %v, a Deployment: %v, a NetworkPolicy: %v; want all three",
+			peers != nil, hub != nil, policy != nil)
+	}
+
+	pods := hub.Spec.Selector.MatchLabels
+	if !maps.Equal(peers.Spec.Selector, pods) {
+		t.Errorf("the peers Service selects %v, want the hub's pods, %v", peers.Spec.Selector, pods)
+	}
+	if !peers.Spec.PublishNotReadyAddresses {
+		t.Error("the peers Service leaves out unready replicas, which are the ones waiting for the reports that would make them ready")
+	}
+
+	container := hub.Spec.Template.Spec.Containers[0]
+	var apiPort int32
+	for _, p := range container.Ports {
+		if p.Name == "api" {
+			apiPort = p.ContainerPort
+		}
+	}
+	want := fmt.Sprintf("--peers=%s.%s.svc:%d", peers.Name, peers.Namespace, apiPort)
+	if !slices.Contains(container.Args, want) {
+		t.Errorf("the hub is not passed %s; its args are %v", want, container.Args)
+	}
+
+	admitted := false
+	for _, rule := range policy.Spec.Ingress {
+		for _, from := range rule.From {
+			if from.PodSelector == nil || !maps.Equal(from.PodSelector.MatchLabels, pods) {
+				continue
+			}
+			for _, port := range rule.Ports {
+				if port.Port != nil && port.Port.String() == "api" {
+					admitted = true
+				}
+			}
+		}
+	}
+	if !admitted {
+		t.Error("the NetworkPolicy does not admit the hub's own pods to the api port, so no relay reaches a peer")
 	}
 }
 

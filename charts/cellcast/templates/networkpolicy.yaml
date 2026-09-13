@@ -19,6 +19,15 @@ spec:
     - ports:
         - port: probes
           protocol: TCP
+    # Capacity reports the replicas relay among themselves. Without this a
+    # replica hears only from the agents whose connections reached it.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "cellcast.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: api
+          protocol: TCP
     {{- with .Values.networkPolicy.allowedIngress }}
     - from:
         {{- toYaml . | nindent 8 }}

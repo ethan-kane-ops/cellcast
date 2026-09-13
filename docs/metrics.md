@@ -107,6 +107,9 @@ Prometheus Operator CRDs, and the hub chart templates it in.
 The first two are the same failure at different stages, and they need separate rules because a cell
 that has never reported has no staleness series for a threshold to exceed.
 
+`CellcastCapacityStale` fires per replica. On one replica alone, relays from the others are not
+reaching it ([high availability](high-availability.md)); on every replica, the agent has stopped.
+
 `CellcastNoAuthenticator` is the one unambiguous alert in the set. A hub started with no
 `--oidc-issuer` refuses every caller, passes its own health checks, and stops every deploy in the
 estate. Every other rule here describes a condition that may be benign.

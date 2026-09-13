@@ -24,19 +24,30 @@ keep it there. Any replica makes it, it survives the rollout of the replica that
 made it, and a write that fails costs only that workload's next placement its
 memory ([stickiness](placement-policy.md#stickiness)).
 
-## Replicas disagree about capacity
+## Every replica hears every cell
 
-Agents heartbeat through the Service, so each report lands on whichever replica
-the load balancer chose. Two replicas asked the same question in the same second
-can pick different cells.
+An agent keeps one connection to the hub open, and a Service balances
+connections rather than requests, so every report from a cell reaches the same
+replica. That replica relays each report it accepts to the others, which it
+finds through a headless Service the chart creates (`cellcast-peers` for a
+release named `cellcast`).
 
-That is acceptable. Placement is advisory, so a marginally worse cell is a worse
-cell rather than a wrong one, and sharing the index between replicas would buy
-agreement on a number that is already stale, at the cost of a distributed system
-to be wrong about.
+The relay carries the agent's own token. Each replica authenticates it and
+checks the cell's `spec.reporter` itself, exactly as for the agent, so no
+replica takes another's word for a cell's capacity. Each keeps its own index,
+built from reports it verified.
 
-A replica with **no** capacity at all is a different matter, and is the next
-section.
+Replicas can still disagree while a relay is in flight, or after one is lost,
+and two replicas asked the same question in that moment can pick different
+cells. That is acceptable. Placement is advisory, so a marginally worse cell is
+a worse cell rather than a wrong one, and the next heartbeat repairs a lost
+relay well inside the staleness window.
+
+A replica that relays are not reaching is a different matter: it places only on
+the cells whose agents connected to it. `CellcastCapacityStale` fires for that
+replica alone, and the replicas relaying to it log it as failing.
+
+A replica with **no** capacity at all is the next section.
 
 ## Readiness means the replica can actually answer
 
@@ -54,6 +65,11 @@ deploy to that one cell.
 Agents heartbeat through the Service. A Service routes only to ready pods. So a
 fleet whose hub replicas all restarted at once is waiting for reports that
 nothing can deliver.
+
+A replica that starts while others are serving does not meet this. The peers
+Service publishes replicas that are not ready yet, so the others relay to it
+before it is ready, and it warms within a heartbeat. The deadline is for a fleet
+whose replicas all restarted together, where nothing is serving to relay from.
 
 Past `--warmup-timeout` (default 90s, one staleness window) a replica goes ready
 anyway, logs that it did, and names the cells it never heard from:
@@ -117,6 +133,12 @@ warm, before an old one goes away.
 `ScheduleAnyway` rather than `DoNotSchedule` so a single-node development
 cluster still runs. Set it to `DoNotSchedule` on an estate that can satisfy it.
 
+The chart also creates the peers Service and passes it to `--peers`. There is no
+value to turn that off: a single replica finds only itself there and relays to
+nobody. With `networkPolicy.enabled`, the chart's policy admits the hub's pods
+to each other on the API port. A NetworkPolicy written for the estate instead
+has to do the same, or each replica hears only its own agents.
+
 ## Failure behaviour
 
 | Failure | What happens |
@@ -125,5 +147,6 @@ cluster still runs. Set it to `DoNotSchedule` on an estate that can satisfy it.
 | A replica is still warming up | Ready, so agents can reach it, but placements are refused with `PlacementUnavailable` until it is warm |
 | A replica is being rolled | Reports unready, keeps serving for the drain delay, then drains |
 | The leader loses its lease | That replica exits and restarts. The others keep serving placements from cache |
+| Relays to one replica fail | That replica excludes the cells whose agents are connected elsewhere once their capacity goes stale. `CellcastCapacityStale` fires for it alone, and the replicas relaying to it log it once |
 | The API server is unreachable | Only the leader exits. Followers stay in their acquisition loop and keep serving. The restarted replica cannot sync, so it stays unready and out of the Service until the partition clears |
 | Every replica is down | The client applies its declared `--on-unavailable` stance, and the default is to fail |

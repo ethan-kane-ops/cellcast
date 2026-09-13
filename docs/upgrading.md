@@ -13,6 +13,16 @@ the previous release's, so every value added since then is missing and the chart
 passes an empty flag. Helm 3.14 added `--reset-then-reuse-values` for installs that were never given
 a values file.
 
+## From a release that does not relay capacity
+
+Replicas relay each agent's reports to one another ([high availability](high-availability.md)).
+Replicas from a release before that pass nothing on, so while they are being replaced a new replica
+hears only from the agents whose connections reach it. A new replica holding none of the fleet's
+reports waits out `--warmup-timeout` before going ready, and refuses placements with
+`PlacementUnavailable` until the agents' connections move to new replicas, which they do as the old
+ones go. Nothing needs doing: the rollout can take one warmup timeout longer per replica, and once
+the last old replica has gone every replica hears every cell within a heartbeat.
+
 ## If the chart does not manage the CRDs
 
 With `crds.install=false`, apply the new release's CRDs before upgrading the chart. A hub reads the

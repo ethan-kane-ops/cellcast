@@ -998,10 +998,12 @@ verify-upgrade:
     # verify-chart never takes: it installs onto an empty cluster. This installs
     # the newest release from the registry adopters pull it from, builds a fleet
     # on it at the API version that release served, upgrades to this tree with
-    # the same values, and checks three things:
+    # the same values, and checks four things:
     #
     #   every object survives with its UID and no field lost or changed;
     #   placement gives the same answer before and after;
+    #   after the upgrade every hub replica answers it, which each can only do
+    #   by hearing the agent through the replica it reports to;
     #   the storage migration in docs/upgrading.md leaves nothing stored at
     #   v1alpha1, proven by removing that version and reading every object
     #   back, which is what a release that stops serving it will do.
@@ -1023,11 +1025,11 @@ verify-upgrade:
     resources="clusters placementpolicies trustconfigs workloadplacements"
     work=$(mktemp -d)
     kubeconfig="$work/kubeconfig"
-    forward=""
+    forwards=""
 
     on_exit() {
         status=$?
-        if [ -n "$forward" ]; then kill "$forward" 2>/dev/null || true; fi
+        if [ -n "$forwards" ]; then kill $forwards 2>/dev/null || true; fi
         if [ "$status" -ne 0 ] && [ -s "$kubeconfig" ]; then
             export KUBECONFIG="$kubeconfig"
             echo "=== pods ===" >&2
@@ -1051,29 +1053,57 @@ verify-upgrade:
                 | sort_by(.kind, .namespace, .name)'
     }
 
-    # A dry-run placement, leaving the chosen cell in $cell. A replica that has
-    # not heard from the agent yet answers 503 until a heartbeat lands on it,
-    # which happens after the install and again after the upgrade replaces the
-    # replica (docs/high-availability.md). Any other refusal is final.
+    # A dry-run placement through each hub replica, leaving the chosen cell in
+    # $cell. The agent reports to one replica, and each of the others hears it
+    # only through that replica's relay (docs/high-availability.md), so
+    # `place every` needs every replica to answer, all with the same cell.
+    # `place any` is satisfied by one, for the release being upgraded from,
+    # which may predate the relay. A replica that has not heard from the agent
+    # answers 503 until it does; any other refusal is final.
     place() {
-        local port=18090 code=000
-        kubectl -n "$ns" port-forward svc/cellcast "$port:8080" > /dev/null 2>&1 &
-        forward=$!
-        for _ in $(seq 1 60); do
-            code=$(curl -s -o "$work/placement.json" -w '%{http_code}' -H @"$work/auth" \
-                -d '{"workload":"upgrade-probe","dryRun":true}' \
-                "http://127.0.0.1:$port/api/v1/placement" || true)
-            case "$code" in
-                200) break ;;
-                000|503) sleep 2 ;;
-                *) fail "placement refused with $code: $(cat "$work/placement.json")" ;;
-            esac
+        local need=$1 targets="" total=0 answered="" got=0 port=18090 pod target code
+        for pod in $(kubectl -n "$ns" get pods -o json \
+                -l app.kubernetes.io/instance=cellcast,app.kubernetes.io/component=hub \
+                | jq -r '.items[] | select(.metadata.deletionTimestamp == null) | .metadata.name'); do
+            kubectl -n "$ns" port-forward "pod/$pod" "$port:8080" > /dev/null 2>&1 &
+            forwards="$forwards $!"
+            targets="$targets $pod=$port"
+            total=$((total + 1))
+            port=$((port + 1))
         done
-        kill "$forward" 2>/dev/null || true
-        wait "$forward" 2>/dev/null || true
-        forward=""
-        [ "$code" = 200 ] || fail "placement never answered, last $code: $(cat "$work/placement.json" 2>/dev/null)"
-        cell=$(jq -r .cell "$work/placement.json")
+        [ "$total" -gt 0 ] || fail "found no hub replica to place through"
+        if [ "$need" = every ]; then need=$total; else need=1; fi
+        for _ in $(seq 1 60); do
+            for target in $targets; do
+                pod=${target%=*}
+                case " $answered " in *" $pod "*) continue ;; esac
+                code=$(curl -s -o "$work/placement-$pod.json" -w '%{http_code}' -H @"$work/auth" \
+                    -d '{"workload":"upgrade-probe","dryRun":true}' \
+                    "http://127.0.0.1:${target#*=}/api/v1/placement" || true)
+                case "$code" in
+                    200) answered="$answered $pod"; got=$((got + 1)) ;;
+                    000|503) ;;
+                    *) fail "$pod refused the placement with $code: $(cat "$work/placement-$pod.json")" ;;
+                esac
+            done
+            if [ "$got" -ge "$need" ]; then break; fi
+            sleep 2
+        done
+        kill $forwards 2>/dev/null || true
+        wait $forwards 2>/dev/null || true
+        forwards=""
+        if [ "$got" -lt "$need" ]; then
+            for target in $targets; do
+                pod=${target%=*}
+                case " $answered " in
+                    *" $pod "*) ;;
+                    *) echo "$pod never answered: $(cat "$work/placement-$pod.json" 2>/dev/null)" >&2 ;;
+                esac
+            done
+            fail "$got of $total hub replicas answered the placement, want $need"
+        fi
+        cell=$(for pod in $answered; do jq -r .cell "$work/placement-$pod.json"; done | sort -u | paste -sd, -)
+        case "$cell" in *,*) fail "the replicas chose different cells: $cell" ;; esac
     }
 
     kind create cluster --name "$cluster" --kubeconfig "$kubeconfig" --wait 90s
@@ -1085,16 +1115,11 @@ verify-upgrade:
         --group=system:unauthenticated
 
     # The same values at install and at upgrade, as an adopter's values file
-    # carries them. The short warmup keeps the rollout quick: a new replica is
-    # unready, so no heartbeat reaches it until warmup stops waiting for one.
-    #
-    # One replica, so the replica that answers the placement is the one the
-    # agent reports to. The agent holds one keep-alive connection and a Service
-    # balances connections rather than requests, so with several replicas every
-    # report from a cell lands on the replica that connection reached and the
-    # others never hear from the cell (ENG-214).
+    # carries them, so the chart's three hub replicas. The short warmup keeps
+    # the rollout quick: a replica of the release being upgraded from may relay
+    # nothing, and then a new replica hears from the agent only once the
+    # agent's connection moves to a new one, or once warmup stops waiting.
     values=(
-        --set replicaCount=1
         --set "hub.oidc.issuers[0].url=$issuer"
         --set "hub.oidc.issuers[0].provider=generic"
         --set hub.oidc.caConfigMap=kube-root-ca.crt
@@ -1186,7 +1211,7 @@ verify-upgrade:
         --set agent.requestTimeout=3s \
         --wait --timeout 5m
 
-    place
+    place any
     before=$cell
     [ "$before" = upgrade-cell ] || fail "placement chose $before before the upgrade, want upgrade-cell"
     snapshot v1alpha1 > "$work/before.json"
@@ -1222,13 +1247,13 @@ verify-upgrade:
     modes=$(jq -r '[.[] | select(.kind == "PlacementPolicy") | .spec.stickiness.mode] | unique | join(",")' "$work/after.json")
     [ "$modes" = Preferred ] || fail "the policies read stickiness [$modes] after the upgrade, want the default Preferred"
 
-    place
+    place every
     [ "$cell" = "$before" ] || fail "placement chose $cell after the upgrade and $before before it"
     restarted=$(kubectl -n "$ns" get pods \
         -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.containerStatuses[0].restartCount}{"\n"}{end}' \
         | grep -v '=0$' || true)
     [ -z "$restarted" ] || fail "containers restarted after the upgrade: $restarted"
-    echo "on this tree: every object intact, placement chose $cell"
+    echo "on this tree: every object intact, every hub replica chose $cell"
 
     # The migration docs/upgrading.md gives. Any write stores an object at the
     # storage version, and an empty merge patch is a write with nothing in it
@@ -1253,7 +1278,7 @@ verify-upgrade:
     done
     snapshot v1beta1 > "$work/migrated.json"
     diff -u "$work/after.json" "$work/migrated.json" || fail "objects changed across the storage migration"
-    place
+    place every
     [ "$cell" = "$before" ] || fail "placement chose $cell once v1alpha1 was gone, and $before before"
 
     echo "upgraded $from to this tree: objects intact, placement unchanged, v1alpha1 removable"
