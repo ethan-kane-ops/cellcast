@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -372,9 +373,11 @@ func (s *Server) handlePlacement(w http.ResponseWriter, r *http.Request) {
 	// changes nothing. A write that fails costs the next placement its memory
 	// and costs this one nothing (docs/architecture.md ADR-012).
 	if err := s.placer.Remember(ctx, decision); err != nil {
+		logWorkload := strings.ReplaceAll(req.Workload, "\n", "")
+		logWorkload = strings.ReplaceAll(logWorkload, "\r", "")
 		s.log.WarnContext(ctx, "the placement was not remembered; the workload's next placement is decided afresh",
 			slog.String("request_id", requestIDFrom(ctx)),
-			slog.String("workload", req.Workload),
+			slog.String("workload", logWorkload),
 			slog.String("policy", decision.Policy),
 			slog.String("cell", decision.Cell),
 			slog.Any("error", err),
