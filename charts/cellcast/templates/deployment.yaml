@@ -88,6 +88,7 @@ spec:
             - --capacity-staleness={{ .Values.hub.capacity.staleness }}
             - --capacity-retention={{ .Values.hub.capacity.retention }}
             - --capacity-max-cells={{ .Values.hub.capacity.maxCells }}
+            - --peers={{ include "cellcast.peersName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.ports.api }}
             - --warmup-timeout={{ .Values.hub.warmupTimeout }}
             - --drain-delay={{ .Values.hub.drainDelay }}
             - --shutdown-timeout={{ .Values.hub.shutdownTimeout }}

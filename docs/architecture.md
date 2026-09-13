@@ -113,6 +113,7 @@ on that split, so a client never has to match on prose to find it.
 | [ADR-011](#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect) | High availability | Every replica answers placements; a lease covers only the reconcilers | Leader-only serving, an active-standby pair, sharing capacity between replicas |
 | [ADR-012](#adr-012-a-workload-stays-where-it-was-placed-and-the-record-lives-in-the-api-server) | Stickiness | The last cell per policy and workload, kept in a `WorkloadPlacement` and preferred while it stays eligible | Per-replica memory, a caller naming its previous cell, asking the spokes |
 | [ADR-013](#adr-013-the-api-graduates-to-v1beta1-and-v1alpha1-stays-served-with-the-same-schema) | API version | `v1beta1` served and stored; `v1alpha1` served beside it with the same schema, conversion `None` | A conversion webhook, going straight to `v1`, dropping `v1alpha1` at once |
+| [ADR-014](#adr-014-a-replica-relays-each-capacity-report-to-the-others) | Capacity across replicas | The replica an agent reached relays each report it accepts to the others, with the agent's own token, and each checks it again | A connection per heartbeat, the agent reporting to every replica, capacity in the API server |
 
 ---
 
@@ -519,7 +520,7 @@ combined record per request, which conflates a decision with a credential.
 
 ### ADR-011: the API path runs N replicas, and only the controllers elect
 
-**Status:** accepted
+**Status:** accepted, amended by ADR-014
 
 **Context.** cellcast is in the deploy critical path, so a single replica is a single point of
 failure for every deploy in the estate. But the hub is two programs in one process. The API answers
@@ -531,18 +532,19 @@ over the same status subresource and emitting every event three times.
 
 This works because of ADR-002 and ADR-005 together: placement reads the informer cache, which every
 replica keeps synced whether or not it holds the lease, and the capacity index that ranks the
-survivors is per-replica and rebuilt from heartbeats. A follower therefore answers a placement
-exactly as well as the leader does. Nothing in the decision path writes. The one write a placement
+survivors is per-replica and rebuilt from heartbeats, each of which reaches every replica
+(ADR-014). A follower therefore answers a placement exactly as well as the leader does. Nothing in
+the decision path writes. The one write a placement
 causes comes after the decision and the mint, is made by whichever replica served it, and costs the
 placement nothing if it fails (ADR-012).
 
 Three consequences follow, and each one needed code:
 
-**Replicas disagree about capacity, and that is acceptable.** Agents heartbeat through the Service,
-so each report lands on whichever replica the load balancer chose. Two replicas asked the same
-question in the same second can pick different cells. Placement is advisory (ADR-006), so a
-marginally worse cell is a worse cell, not a wrong one. What is *not* acceptable is a replica with
-no capacity at all, which is the next point.
+**Replicas can briefly disagree about capacity, and that is acceptable.** An agent's reports all
+reach the replica its connection landed on, which relays each one to the others (ADR-014). While a
+relay is in flight, or after one is lost, two replicas asked the same question can pick different
+cells. Placement is advisory (ADR-006), so a marginally worse cell is a worse cell, not a wrong one.
+What is *not* acceptable is a replica with no capacity at all, which is the next point.
 
 **A replica must be warm before it is ready.** A newly started replica has an empty capacity index.
 Every cell is `Unknown`, so it excludes the entire fleet and refuses every placement it is handed.
@@ -551,7 +553,9 @@ report: every registered `Cluster` that names a reporter and is not `DRAINING`.
 
 That wait has to be bounded, and the reason is a cycle. Agents heartbeat through the Service; a
 Service routes only to ready pods; so a fleet whose hub replicas all restarted at once is waiting
-for reports that nothing can deliver. Past `--warmup-timeout` a replica goes ready anyway, says so
+for reports that nothing can deliver. A replica that starts beside others already serving never
+meets the cycle, because they relay reports to it before it is ready (ADR-014). Past
+`--warmup-timeout` a replica goes ready anyway, says so
 in the log, and names the cells it never heard from. It keeps refusing placements until it is warm,
 with `PlacementUnavailable` rather than `CapacityUnknown`, because the two resolve differently: the
 first is a property of the replica the caller reached and clears itself.
@@ -575,7 +579,9 @@ that makes this service easy to scale, which is that deciding does not write.
 **Rejected: sharing the capacity index between replicas.** Gossip or a shared cache would make
 replicas agree. It would also give the hub a distributed system to be wrong about, in exchange for
 agreement on a number that is advisory and stale by construction. ADR-002 already decided that
-capacity does not warrant durability. It does not warrant consensus either.
+capacity does not warrant durability. It does not warrant consensus either. The relay in ADR-014 is
+not this: nothing is shared and nothing is agreed, and each replica builds its own index from
+reports it verified itself.
 
 **Consequence.** Losing the lease stops the process, so whichever half fails takes the other down
 and a partial failure surfaces as a restart. Under an API server partition
@@ -702,6 +708,66 @@ makes the narrower promise: the shape is settled and upgrades are tested.
 names it, and every existing object is stored at it. Removing it now would fail every `kubectl apply`
 of an existing manifest.
 
+### ADR-014: a replica relays each capacity report to the others
+
+**Status:** accepted. Amends ADR-011.
+
+**Context.** ADR-011 assumed each heartbeat lands on whichever replica the load balancer chose. It
+lands on the same one every time. An agent keeps one connection open, a Kubernetes Service balances
+connections rather than requests, and a heartbeat every 30 seconds keeps that connection from ever
+going idle. With the chart's three replicas, two never hear from a given cell. They refuse every
+placement that needs it with `CapacityUnknown`, or rank the fleet on the cells whose agents happen
+to be connected to them. A replica rolled in during an update is unready, so no connection reaches
+it at all.
+
+**Decision.** A replica that accepts a capacity report from an agent relays it to every other
+replica, found by looking up a headless Service that publishes unready pods (`--peers`). The relay
+carries the body and the `Authorization` header the agent sent, plus a header marking it relayed.
+The receiving replica authenticates the token and checks `spec.reporter` exactly as it would for
+the agent (ADR-009), stores the report by its own clock, and relays it no further.
+
+**Each replica still decides for itself.** A relayed report is the agent's report delivered by
+another route, not one replica vouching for it to another. The relay header grants nothing: it stops
+a report travelling further, so a caller that sets it only stops its own report there. A replica can
+relay nothing the agent's token would not have had accepted directly, and every index is still built
+only from reports its own replica verified.
+
+**Unready replicas are included on purpose.** A starting replica cannot go ready until it holds
+capacity for the fleet, and a Service routes nothing to it until it is ready (ADR-011). Relays reach
+it through the headless Service regardless, so a replica rolled in beside others that are serving
+warms within a heartbeat rather than at `--warmup-timeout`.
+
+**Consequences.** Every accepted report costs each other replica the work it cost the first: a token
+verification against a cached key set and a read from the informer cache. A refused report is not
+relayed. Relaying is fire and forget, bounded by a timeout well inside the heartbeat interval; the
+agent's next report is the retry, and a staleness window is three heartbeats, so one lost relay
+changes nothing. A peer that keeps failing is logged when it starts and when it recovers, and shows
+up as `CellcastCapacityStale` or `CellcastReplicaCannotPlace` firing for that replica alone.
+`just verify-upgrade` places through each of the chart's three replicas after an upgrade, which only
+the relay makes possible, since the agent reports to one of them.
+
+The agent's token now crosses the pod network between replicas as well as from the ingress to the
+first one. The relay dials the looked-up pod address directly, through no proxy and following no
+redirect, and never logs a header. An intercepted token grants what the agent's own does, reporting
+capacity for one cell until it expires ([threat model](threat-model.md) T-05 and T-07).
+
+The chart creates the headless Service, passes it to `--peers`, and, when its NetworkPolicy is on,
+admits the hub's pods to each other on the API port. A hub run without `--peers` relays nothing,
+which is right for one replica.
+
+**Rejected: a new connection per heartbeat.** Reports would spread at random, but a replica would
+hear a given cell once every N heartbeats on average, against a staleness window of three. With
+three replicas, a replica misses all three reports in a window about 30% of the time, and cells
+would flap in and out of `Unknown`.
+
+**Rejected: the agent reporting to every replica.** The agent would have to resolve the hub's pods,
+which a spoke reaching the hub through an ingress or a load balancer cannot. That is the normal
+topology.
+
+**Rejected: capacity in the API server.** Every replica would read the same numbers from its
+informer cache, at the price of writing every heartbeat of every cell to etcd. ADR-002 declined that
+for data that is worthless within minutes.
+
 ### Deployment
 
 Two charts, not one: `charts/cellcast` installs the hub into the hub cluster and
@@ -757,6 +823,7 @@ Capacity is not a resource. It lives in memory, per ADR-002.
 | Hub replica still warming up | Ready, so agents can reach it, but every placement is refused with `PlacementUnavailable` until it is warm (ADR-011) |
 | Hub replica being rolled | Reports unready, keeps serving for `--drain-delay`, then drains in-flight requests (ADR-011) |
 | Leader loses its lease | That replica exits and restarts; the others keep serving placements from cache (ADR-011) |
+| Relays to one hub replica fail | That replica stops hearing cells whose agents are connected elsewhere and excludes them once stale; the replicas relaying to it log it once (ADR-014) |
 | A workload's remembered cell is draining, unpermitted or not reporting | Placed afresh like a new workload, and remembered where it lands (ADR-012) |
 | Recording where a workload landed fails | The placement succeeds; that workload's next placement is decided afresh (ADR-012) |
 | A policy reaches `--stickiness-max-per-policy` | New workloads under it are placed and not remembered; records already held are kept (ADR-012) |

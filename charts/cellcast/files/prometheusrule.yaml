@@ -34,8 +34,10 @@ spec:
         # (job, instance, namespace, pod) is shared by the two metrics because
         # they come from the same target, and `on()` would collapse a
         # multi-replica hub into a many-to-many match that fails to evaluate.
-        # Each replica keeps its own capacity index, so firing per replica is
-        # the right granularity rather than an artefact.
+        # Each replica keeps its own capacity index, filled by the agents'
+        # reports and the other replicas' relays of them, so firing per replica
+        # is the right granularity: one replica alone is a relay not reaching
+        # it, every replica is the agent.
         - alert: CellcastCapacityStale
           expr: |
             cellcast_capacity_staleness_seconds
@@ -49,16 +51,17 @@ spec:
               The hub last accepted a capacity report for {{ $labels.cell }}
               {{ $value | humanizeDuration }} ago, which is more than twice its
               staleness window. The cell is excluded from scoring, so placements
-              are concentrating on the rest of the fleet. Check the agent in
-              that cell.
+              are concentrating on the rest of the fleet. If every hub replica
+              reports this, check the agent in that cell. If only some do,
+              relays from the other replicas are not reaching them.
 
         # The same failure, one step earlier: a cell that is registered, is
         # LIVE, and has never reported at all. It has no staleness series to
         # exceed a threshold, so the rule above cannot see it.
-        # Collapsed to one series per cell before matching, because a cell that
-        # has reported to any replica has been heard from. Comparing per replica
-        # would alert on every cell whose agent happens to be talking to a
-        # different one.
+        # Collapsed to one series per cell before matching, because the
+        # question is whether the agent has reported at all. A replica that
+        # relays are not reaching is for CellcastCapacityStale and
+        # CellcastReplicaCannotPlace to report.
         - alert: CellcastCellNeverReported
           expr: |
             (max by (cell) (cellcast_cluster_state{state="LIVE"}) == 1)
@@ -96,7 +99,8 @@ spec:
               At least one hub replica has never seen a capacity report covering
               the fleet, so every placement it answers is refused with
               PlacementUnavailable. Either the agents cannot reach the hub
-              Service, or a registered cell has no agent running. The hub log
+              Service, relays from the other replicas are not reaching this
+              one, or a registered cell has no agent running. The hub log
               names the cells it is waiting for.
 
         # Either a broken pipeline or somebody probing. Expressed as a share of

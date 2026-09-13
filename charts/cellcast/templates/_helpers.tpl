@@ -41,6 +41,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: hub
 {{- end }}
 
+{{/*
+The headless Service the replicas reach each other through.
+*/}}
+{{- define "cellcast.peersName" -}}
+{{- printf "%s-peers" (include "cellcast.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "cellcast.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "cellcast.fullname" .) .Values.serviceAccount.name }}

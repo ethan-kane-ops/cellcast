@@ -98,6 +98,7 @@ what a compromise of this process does and does not grant.`,
 	f.DurationVar(&cfg.CapacityStaleness, "capacity-staleness", cfg.CapacityStaleness, "how long an agent capacity report stays usable before the cell is excluded from scoring")
 	f.DurationVar(&cfg.CapacityRetention, "capacity-retention", cfg.CapacityRetention, "how long a stale capacity entry is kept before it is dropped entirely")
 	f.IntVar(&cfg.CapacityMaxCells, "capacity-max-cells", cfg.CapacityMaxCells, "maximum number of cells held in the in-memory capacity index")
+	f.StringVar(&cfg.Peers, "peers", cfg.Peers, "host:port resolving to every hub replica, to relay each capacity report to the others; empty relays nothing")
 	f.DurationVar(&cfg.TokenTTLCeiling, "token-max-ttl", cfg.TokenTTLCeiling, "absolute ceiling on minted credential lifetime; no policy or request may exceed it")
 	f.Float64Var(&cfg.PlacementRateLimit, "placement-rate-limit", cfg.PlacementRateLimit, "placements a second one caller may make, per replica; 0 turns the limit off")
 	f.IntVar(&cfg.PlacementBurst, "placement-burst", cfg.PlacementBurst, "placements one caller may make at once before the rate limit applies")
@@ -247,6 +248,16 @@ func run(ctx context.Context, cfg hub.Config, mgrOpts hub.ManagerOptions, authCf
 		hub.WithEventRecorder(mgr.GetEventRecorder("cellcast-hub")),
 		hub.WithMetrics(hubMetrics),
 		hub.WithTracerProvider(tel.TracerProvider()),
+	}
+
+	if cfg.Peers != "" {
+		peers, err := hub.ResolvePeers(cfg.Peers)
+		if err != nil {
+			return err
+		}
+		// Every replica hears every cell, whichever one the agent's connection
+		// reached (docs/architecture.md ADR-014).
+		serverOpts = append(serverOpts, hub.WithRelay(hub.NewPeerRelay(peers, log)))
 	}
 
 	authn, err := buildAuthenticator(ctx, authCfg, log)

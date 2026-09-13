@@ -2,6 +2,7 @@ package hub
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
@@ -57,6 +58,15 @@ type Config struct {
 	CapacityRetention time.Duration
 	// CapacityMaxCells bounds the in-memory capacity index.
 	CapacityMaxCells int
+	// Peers is a DNS name and port, as host:port, that resolve to every
+	// replica of this hub. Each capacity report a replica accepts is relayed to
+	// the others there. Empty relays nothing, which is right for one replica.
+	//
+	// An agent keeps one connection open, and a Service balances connections
+	// rather than requests, so every report from a cell reaches the same
+	// replica. Without the relay the others never hear from that cell
+	// (docs/architecture.md ADR-014).
+	Peers string
 
 	// TokenTTLCeiling is the absolute bound on minted credential lifetime. No
 	// PlacementPolicy and no request may exceed it.
@@ -180,6 +190,11 @@ func (c Config) Validate() error {
 	}
 	if c.CapacityMaxCells <= 0 {
 		return fmt.Errorf("capacity-max-cells must be positive, got %d", c.CapacityMaxCells)
+	}
+	if c.Peers != "" {
+		if host, port, err := net.SplitHostPort(c.Peers); err != nil || host == "" || port == "" {
+			return fmt.Errorf("peers must be host:port, got %q", c.Peers)
+		}
 	}
 	if c.TokenTTLCeiling <= 0 {
 		return fmt.Errorf("token-max-ttl must be positive, got %s", c.TokenTTLCeiling)

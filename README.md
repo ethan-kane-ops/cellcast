@@ -112,11 +112,13 @@ file appeared. On a fallback the kubeconfig at the target path is removed, so a 
 an earlier run cannot be picked up by the next step.
 
 **The hub itself runs more than one replica.** Every replica answers placements, because deciding
-reads and never writes; only the controllers take a lease. A replica reports itself unready until
-it has heard capacity for the fleet, and on shutdown it reports unready and keeps serving while
-Kubernetes takes it out of the Service, so a rolling update of cellcast does not fail the deploys
-running through it. The details, including the deadlock that bounds the warmup wait, are in
-[ADR-011](docs/architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect).
+reads and never writes; only the controllers take a lease. An agent's reports reach one replica,
+which relays them to the others, so each answers for the whole fleet. A replica reports itself
+unready until it has heard capacity for the fleet, and on shutdown it reports unready and keeps
+serving while Kubernetes takes it out of the Service, so a rolling update of cellcast does not fail
+the deploys running through it. The details, including the deadlock that bounds the warmup wait,
+are in [ADR-011](docs/architecture.md#adr-011-the-api-path-runs-n-replicas-and-only-the-controllers-elect)
+and [ADR-014](docs/architecture.md#adr-014-a-replica-relays-each-capacity-report-to-the-others).
 
 ## When the answer is no
 
