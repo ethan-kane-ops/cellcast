@@ -83,6 +83,8 @@ spec:
             - --token-max-ttl={{ .Values.hub.tokenMaxTTL }}
             - --placement-rate-limit={{ .Values.hub.rateLimit.placementsPerSecond }}
             - --placement-burst={{ .Values.hub.rateLimit.burst }}
+            - --stickiness-expire-after={{ .Values.hub.stickiness.expireAfter }}
+            - --stickiness-max-per-policy={{ .Values.hub.stickiness.maxPerPolicy }}
             - --capacity-staleness={{ .Values.hub.capacity.staleness }}
             - --capacity-retention={{ .Values.hub.capacity.retention }}
             - --capacity-max-cells={{ .Values.hub.capacity.maxCells }}

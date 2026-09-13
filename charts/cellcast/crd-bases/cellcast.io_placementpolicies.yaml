@@ -120,6 +120,30 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+              stickiness:
+                default: {}
+                description: |-
+                  Stickiness keeps a workload in the cell it was last placed in.
+
+                  On unless set to None. Without it, two deploys of one service minutes
+                  apart can land in different cells as utilisation shifts, and the service
+                  ends up split across both with nobody having decided that. None suits
+                  workloads meant to spread, such as batch jobs under RoundRobin.
+                properties:
+                  mode:
+                    default: Preferred
+                    description: |-
+                      Mode is Preferred or None.
+
+                      Preferred is a preference and never a refusal. A workload whose cell is
+                      draining, has left the policy's selector or has stopped reporting is
+                      placed afresh and remembered where it lands. A cell that is merely busy
+                      keeps its workloads: moving them off is what DRAINING is for.
+                    enum:
+                    - Preferred
+                    - None
+                    type: string
+                type: object
               strategy:
                 default: LeastLoaded
                 description: |-

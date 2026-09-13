@@ -54,6 +54,15 @@ hub:
     # for a matrix build, which deploys every leg under one caller identity.
     burst: 50
 
+  stickiness:
+    # -- How long the hub remembers where a workload was placed, if it is not
+    # placed again. It bounds storage and never moves a workload that is still
+    # deploying. At least 24h.
+    expireAfter: 2160h
+    # -- Most workloads one PlacementPolicy may have remembered. Past it, new
+    # workloads are placed and not remembered, and existing records are kept.
+    maxPerPolicy: 10000
+
   capacity:
     # -- How long an agent report stays usable. Past it the cell is Unknown and
     # excluded from scoring rather than read as empty.

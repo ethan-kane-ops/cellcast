@@ -136,7 +136,8 @@ export KUBECONFIG="$work/euw1.kubeconfig"
 echo "==> installing the registry CRDs"
 kubectl apply -f config/crd/bases/ > /dev/null
 kubectl wait --for=condition=Established --timeout=60s \
-    crd/clusters.cellcast.io crd/placementpolicies.cellcast.io crd/trustconfigs.cellcast.io > /dev/null
+    crd/clusters.cellcast.io crd/placementpolicies.cellcast.io crd/trustconfigs.cellcast.io \
+    crd/workloadplacements.cellcast.io > /dev/null
 
 # Caller identities. Minted from the hub cluster, which is also a cell, so both
 # tokens carry euw1's issuer.

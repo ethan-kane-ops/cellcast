@@ -18,6 +18,12 @@ lease, and ranks the survivors on a capacity index that is per-replica and
 rebuilt from heartbeats. A follower answers a placement exactly as well as the
 leader does.
 
+The one write a placement causes comes after the decision, once a credential
+has been minted: the cell the workload landed in, so the next placement can
+keep it there. Any replica makes it, it survives the rollout of the replica that
+made it, and a write that fails costs only that workload's next placement its
+memory ([stickiness](placement-policy.md#stickiness)).
+
 ## Replicas disagree about capacity
 
 Agents heartbeat through the Service, so each report lands on whichever replica

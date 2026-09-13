@@ -28,6 +28,11 @@ type stubPlacer struct {
 	err      error
 	gotReq   placement.Request
 	gotID    *identity.Identity
+
+	// remembered is every decision the handler asked to have remembered, and
+	// rememberErr is what each of those calls returns.
+	remembered  []*placement.Decision
+	rememberErr error
 }
 
 func (p *stubPlacer) Place(_ context.Context, id *identity.Identity, req placement.Request) (*placement.Decision, error) {
@@ -36,6 +41,11 @@ func (p *stubPlacer) Place(_ context.Context, id *identity.Identity, req placeme
 		return nil, p.err
 	}
 	return p.decision, nil
+}
+
+func (p *stubPlacer) Remember(_ context.Context, d *placement.Decision) error {
+	p.remembered = append(p.remembered, d)
+	return p.rememberErr
 }
 
 type stubMinter struct {

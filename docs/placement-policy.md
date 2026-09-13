@@ -36,6 +36,8 @@ spec:
     default: 15m
     max: 30m
   allowDarkTargeting: false
+  stickiness:
+    mode: Preferred
 ```
 
 ### `subjects`
@@ -103,6 +105,49 @@ Whether a caller under this policy may ask for a `DARK` cell with `--dark`. Off
 by default. A dark cell is reachable **only** through a policy that permits it,
 which is what makes a QA smoke test against one safe to run.
 
+### `stickiness`
+
+Whether a workload stays in the cell it was last placed in. On by default:
+
+```yaml
+spec:
+  stickiness:
+    mode: Preferred   # or None
+```
+
+Under `Preferred` the hub remembers the cell each workload was placed in under
+this policy, and the next placement of the same workload goes back there while
+that cell is still permitted, eligible and reporting capacity. Two deploys of
+one service ten minutes apart land in the same cell, however utilisation moved
+in between.
+
+It is a preference, never a refusal. A remembered cell that is `DRAINING`, has
+left `permittedCells` or has stopped reporting is passed over, and the workload
+is placed afresh and remembered where it lands, so it does not bounce back when
+the old cell returns. A cell that is merely busy keeps its workloads: drain it to
+move them.
+
+`None` decides every placement afresh, for workloads meant to spread such as
+batch jobs. Under `Preferred`, `RoundRobin` spreads new workloads across cells
+and leaves placed ones where they are.
+
+The workload is the `--workload` name the pipeline passes, so keep it stable
+across deploys. A preview environment named per pull request is a new workload
+every time, and is forgotten 90 days after its last deploy. Only a placement
+that minted a credential is remembered: `--dry-run`, `cellcast policy test` and
+a `--dark` smoke test change nothing.
+
+The records are `WorkloadPlacement` objects in the hub's namespace:
+
+```console
+$ kubectl -n cellcast-system get workloadplacements
+NAME                                  POLICY     WORKLOAD       CELL        LAST PLACED
+wp-5f0c2a9e1b7d4c3a8e6f0b1d2c3a4e5f   app-prod   checkout-api   prod-euw1   3h
+```
+
+Delete one to have the next placement decide afresh, or edit its `cell` to move
+the workload on its next deploy. The new cell still has to pass the filter.
+
 ## Cell state, which is not policy
 
 A cell's `spec.state` is set by an operator and applies to every policy:
@@ -138,6 +183,7 @@ The `STAGE` column says where a cell dropped out:
 | `permission` | The policy's `permittedCells` does not select it |
 | `state` | It is `DRAINING`, or `DARK` without a dark-targeting request |
 | `capacity` | Its capacity is stale or missing, so it cannot be ranked |
+| `stickiness` | Not a refusal: the chosen cell, kept because the workload was placed there last time |
 
 A cell excluded at `capacity` is a monitoring problem, not a policy problem.
 

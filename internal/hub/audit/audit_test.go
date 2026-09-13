@@ -167,6 +167,7 @@ func TestRecordHasNoFieldThatCouldHoldAToken(t *testing.T) {
 		"TargetedDark":   {"targeted_dark", "a bool", true},
 		"RequestedTTL":   {"requested_ttl", "a duration", true},
 		"Cell":           {"cell", "a registered Cluster name", true},
+		"PreviousCell":   {"previous_cell", "a cell name read from the hub's own WorkloadPlacement, never from the request", true},
 		"Policy":         {"policy", "a PlacementPolicy name", true},
 		"Strategy":       {"strategy", "a scoring strategy name", true},
 		"Confidence":     {"confidence", "a confidence level", true},

@@ -176,6 +176,7 @@ asking. It says nothing about what they may ask for.
 | Scoring strategy chosen by policy, not by the caller | Implemented |
 | e2e test asserting a dev token cannot reach a prod-labelled cell | Implemented: `just verify-e2e`, where the least-loaded cell in the fixture is one the caller may not reach |
 | `--explain` renders the filter step separately so a rejection is legible | Implemented |
+| Stickiness chooses only among cells that passed the filter | Implemented: a remembered cell is preferred in place of the score, over the same survivors, so memory steers between permitted, eligible cells and never past the filter. A caller naming a workload remembered in another permitted cell reaches nothing its policy does not already permit ([ADR-012](architecture.md#adr-012-a-workload-stays-where-it-was-placed-and-the-record-lives-in-the-api-server)) |
 
 **The subtle failure.** Scoring before filtering produces a working system that passes its happy-path
 tests and routes a dev deploy into the least-loaded production cluster the first time production is
@@ -216,6 +217,7 @@ attacker's cluster. That is exfiltration of both workload and token.
 | New cells are not scorable until an authenticated agent reports capacity | Implemented |
 | Registration and state transitions are visible in the API server audit log | Implemented |
 | State changes write `spec.state` only, so a stale read cannot revert an endpoint or label | Implemented |
+| Editing a `WorkloadPlacement` cannot move a workload past the filter | Implemented: an edited `cell` is preferred only when it is admitted, so `update` on `workloadplacements.cellcast.io` moves a workload between cells its policy already permits and grants no reach of its own |
 
 **Registration does not probe the endpoint.** `POST /api/v1/clusters` validates the endpoint's shape
 and stores it. It does not connect to it to check reachability or certificate validity. Probing
@@ -285,6 +287,7 @@ every deploy in the estate, which is a worse outage than the problem cellcast so
 | Rate limiting per authenticated caller identity | Implemented: a token bucket per issuer and subject, checked after authentication and before any work, answering 429 `RateLimited` with `Retry-After`. Per replica, so N replicas allow N times `--placement-rate-limit`. A Buildkite `sub` carries the commit, so there the bucket is per build |
 | Trace context from callers cannot make tracing an amplifier | Implemented: only W3C `traceparent` and `tracestate` are read, never baggage. A caller can ask for its request to be sampled, which costs one exported trace per request, the same order as the request log line it already produces. The export queue is bounded and drops when full, and a collector outage is logged at most once a minute rather than stopping the hub |
 | Capacity index bounded, and reports for unregistered cells refused | Implemented |
+| What a caller can make the hub store is bounded | Implemented: one `WorkloadPlacement` per policy and workload, written only after a mint and at most hourly when nothing changed, capped per policy by `--stickiness-max-per-policy` and deleted after `--stickiness-expire-after`. A caller inventing workload names pays a mint per record, each one audited, and stops at the cap without affecting records already held |
 | Capacity report payloads size-bounded before decoding | Implemented |
 | Fuzz targets over the placement and registration request bodies | Implemented: both handlers, asserting the status set, that every response is JSON, and that a refusal carries a reason the client contract defines |
 

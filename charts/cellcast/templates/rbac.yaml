@@ -20,6 +20,12 @@ rules:
   - apiGroups: ["cellcast.io"]
     resources: ["clusters", "placementpolicies", "trustconfigs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Where each workload was last placed. Written by every replica, because
+  # every replica answers placements, and deleted by the leader once a record
+  # expires. Holds names and a timestamp, never a credential.
+  - apiGroups: ["cellcast.io"]
+    resources: ["workloadplacements"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
   - apiGroups: ["cellcast.io"]
     resources: ["clusters/status", "placementpolicies/status", "trustconfigs/status"]
     verbs: ["get", "update", "patch"]

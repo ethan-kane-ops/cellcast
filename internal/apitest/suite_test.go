@@ -34,6 +34,7 @@ var crdNames = []string{
 	"clusters.cellcast.io",
 	"placementpolicies.cellcast.io",
 	"trustconfigs.cellcast.io",
+	"workloadplacements.cellcast.io",
 }
 
 var (

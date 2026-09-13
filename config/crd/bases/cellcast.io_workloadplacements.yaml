@@ -1,0 +1,116 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: workloadplacements.cellcast.io
+spec:
+  group: cellcast.io
+  names:
+    kind: WorkloadPlacement
+    listKind: WorkloadPlacementList
+    plural: workloadplacements
+    shortNames:
+    - ccwp
+    singular: workloadplacement
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.policy
+      name: Policy
+      type: string
+    - jsonPath: .spec.workload
+      name: Workload
+      type: string
+    - jsonPath: .spec.cell
+      name: Cell
+      type: string
+    - jsonPath: .spec.lastPlacedAt
+      name: Last Placed
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          WorkloadPlacement is the cell a workload was last placed in, which the next
+          placement of the same workload under the same policy prefers.
+
+          Written by the hub once a credential has been minted, never by a caller and
+          never by a dry run. Deleting one makes the next placement decide afresh. It
+          holds names and a timestamp: no credential, and nothing a caller sent beyond
+          the workload's name. See docs/architecture.md ADR-012.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              WorkloadPlacementSpec is the cell one workload was last placed in, under one
+              policy.
+            properties:
+              cell:
+                description: |-
+                  Cell is the Cluster the workload was last placed in. The next placement
+                  prefers it while it stays permitted, eligible and reporting capacity.
+
+                  An operator may edit it to move a workload on its next deploy. The new
+                  cell still has to pass the same filter, so the edit moves a workload
+                  between cells its policy permits and nowhere else.
+                maxLength: 253
+                minLength: 1
+                type: string
+              lastPlacedAt:
+                description: |-
+                  LastPlacedAt is when a placement last landed in Cell, to within an hour.
+                  The hub rewrites it at most hourly, so a workload deployed every few
+                  minutes is not an API server write every few minutes.
+                format: date-time
+                type: string
+              policy:
+                description: |-
+                  Policy is the PlacementPolicy the workload was placed under.
+
+                  Part of the key, because a workload name is the caller's own string: the
+                  same name under another policy is another team's workload, and one team's
+                  deploys must not decide where another's land.
+                maxLength: 253
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: policy is immutable
+                  rule: self == oldSelf
+              workload:
+                description: Workload is the name the caller placed, verbatim.
+                maxLength: 4096
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: workload is immutable
+                  rule: self == oldSelf
+            required:
+            - cell
+            - lastPlacedAt
+            - policy
+            - workload
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}
