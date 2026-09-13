@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/recorder"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
@@ -56,7 +56,7 @@ func (r *ClusterReconciler) now() metav1.Time {
 
 // Reconcile reflects spec.state into status.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	if err := r.Client.Get(ctx, req.NamespacedName, &cl); err != nil {
 		if apierrors.IsNotFound(err) && r.Capacity != nil {
 			r.Capacity.Forget(req.Name)
@@ -86,7 +86,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func orNone(s cellcastv1alpha1.ClusterState) string {
+func orNone(s cellcastv1beta1.ClusterState) string {
 	if s == "" {
 		return "<none>"
 	}
@@ -98,7 +98,7 @@ func orNone(s cellcastv1alpha1.ClusterState) string {
 // Split out from Reconcile so the mapping from state to condition is testable
 // without a client, and so the comparison that decides whether to write is
 // against a value rather than against a sequence of assignments.
-func applyClusterStatus(cl *cellcastv1alpha1.Cluster, state cellcastv1alpha1.ClusterState, now metav1.Time) {
+func applyClusterStatus(cl *cellcastv1beta1.Cluster, state cellcastv1beta1.ClusterState, now metav1.Time) {
 	if cl.Status.ObservedState != state {
 		cl.Status.StateSince = &now
 	}
@@ -107,7 +107,7 @@ func applyClusterStatus(cl *cellcastv1alpha1.Cluster, state cellcastv1alpha1.Clu
 
 	status, reason, message := acceptingCondition(state)
 	meta.SetStatusCondition(&cl.Status.Conditions, metav1.Condition{
-		Type:               cellcastv1alpha1.ClusterConditionAccepting,
+		Type:               cellcastv1beta1.ClusterConditionAccepting,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
@@ -121,19 +121,19 @@ func applyClusterStatus(cl *cellcastv1alpha1.Cluster, state cellcastv1alpha1.Clu
 // question, "will an ordinary placement land here", and for a dark cell the
 // answer is no; the message carries the exception. Unknown would suggest the
 // hub cannot tell, which is a different and more alarming situation.
-func acceptingCondition(state cellcastv1alpha1.ClusterState) (metav1.ConditionStatus, string, string) {
+func acceptingCondition(state cellcastv1beta1.ClusterState) (metav1.ConditionStatus, string, string) {
 	switch state {
-	case cellcastv1alpha1.ClusterStateLive:
-		return metav1.ConditionTrue, cellcastv1alpha1.ClusterReasonLive,
+	case cellcastv1beta1.ClusterStateLive:
+		return metav1.ConditionTrue, cellcastv1beta1.ClusterReasonLive,
 			"accepting new placements"
-	case cellcastv1alpha1.ClusterStateDark:
-		return metav1.ConditionFalse, cellcastv1alpha1.ClusterReasonDark,
+	case cellcastv1beta1.ClusterStateDark:
+		return metav1.ConditionFalse, cellcastv1beta1.ClusterReasonDark,
 			"accepting only placements that explicitly target a dark cell"
-	case cellcastv1alpha1.ClusterStateDraining:
-		return metav1.ConditionFalse, cellcastv1alpha1.ClusterReasonDraining,
+	case cellcastv1beta1.ClusterStateDraining:
+		return metav1.ConditionFalse, cellcastv1beta1.ClusterReasonDraining,
 			"accepting no new placements; workloads already here continue to serve"
 	default:
-		return metav1.ConditionUnknown, cellcastv1alpha1.ClusterReasonUnknown,
+		return metav1.ConditionUnknown, cellcastv1beta1.ClusterReasonUnknown,
 			"state is not recognised by this hub version"
 	}
 }
@@ -144,7 +144,7 @@ func acceptingCondition(state cellcastv1alpha1.ClusterState) (metav1.ConditionSt
 // Condition timestamps are excluded: meta.SetStatusCondition preserves
 // LastTransitionTime when nothing changed, so comparing the rest is enough, and
 // comparing timestamps would make every reconcile a write.
-func equality(a, b *cellcastv1alpha1.ClusterStatus) bool {
+func equality(a, b *cellcastv1beta1.ClusterStatus) bool {
 	if a.ObservedState != b.ObservedState || a.ObservedGeneration != b.ObservedGeneration {
 		return false
 	}
@@ -164,7 +164,7 @@ func equality(a, b *cellcastv1alpha1.ClusterStatus) bool {
 // SetupWithManager registers the reconciler with mgr.
 func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&cellcastv1alpha1.Cluster{}).
+		For(&cellcastv1beta1.Cluster{}).
 		Named("cluster").
 		Complete(r)
 }

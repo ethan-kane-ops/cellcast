@@ -13,7 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 )
 
@@ -51,21 +51,21 @@ type TrustConfigReconciler struct {
 
 // Reconcile publishes whether this configuration resolves.
 func (r *TrustConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var trust cellcastv1alpha1.TrustConfig
+	var trust cellcastv1beta1.TrustConfig
 	if err := r.Client.Get(ctx, req.NamespacedName, &trust); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	reason, message := r.evaluate(ctx, &trust)
 	status := metav1.ConditionFalse
-	if reason == cellcastv1alpha1.TrustReasonValid {
+	if reason == cellcastv1beta1.TrustReasonValid {
 		status = metav1.ConditionTrue
 	}
 
 	before := trust.Status.DeepCopy()
 	trust.Status.ObservedGeneration = trust.Generation
 	meta.SetStatusCondition(&trust.Status.Conditions, metav1.Condition{
-		Type:               cellcastv1alpha1.TrustConfigConditionReady,
+		Type:               cellcastv1beta1.TrustConfigConditionReady,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
@@ -85,16 +85,16 @@ func (r *TrustConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 // evaluate returns the condition reason and message for a trust configuration.
-func (r *TrustConfigReconciler) evaluate(ctx context.Context, trust *cellcastv1alpha1.TrustConfig) (string, string) {
+func (r *TrustConfigReconciler) evaluate(ctx context.Context, trust *cellcastv1beta1.TrustConfig) (string, string) {
 	if err := broker.ValidateTrust(trust); err != nil {
 		// A named-but-unbuilt provider is called out separately from a broken
 		// one. "aws is not implemented in this build" tells an operator to wait
 		// for v0.2; "invalid" would send them looking for a typo.
 		if errors.Is(err, broker.ErrProviderNotImplemented) {
-			return cellcastv1alpha1.TrustReasonProviderNotImplemented,
+			return cellcastv1beta1.TrustReasonProviderNotImplemented,
 				fmt.Sprintf("provider %q is not implemented in this build", trust.Spec.Provider)
 		}
-		return cellcastv1alpha1.TrustReasonInvalidConfiguration, err.Error()
+		return cellcastv1beta1.TrustReasonInvalidConfiguration, err.Error()
 	}
 
 	if ref := trust.Spec.CredentialSource.SecretRef; ref != nil {
@@ -104,13 +104,13 @@ func (r *TrustConfigReconciler) evaluate(ctx context.Context, trust *cellcastv1a
 	}
 
 	k := trust.Spec.Kubernetes
-	return cellcastv1alpha1.TrustReasonValid,
+	return cellcastv1beta1.TrustReasonValid,
 		fmt.Sprintf("mints for %s/%s via %s", k.Namespace, k.ServiceAccountName, trust.Spec.Provider)
 }
 
 // checkSecret reports a problem with the referenced credential, or empty
 // strings when it resolves.
-func (r *TrustConfigReconciler) checkSecret(ctx context.Context, ref *cellcastv1alpha1.SecretKeyReference) (string, string) {
+func (r *TrustConfigReconciler) checkSecret(ctx context.Context, ref *cellcastv1beta1.SecretKeyReference) (string, string) {
 	key := ref.Key
 	if key == "" {
 		key = "kubeconfig"
@@ -120,19 +120,19 @@ func (r *TrustConfigReconciler) checkSecret(ctx context.Context, ref *cellcastv1
 	err := r.Secrets.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: ref.Name}, &secret)
 	switch {
 	case apierrors.IsNotFound(err):
-		return cellcastv1alpha1.TrustReasonCredentialMissing,
+		return cellcastv1beta1.TrustReasonCredentialMissing,
 			fmt.Sprintf("secret %q does not exist", ref.Name)
 	case err != nil:
-		return cellcastv1alpha1.TrustReasonCredentialMissing,
+		return cellcastv1beta1.TrustReasonCredentialMissing,
 			fmt.Sprintf("secret %q could not be read: %v", ref.Name, err)
 	case len(secret.Data[key]) == 0:
-		return cellcastv1alpha1.TrustReasonCredentialMissing,
+		return cellcastv1beta1.TrustReasonCredentialMissing,
 			fmt.Sprintf("secret %q has no key %q", ref.Name, key)
 	}
 	return "", ""
 }
 
-func trustStatusEqual(a, b *cellcastv1alpha1.TrustConfigStatus) bool {
+func trustStatusEqual(a, b *cellcastv1beta1.TrustConfigStatus) bool {
 	if a.ObservedGeneration != b.ObservedGeneration || len(a.Conditions) != len(b.Conditions) {
 		return false
 	}
@@ -154,7 +154,7 @@ func trustStatusEqual(a, b *cellcastv1alpha1.TrustConfigStatus) bool {
 // ones do it.
 func (r *TrustConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&cellcastv1alpha1.TrustConfig{}).
+		For(&cellcastv1beta1.TrustConfig{}).
 		Named("trustconfig").
 		Complete(r)
 }

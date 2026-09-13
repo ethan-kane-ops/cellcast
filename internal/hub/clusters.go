@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // maxRegistrationBytes bounds a registration payload. A CA bundle is the only
@@ -171,9 +171,9 @@ func (reg *clusterRegistration) validate() error {
 	problems = append(problems, validateEndpoint(reg.Endpoint)...)
 	problems = append(problems, validateCABundle(reg.CABundle)...)
 
-	switch cellcastv1alpha1.Provider(reg.Provider) {
-	case cellcastv1alpha1.ProviderEKS, cellcastv1alpha1.ProviderGKE,
-		cellcastv1alpha1.ProviderAKS, cellcastv1alpha1.ProviderGeneric:
+	switch cellcastv1beta1.Provider(reg.Provider) {
+	case cellcastv1beta1.ProviderEKS, cellcastv1beta1.ProviderGKE,
+		cellcastv1beta1.ProviderAKS, cellcastv1beta1.ProviderGeneric:
 	default:
 		problems = append(problems, "provider must be one of eks, gke, aks, generic")
 	}
@@ -182,9 +182,9 @@ func (reg *clusterRegistration) validate() error {
 		problems = append(problems, "trustConfigRef is required; a cell with no trust configuration can never be minted for")
 	}
 
-	switch cellcastv1alpha1.ClusterState(reg.State) {
-	case "", cellcastv1alpha1.ClusterStateLive,
-		cellcastv1alpha1.ClusterStateDark, cellcastv1alpha1.ClusterStateDraining:
+	switch cellcastv1beta1.ClusterState(reg.State) {
+	case "", cellcastv1beta1.ClusterStateLive,
+		cellcastv1beta1.ClusterStateDark, cellcastv1beta1.ClusterStateDraining:
 	default:
 		problems = append(problems, "state must be one of LIVE, DARK, DRAINING")
 	}
@@ -296,14 +296,14 @@ func validateReporter(in *reporterPayload) []string {
 	return problems
 }
 
-func (in *reporterPayload) toAPI() *cellcastv1alpha1.ReporterIdentity {
+func (in *reporterPayload) toAPI() *cellcastv1beta1.ReporterIdentity {
 	if in == nil {
 		return nil
 	}
-	return &cellcastv1alpha1.ReporterIdentity{Issuer: in.Issuer, Subject: in.Subject}
+	return &cellcastv1beta1.ReporterIdentity{Issuer: in.Issuer, Subject: in.Subject}
 }
 
-func newReporterPayload(in *cellcastv1alpha1.ReporterIdentity) *reporterPayload {
+func newReporterPayload(in *cellcastv1beta1.ReporterIdentity) *reporterPayload {
 	if in == nil {
 		return nil
 	}
@@ -322,30 +322,30 @@ func isReservedLabel(key string) bool {
 // toCluster converts a validated registration into the CRD that is actually
 // stored. Nothing in the payload reaches the object except through this
 // function, so a field cannot be persisted without appearing here.
-func (reg *clusterRegistration) toCluster(namespace string) *cellcastv1alpha1.Cluster {
-	state := cellcastv1alpha1.ClusterState(reg.State)
+func (reg *clusterRegistration) toCluster(namespace string) *cellcastv1beta1.Cluster {
+	state := cellcastv1beta1.ClusterState(reg.State)
 	if state == "" {
-		state = cellcastv1alpha1.ClusterStateLive
+		state = cellcastv1beta1.ClusterStateLive
 	}
 
-	return &cellcastv1alpha1.Cluster{
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      reg.Name,
 			Namespace: namespace,
 			Labels:    reg.Labels,
 		},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       reg.Endpoint,
 			CABundle:       reg.CABundle,
-			Provider:       cellcastv1alpha1.Provider(reg.Provider),
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: reg.TrustConfigRef},
+			Provider:       cellcastv1beta1.Provider(reg.Provider),
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: reg.TrustConfigRef},
 			Reporter:       reg.Reporter.toAPI(),
 			State:          state,
 		},
 	}
 }
 
-func newClusterResponse(cl *cellcastv1alpha1.Cluster) clusterResponse {
+func newClusterResponse(cl *cellcastv1beta1.Cluster) clusterResponse {
 	return clusterResponse{
 		Name:           cl.Name,
 		Endpoint:       cl.Spec.Endpoint,
@@ -361,7 +361,7 @@ func newClusterResponse(cl *cellcastv1alpha1.Cluster) clusterResponse {
 	}
 }
 
-func stateSince(cl *cellcastv1alpha1.Cluster) *time.Time {
+func stateSince(cl *cellcastv1beta1.Cluster) *time.Time {
 	if cl.Status.StateSince == nil {
 		return nil
 	}
@@ -442,7 +442,7 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 		selector = parsed
 	}
 
-	var list cellcastv1alpha1.ClusterList
+	var list cellcastv1beta1.ClusterList
 	err := s.k8s.List(r.Context(), &list,
 		client.InNamespace(s.cfg.Namespace),
 		client.MatchingLabelsSelector{Selector: selector},
@@ -477,7 +477,7 @@ func (s *Server) handleGetCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: s.cfg.Namespace, Name: r.PathValue("name")}
 	if err := s.k8s.Get(r.Context(), key, &cl); err != nil {
 		if apierrors.IsNotFound(err) {

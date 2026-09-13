@@ -5,7 +5,7 @@
 # Labelling a new cell `env: prod` adds it to every policy that selects on that
 # label, without editing any of them.
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: Cluster
 metadata:
   name: prod-euw1
@@ -36,7 +36,7 @@ spec:
   # which is the usual case for a private CA.
   # caBundle: LS0tLS1CRUdJTi...
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: Cluster
 metadata:
   name: prod-use1
@@ -55,7 +55,7 @@ spec:
     issuer: https://oidc.eks.us-east-1.amazonaws.com/id/EXAMPLEUSE1
     subject: system:serviceaccount:cellcast-system:cellcast-agent
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: Cluster
 metadata:
   name: prod-apse1
@@ -80,7 +80,7 @@ spec:
     issuer: https://oidc.eks.ap-southeast-1.amazonaws.com/id/EXAMPLEAPSE1
     subject: system:serviceaccount:cellcast-system:cellcast-agent
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: Cluster
 metadata:
   name: staging-euw1

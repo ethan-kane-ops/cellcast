@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // TestClusterSchemaRefusesWhatTheMarkersForbid checks that every validation
@@ -26,48 +26,48 @@ func TestClusterSchemaRefusesWhatTheMarkersForbid(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		mutate    func(*cellcastv1alpha1.Cluster)
+		mutate    func(*cellcastv1beta1.Cluster)
 		wantField string
 	}{
 		{
 			name:      "a provider outside the enum",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.Provider = "digitalocean" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.Provider = "digitalocean" },
 			wantField: "spec.provider",
 		},
 		{
 			name:      "a state outside the enum",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.State = "PAUSED" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.State = "PAUSED" },
 			wantField: "spec.state",
 		},
 		{
 			name:      "a lowercase spelling of a valid state",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.State = "live" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.State = "live" },
 			wantField: "spec.state",
 		},
 		{
 			name:      "a plaintext endpoint",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.Endpoint = "http://cell.example.internal:6443" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.Endpoint = "http://cell.example.internal:6443" },
 			wantField: "spec.endpoint",
 		},
 		{
 			name:      "an endpoint that is not a URL at all",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.Endpoint = "cell.example.internal" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.Endpoint = "cell.example.internal" },
 			wantField: "spec.endpoint",
 		},
 		{
 			name:      "an empty endpoint",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.Endpoint = "" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.Endpoint = "" },
 			wantField: "spec.endpoint",
 		},
 		{
 			name:      "an empty trust config name",
-			mutate:    func(cl *cellcastv1alpha1.Cluster) { cl.Spec.TrustConfigRef.Name = "" },
+			mutate:    func(cl *cellcastv1beta1.Cluster) { cl.Spec.TrustConfigRef.Name = "" },
 			wantField: "spec.trustConfigRef.name",
 		},
 		{
 			name: "a plaintext reporter issuer",
-			mutate: func(cl *cellcastv1alpha1.Cluster) {
-				cl.Spec.Reporter = &cellcastv1alpha1.ReporterIdentity{
+			mutate: func(cl *cellcastv1beta1.Cluster) {
+				cl.Spec.Reporter = &cellcastv1beta1.ReporterIdentity{
 					Issuer:  "http://kubernetes.default.svc",
 					Subject: "system:serviceaccount:cellcast-system:cellcast-agent",
 				}
@@ -76,8 +76,8 @@ func TestClusterSchemaRefusesWhatTheMarkersForbid(t *testing.T) {
 		},
 		{
 			name: "an empty reporter subject",
-			mutate: func(cl *cellcastv1alpha1.Cluster) {
-				cl.Spec.Reporter = &cellcastv1alpha1.ReporterIdentity{
+			mutate: func(cl *cellcastv1beta1.Cluster) {
+				cl.Spec.Reporter = &cellcastv1beta1.ReporterIdentity{
 					Issuer:  "https://oidc.example.internal",
 					Subject: "",
 				}
@@ -116,7 +116,7 @@ func TestClusterSchemaAcceptsAValidCell(t *testing.T) {
 	ns := newNamespace(t, c)
 
 	cl := validCluster(ns, "accepted")
-	cl.Spec.Reporter = &cellcastv1alpha1.ReporterIdentity{
+	cl.Spec.Reporter = &cellcastv1beta1.ReporterIdentity{
 		Issuer:  "https://oidc.cell.example.internal",
 		Subject: "system:serviceaccount:cellcast-system:cellcast-agent",
 	}
@@ -141,16 +141,16 @@ func TestCRDDefaultsAreApplied(t *testing.T) {
 		if err := c.Create(ctx, cl); err != nil {
 			t.Fatalf("create: %v", err)
 		}
-		if got := cl.Spec.State; got != cellcastv1alpha1.ClusterStateLive {
-			t.Errorf("state = %q, want %q", got, cellcastv1alpha1.ClusterStateLive)
+		if got := cl.Spec.State; got != cellcastv1beta1.ClusterStateLive {
+			t.Errorf("state = %q, want %q", got, cellcastv1beta1.ClusterStateLive)
 		}
 	})
 
 	t.Run("a policy defaults to LeastLoaded and withholds dark cells", func(t *testing.T) {
-		pol := &cellcastv1alpha1.PlacementPolicy{
+		pol := &cellcastv1beta1.PlacementPolicy{
 			ObjectMeta: metav1.ObjectMeta{Name: "defaulted", Namespace: ns},
-			Spec: cellcastv1alpha1.PlacementPolicySpec{
-				Subjects: []cellcastv1alpha1.SubjectSelector{
+			Spec: cellcastv1beta1.PlacementPolicySpec{
+				Subjects: []cellcastv1beta1.SubjectSelector{
 					{Issuer: "https://token.actions.githubusercontent.com"},
 				},
 			},
@@ -158,8 +158,8 @@ func TestCRDDefaultsAreApplied(t *testing.T) {
 		if err := c.Create(ctx, pol); err != nil {
 			t.Fatalf("create: %v", err)
 		}
-		if got := pol.Spec.Strategy; got != cellcastv1alpha1.ScoringLeastLoaded {
-			t.Errorf("strategy = %q, want %q", got, cellcastv1alpha1.ScoringLeastLoaded)
+		if got := pol.Spec.Strategy; got != cellcastv1beta1.ScoringLeastLoaded {
+			t.Errorf("strategy = %q, want %q", got, cellcastv1beta1.ScoringLeastLoaded)
 		}
 		if pol.Spec.AllowDarkTargeting {
 			t.Error("allowDarkTargeting defaulted to true; dark cells are opt-in")
@@ -167,14 +167,14 @@ func TestCRDDefaultsAreApplied(t *testing.T) {
 	})
 
 	t.Run("a secret reference defaults to the kubeconfig key", func(t *testing.T) {
-		tc := &cellcastv1alpha1.TrustConfig{
+		tc := &cellcastv1beta1.TrustConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "defaulted", Namespace: ns},
-			Spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider: cellcastv1alpha1.TrustProviderKubernetes,
-				CredentialSource: cellcastv1alpha1.CredentialSource{
-					SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "cell-creds"},
+			Spec: cellcastv1beta1.TrustConfigSpec{
+				Provider: cellcastv1beta1.TrustProviderKubernetes,
+				CredentialSource: cellcastv1beta1.CredentialSource{
+					SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "cell-creds"},
 				},
-				Kubernetes: &cellcastv1alpha1.KubernetesTrust{
+				Kubernetes: &cellcastv1beta1.KubernetesTrust{
 					ServiceAccountName: "deployer",
 					Namespace:          "apps",
 				},
@@ -199,9 +199,9 @@ func TestPlacementPolicySchemaRequiresASubject(t *testing.T) {
 	c := newClient(t)
 	ns := newNamespace(t, c)
 
-	pol := &cellcastv1alpha1.PlacementPolicy{
+	pol := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "no-subjects", Namespace: ns},
-		Spec:       cellcastv1alpha1.PlacementPolicySpec{Subjects: nil},
+		Spec:       cellcastv1beta1.PlacementPolicySpec{Subjects: nil},
 	}
 	err := c.Create(context.Background(), pol)
 	if err == nil {
@@ -221,10 +221,10 @@ func TestPlacementPolicySchemaRejectsAnUnknownStrategy(t *testing.T) {
 	c := newClient(t)
 	ns := newNamespace(t, c)
 
-	pol := &cellcastv1alpha1.PlacementPolicy{
+	pol := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "bad-strategy", Namespace: ns},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{Issuer: "https://issuer.example"}},
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{Issuer: "https://issuer.example"}},
 			Strategy: "Random",
 		},
 	}
@@ -248,30 +248,30 @@ func TestTrustConfigCELRulesAreEnforced(t *testing.T) {
 	c := newClient(t)
 	ns := newNamespace(t, c)
 
-	kube := func() *cellcastv1alpha1.KubernetesTrust {
-		return &cellcastv1alpha1.KubernetesTrust{ServiceAccountName: "deployer", Namespace: "apps"}
+	kube := func() *cellcastv1beta1.KubernetesTrust {
+		return &cellcastv1beta1.KubernetesTrust{ServiceAccountName: "deployer", Namespace: "apps"}
 	}
 
 	tests := []struct {
 		name    string
-		spec    cellcastv1alpha1.TrustConfigSpec
+		spec    cellcastv1beta1.TrustConfigSpec
 		wantMsg string
 	}{
 		{
 			name: "the kubernetes provider without a kubernetes block",
-			spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider:         cellcastv1alpha1.TrustProviderKubernetes,
-				CredentialSource: cellcastv1alpha1.CredentialSource{InCluster: true},
+			spec: cellcastv1beta1.TrustConfigSpec{
+				Provider:         cellcastv1beta1.TrustProviderKubernetes,
+				CredentialSource: cellcastv1beta1.CredentialSource{InCluster: true},
 			},
 			wantMsg: "spec.kubernetes is required when provider is kubernetes",
 		},
 		{
 			name: "both an in-cluster identity and a secret reference",
-			spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider: cellcastv1alpha1.TrustProviderKubernetes,
-				CredentialSource: cellcastv1alpha1.CredentialSource{
+			spec: cellcastv1beta1.TrustConfigSpec{
+				Provider: cellcastv1beta1.TrustProviderKubernetes,
+				CredentialSource: cellcastv1beta1.CredentialSource{
 					InCluster: true,
-					SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "cell-creds"},
+					SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "cell-creds"},
 				},
 				Kubernetes: kube(),
 			},
@@ -279,9 +279,9 @@ func TestTrustConfigCELRulesAreEnforced(t *testing.T) {
 		},
 		{
 			name: "neither an in-cluster identity nor a secret reference",
-			spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider:         cellcastv1alpha1.TrustProviderKubernetes,
-				CredentialSource: cellcastv1alpha1.CredentialSource{},
+			spec: cellcastv1beta1.TrustConfigSpec{
+				Provider:         cellcastv1beta1.TrustProviderKubernetes,
+				CredentialSource: cellcastv1beta1.CredentialSource{},
 				Kubernetes:       kube(),
 			},
 			wantMsg: "exactly one of inCluster or secretRef must be set",
@@ -290,7 +290,7 @@ func TestTrustConfigCELRulesAreEnforced(t *testing.T) {
 
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			obj := &cellcastv1alpha1.TrustConfig{
+			obj := &cellcastv1beta1.TrustConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: refusedName(i), Namespace: ns},
 				Spec:       tc.spec,
 			}
@@ -306,38 +306,38 @@ func TestTrustConfigCELRulesAreEnforced(t *testing.T) {
 
 	accepted := []struct {
 		name string
-		spec cellcastv1alpha1.TrustConfigSpec
+		spec cellcastv1beta1.TrustConfigSpec
 	}{
 		{
 			name: "an in-cluster identity alone",
-			spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider:         cellcastv1alpha1.TrustProviderKubernetes,
-				CredentialSource: cellcastv1alpha1.CredentialSource{InCluster: true},
+			spec: cellcastv1beta1.TrustConfigSpec{
+				Provider:         cellcastv1beta1.TrustProviderKubernetes,
+				CredentialSource: cellcastv1beta1.CredentialSource{InCluster: true},
 				Kubernetes:       kube(),
 			},
 		},
 		{
 			name: "a secret reference alone",
-			spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider: cellcastv1alpha1.TrustProviderKubernetes,
-				CredentialSource: cellcastv1alpha1.CredentialSource{
-					SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "cell-creds"},
+			spec: cellcastv1beta1.TrustConfigSpec{
+				Provider: cellcastv1beta1.TrustProviderKubernetes,
+				CredentialSource: cellcastv1beta1.CredentialSource{
+					SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "cell-creds"},
 				},
 				Kubernetes: kube(),
 			},
 		},
 		{
 			name: "the aws provider with no kubernetes block",
-			spec: cellcastv1alpha1.TrustConfigSpec{
-				Provider:         cellcastv1alpha1.TrustProviderAWS,
-				CredentialSource: cellcastv1alpha1.CredentialSource{InCluster: true},
+			spec: cellcastv1beta1.TrustConfigSpec{
+				Provider:         cellcastv1beta1.TrustProviderAWS,
+				CredentialSource: cellcastv1beta1.CredentialSource{InCluster: true},
 			},
 		},
 	}
 
 	for i, tc := range accepted {
 		t.Run(tc.name, func(t *testing.T) {
-			obj := &cellcastv1alpha1.TrustConfig{
+			obj := &cellcastv1beta1.TrustConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: "accepted-" + string(rune('a'+i)), Namespace: ns},
 				Spec:       tc.spec,
 			}
@@ -365,12 +365,12 @@ func TestStatusIsASubresource(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	cl.Status.ObservedState = cellcastv1alpha1.ClusterStateDraining
+	cl.Status.ObservedState = cellcastv1beta1.ClusterStateDraining
 	if err := c.Update(ctx, cl); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 
-	var got cellcastv1alpha1.Cluster
+	var got cellcastv1beta1.Cluster
 	key := client.ObjectKey{Name: "subresource", Namespace: ns}
 	if err := c.Get(ctx, key, &got); err != nil {
 		t.Fatalf("get: %v", err)
@@ -379,16 +379,16 @@ func TestStatusIsASubresource(t *testing.T) {
 		t.Errorf("a spec update wrote status = %q; status is not a subresource", got.Status.ObservedState)
 	}
 
-	got.Status.ObservedState = cellcastv1alpha1.ClusterStateDraining
+	got.Status.ObservedState = cellcastv1beta1.ClusterStateDraining
 	if err := c.Status().Update(ctx, &got); err != nil {
 		t.Fatalf("status update: %v", err)
 	}
 
-	var after cellcastv1alpha1.Cluster
+	var after cellcastv1beta1.Cluster
 	if err := c.Get(ctx, key, &after); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if after.Status.ObservedState != cellcastv1alpha1.ClusterStateDraining {
+	if after.Status.ObservedState != cellcastv1beta1.ClusterStateDraining {
 		t.Errorf("observedState = %q after a status update, want DRAINING", after.Status.ObservedState)
 	}
 }

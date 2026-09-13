@@ -172,7 +172,7 @@ done
 # Pinned to the deploying account. Without the subject the policy would also
 # cover the agent, which authenticates through the same issuer (ADR-009).
 kubectl apply -f - > /dev/null <<YAML
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: checkout-prod

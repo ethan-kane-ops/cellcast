@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 // The placement semantics of ClusterState live here rather than in the hub so
 // that there is exactly one definition of what each state means. A consumer

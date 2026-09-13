@@ -48,6 +48,7 @@ nav:
       - Token Brokering: token-brokering.md
   - Operating:
       - High Availability: high-availability.md
+      - Upgrading: upgrading.md
       - Observability: observability.md
       - Audit Trail: audit.md
       - Metrics Reference: metrics.md

@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // KubernetesMinTTL is the shortest credential the TokenRequest API will issue.
@@ -46,7 +46,7 @@ type KubernetesProvider struct {
 }
 
 // Connector builds a client for a cell from its trust configuration.
-type Connector func(ctx context.Context, cluster *cellcastv1alpha1.Cluster, trust *cellcastv1alpha1.TrustConfig) (kubernetes.Interface, error)
+type Connector func(ctx context.Context, cluster *cellcastv1beta1.Cluster, trust *cellcastv1beta1.TrustConfig) (kubernetes.Interface, error)
 
 // NewKubernetesProvider builds the TokenRequest provider.
 func NewKubernetesProvider(connect Connector) *KubernetesProvider {
@@ -54,8 +54,8 @@ func NewKubernetesProvider(connect Connector) *KubernetesProvider {
 }
 
 // Kind implements Provider.
-func (p *KubernetesProvider) Kind() cellcastv1alpha1.TrustProvider {
-	return cellcastv1alpha1.TrustProviderKubernetes
+func (p *KubernetesProvider) Kind() cellcastv1beta1.TrustProvider {
+	return cellcastv1beta1.TrustProviderKubernetes
 }
 
 // MinTTL implements Provider.
@@ -139,8 +139,8 @@ func NewSecretConnector(secrets client.Reader, namespace string, local *rest.Con
 // Connect implements Connector.
 func (c *SecretConnector) Connect(
 	ctx context.Context,
-	cluster *cellcastv1alpha1.Cluster,
-	trust *cellcastv1alpha1.TrustConfig,
+	cluster *cellcastv1beta1.Cluster,
+	trust *cellcastv1beta1.TrustConfig,
 ) (kubernetes.Interface, error) {
 	cfg, err := c.restConfigFor(ctx, trust)
 	if err != nil {
@@ -177,7 +177,7 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func (c *SecretConnector) restConfigFor(ctx context.Context, trust *cellcastv1alpha1.TrustConfig) (*rest.Config, error) {
+func (c *SecretConnector) restConfigFor(ctx context.Context, trust *cellcastv1beta1.TrustConfig) (*rest.Config, error) {
 	src := trust.Spec.CredentialSource
 
 	if src.InCluster {

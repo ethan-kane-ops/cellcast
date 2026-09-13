@@ -34,20 +34,25 @@ annotations:
   artifacthub.io/operator: "true"
   artifacthub.io/crds: |
     - kind: Cluster
-      version: v1alpha1
+      version: v1beta1
       name: clusters.cellcast.io
       displayName: Cluster
       description: A registered cell in the fleet
     - kind: PlacementPolicy
-      version: v1alpha1
+      version: v1beta1
       name: placementpolicies.cellcast.io
       displayName: PlacementPolicy
       description: Which callers may reach which cells, and how the survivors are ranked
     - kind: TrustConfig
-      version: v1alpha1
+      version: v1beta1
       name: trustconfigs.cellcast.io
       displayName: TrustConfig
       description: How the hub authenticates to one cell in order to mint for it
+    - kind: WorkloadPlacement
+      version: v1beta1
+      name: workloadplacements.cellcast.io
+      displayName: WorkloadPlacement
+      description: The cell a workload was last placed in, which its next placement prefers
   # No signing-key annotation on purpose. It exists for charts signed with a
   # long-lived PGP key, and it renders that key's fingerprint on the listing
   # page. These charts are signed with cosign keyless, where the signature is

@@ -102,7 +102,7 @@ A `TrustConfig` says how the hub authenticates to the cell. It references a
 credential and never contains one:
 
 ```yaml
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: TrustConfig
 metadata:
   name: prod-euw1
@@ -125,7 +125,7 @@ spec:
 A `Cluster` registers the cell and says who may report its capacity:
 
 ```yaml
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: Cluster
 metadata:
   name: prod-euw1
@@ -183,7 +183,7 @@ deploy in the estate.
 Nothing is permitted until a policy says so.
 
 ```yaml
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: app-prod

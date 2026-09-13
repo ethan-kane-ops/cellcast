@@ -8,7 +8,7 @@
 # The issuer is the cell's own service account issuer, because the caller is a
 # pod in that cell rather than a CI platform. Every cell has a different one,
 # so this policy is per cell, alongside the Argo instance that syncs into it.
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: argocd-euw1

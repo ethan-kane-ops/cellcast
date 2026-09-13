@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // PlacementPolicy status condition types and reasons.
@@ -71,7 +71,7 @@ type PlacementPolicyReconciler struct {
 
 // Reconcile publishes the policy's current match count.
 func (r *PlacementPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var policy cellcastv1alpha1.PlacementPolicy
+	var policy cellcastv1beta1.PlacementPolicy
 	if err := r.Client.Get(ctx, req.NamespacedName, &policy); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -83,7 +83,7 @@ func (r *PlacementPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		status, reason = metav1.ConditionFalse, PolicyReasonInvalid
 		message = fmt.Sprintf("permittedCells is not a valid selector: %v", err)
 	} else {
-		var clusters cellcastv1alpha1.ClusterList
+		var clusters cellcastv1beta1.ClusterList
 		if err := r.Client.List(ctx, &clusters,
 			client.InNamespace(req.Namespace),
 			client.MatchingLabelsSelector{Selector: selector},
@@ -135,7 +135,7 @@ func (r *PlacementPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // a policy usually lists several selectors for one platform, and "something in
 // here is wrong" sends the reader back to comparing strings by eye, which is
 // the exact task that produced the mistake.
-func (r *PlacementPolicyReconciler) issuerCondition(subjects []cellcastv1alpha1.SubjectSelector) (metav1.ConditionStatus, string, string) {
+func (r *PlacementPolicyReconciler) issuerCondition(subjects []cellcastv1beta1.SubjectSelector) (metav1.ConditionStatus, string, string) {
 	if len(r.TrustedIssuers) == 0 {
 		// The hub's own startup warns about this, and that warning is in a log
 		// nobody reads until something breaks. It is reported here as well
@@ -173,7 +173,7 @@ func quoteAll(values []string) []string {
 	return out
 }
 
-func policyStatusEqual(a, b *cellcastv1alpha1.PlacementPolicyStatus) bool {
+func policyStatusEqual(a, b *cellcastv1beta1.PlacementPolicyStatus) bool {
 	if a.ObservedGeneration != b.ObservedGeneration || len(a.Conditions) != len(b.Conditions) {
 		return false
 	}
@@ -194,8 +194,8 @@ func policyStatusEqual(a, b *cellcastv1alpha1.PlacementPolicyStatus) bool {
 // the policy itself is edited would be wrong most of the time.
 func (r *PlacementPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&cellcastv1alpha1.PlacementPolicy{}).
-		Watches(&cellcastv1alpha1.Cluster{}, handler.EnqueueRequestsFromMapFunc(r.policiesInNamespace)).
+		For(&cellcastv1beta1.PlacementPolicy{}).
+		Watches(&cellcastv1beta1.Cluster{}, handler.EnqueueRequestsFromMapFunc(r.policiesInNamespace)).
 		Named("placementpolicy").
 		Complete(r)
 }
@@ -207,7 +207,7 @@ func (r *PlacementPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // cleverer version is a cache invalidation problem with a silent wrong answer
 // as its failure mode.
 func (r *PlacementPolicyReconciler) policiesInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
-	var policies cellcastv1alpha1.PlacementPolicyList
+	var policies cellcastv1beta1.PlacementPolicyList
 	if err := r.Client.List(ctx, &policies, client.InNamespace(obj.GetNamespace())); err != nil {
 		return nil
 	}

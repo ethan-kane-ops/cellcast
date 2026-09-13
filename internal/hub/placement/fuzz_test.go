@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
@@ -52,11 +52,11 @@ func FuzzFilter(f *testing.F) {
 			return
 		}
 
-		clusters := []cellcastv1alpha1.Cluster{
-			*cell("prod-euw1", cellcastv1alpha1.ClusterStateLive, parsed),
-			*cell("prod-euw2", cellcastv1alpha1.ClusterStateDraining, parsed),
-			*cell("dark-euw1", cellcastv1alpha1.ClusterStateDark, parsed),
-			*cell("never-reported", cellcastv1alpha1.ClusterStateLive, parsed),
+		clusters := []cellcastv1beta1.Cluster{
+			*cell("prod-euw1", cellcastv1beta1.ClusterStateLive, parsed),
+			*cell("prod-euw2", cellcastv1beta1.ClusterStateDraining, parsed),
+			*cell("dark-euw1", cellcastv1beta1.ClusterStateDark, parsed),
+			*cell("never-reported", cellcastv1beta1.ClusterStateLive, parsed),
 		}
 		snapshot := map[string]capacity.Entry{
 			"prod-euw1": {Health: capacity.HealthFresh, Utilisation: 0.42},

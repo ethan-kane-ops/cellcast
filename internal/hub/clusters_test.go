@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
 
@@ -39,7 +39,7 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	}
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&cellcastv1alpha1.Cluster{}).
+		WithStatusSubresource(&cellcastv1beta1.Cluster{}).
 		WithObjects(objs...).
 		Build()
 }
@@ -149,7 +149,7 @@ func TestRegisterClusterRejectsCredentials(t *testing.T) {
 				t.Fatalf("POST /api/v1/clusters = %d, want %d (body: %s)", rec.Code, http.StatusBadRequest, rec.Body)
 			}
 
-			var list cellcastv1alpha1.ClusterList
+			var list cellcastv1beta1.ClusterList
 			if err := k8s.List(t.Context(), &list); err != nil {
 				t.Fatalf("List() = %v, want nil", err)
 			}
@@ -281,19 +281,19 @@ func TestRegisterClusterStoresTheEntry(t *testing.T) {
 		t.Fatalf("POST /api/v1/clusters = %d, want %d (body: %s)", rec.Code, http.StatusCreated, rec.Body)
 	}
 
-	var stored cellcastv1alpha1.Cluster
+	var stored cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: testNamespace, Name: "eks-prod-euw1"}
 	if err := k8s.Get(t.Context(), key, &stored); err != nil {
 		t.Fatalf("Get(%v) = %v, want the registered cluster", key, err)
 	}
 
-	if got, want := stored.Spec.Provider, cellcastv1alpha1.ProviderEKS; got != want {
+	if got, want := stored.Spec.Provider, cellcastv1beta1.ProviderEKS; got != want {
 		t.Errorf("spec.provider = %q, want %q", got, want)
 	}
 	if got, want := stored.Spec.TrustConfigRef.Name, "prod-irsa"; got != want {
 		t.Errorf("spec.trustConfigRef.name = %q, want %q", got, want)
 	}
-	if got, want := stored.Spec.State, cellcastv1alpha1.ClusterStateLive; got != want {
+	if got, want := stored.Spec.State, cellcastv1beta1.ClusterStateLive; got != want {
 		t.Errorf("spec.state = %q, want %q by default", got, want)
 	}
 	if got, want := stored.Labels["group"], "devstacks"; got != want {
@@ -304,7 +304,7 @@ func TestRegisterClusterStoresTheEntry(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding response: %v", err)
 	}
-	if body.Name != "eks-prod-euw1" || body.State != string(cellcastv1alpha1.ClusterStateLive) {
+	if body.Name != "eks-prod-euw1" || body.State != string(cellcastv1beta1.ClusterStateLive) {
 		t.Errorf("response = %+v, want the stored registration echoed back", body)
 	}
 }
@@ -322,18 +322,18 @@ func TestRegisterClusterRejectsDuplicateName(t *testing.T) {
 }
 
 func TestListClustersFiltersByLabelSelector(t *testing.T) {
-	cell := func(name, env, group string) *cellcastv1alpha1.Cluster {
-		return &cellcastv1alpha1.Cluster{
+	cell := func(name, env, group string) *cellcastv1beta1.Cluster {
+		return &cellcastv1beta1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: testNamespace,
 				Labels:    map[string]string{"env": env, "group": group},
 			},
-			Spec: cellcastv1alpha1.ClusterSpec{
+			Spec: cellcastv1beta1.ClusterSpec{
 				Endpoint:       "https://" + name + ".example.test",
-				Provider:       cellcastv1alpha1.ProviderGeneric,
-				TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "t1"},
-				State:          cellcastv1alpha1.ClusterStateLive,
+				Provider:       cellcastv1beta1.ProviderGeneric,
+				TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "t1"},
+				State:          cellcastv1beta1.ClusterStateLive,
 			},
 		}
 	}
@@ -451,7 +451,7 @@ func TestRegisterClusterStoresTheReporter(t *testing.T) {
 		t.Fatalf("POST clusters = %d, want %d (body %s)", rec.Code, http.StatusCreated, rec.Body.String())
 	}
 
-	var stored cellcastv1alpha1.Cluster
+	var stored cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: testNamespace, Name: "c1"}
 	if err := k8s.Get(t.Context(), key, &stored); err != nil {
 		t.Fatalf("reading stored cluster: %v", err)

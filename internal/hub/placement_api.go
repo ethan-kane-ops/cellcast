@@ -15,7 +15,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
@@ -517,11 +517,11 @@ func writeRefusal(w http.ResponseWriter, status int, reason refusal.Reason, msg 
 }
 
 // clusterByName reads one registered cell.
-func (s *Server) clusterByName(ctx context.Context, name string) (*cellcastv1alpha1.Cluster, error) {
+func (s *Server) clusterByName(ctx context.Context, name string) (*cellcastv1beta1.Cluster, error) {
 	if s.k8s == nil {
 		return nil, fmt.Errorf("registry unavailable")
 	}
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: s.cfg.Namespace, Name: name}
 	if err := s.k8s.Get(ctx, key, &cl); err != nil {
 		return nil, fmt.Errorf("reading cell %s: %w", name, err)

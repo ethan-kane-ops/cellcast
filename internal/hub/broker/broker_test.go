@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 const testNamespace = "cellcast-system"
@@ -30,30 +30,30 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	if err := clientgoscheme.AddToScheme(s); err != nil {
 		t.Fatalf("registering client-go scheme: %v", err)
 	}
-	if err := cellcastv1alpha1.AddToScheme(s); err != nil {
+	if err := cellcastv1beta1.AddToScheme(s); err != nil {
 		t.Fatalf("registering cellcast scheme: %v", err)
 	}
 	return s
 }
 
-func testCluster(name string, labels map[string]string) *cellcastv1alpha1.Cluster {
-	return &cellcastv1alpha1.Cluster{
+func testCluster(name string, labels map[string]string) *cellcastv1beta1.Cluster {
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Labels: labels},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       "https://" + name + ".example.test",
-			Provider:       cellcastv1alpha1.ProviderGeneric,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "cell-trust"},
+			Provider:       cellcastv1beta1.ProviderGeneric,
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "cell-trust"},
 		},
 	}
 }
 
-func testTrust(name string) *cellcastv1alpha1.TrustConfig {
-	return &cellcastv1alpha1.TrustConfig{
+func testTrust(name string) *cellcastv1beta1.TrustConfig {
+	return &cellcastv1beta1.TrustConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
-		Spec: cellcastv1alpha1.TrustConfigSpec{
-			Provider:         cellcastv1alpha1.TrustProviderKubernetes,
-			CredentialSource: cellcastv1alpha1.CredentialSource{InCluster: true},
-			Kubernetes: &cellcastv1alpha1.KubernetesTrust{
+		Spec: cellcastv1beta1.TrustConfigSpec{
+			Provider:         cellcastv1beta1.TrustProviderKubernetes,
+			CredentialSource: cellcastv1beta1.CredentialSource{InCluster: true},
+			Kubernetes: &cellcastv1beta1.KubernetesTrust{
 				ServiceAccountName: "deployer",
 				Namespace:          "apps",
 			},
@@ -71,8 +71,8 @@ type stubProvider struct {
 	err      error
 }
 
-func (p *stubProvider) Kind() cellcastv1alpha1.TrustProvider {
-	return cellcastv1alpha1.TrustProviderKubernetes
+func (p *stubProvider) Kind() cellcastv1beta1.TrustProvider {
+	return cellcastv1beta1.TrustProviderKubernetes
 }
 
 func (p *stubProvider) MinTTL() time.Duration { return p.minTTL }
@@ -131,7 +131,7 @@ func TestMint(t *testing.T) {
 
 func TestMintRefusals(t *testing.T) {
 	awsTrust := testTrust("cell-trust")
-	awsTrust.Spec.Provider = cellcastv1alpha1.TrustProviderAWS
+	awsTrust.Spec.Provider = cellcastv1beta1.TrustProviderAWS
 
 	brokenTrust := testTrust("cell-trust")
 	brokenTrust.Spec.Kubernetes = nil
@@ -269,53 +269,53 @@ func TestMintLogsNoTokenMaterial(t *testing.T) {
 func TestValidateTrust(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func(*cellcastv1alpha1.TrustConfig)
+		mutate  func(*cellcastv1beta1.TrustConfig)
 		wantErr error
 	}{
 		{
 			name:   "in-cluster kubernetes trust is valid",
-			mutate: func(*cellcastv1alpha1.TrustConfig) {},
+			mutate: func(*cellcastv1beta1.TrustConfig) {},
 		},
 		{
 			name: "a secret reference is valid",
-			mutate: func(tc *cellcastv1alpha1.TrustConfig) {
-				tc.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{
-					SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig"},
+			mutate: func(tc *cellcastv1beta1.TrustConfig) {
+				tc.Spec.CredentialSource = cellcastv1beta1.CredentialSource{
+					SecretRef: &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig"},
 				}
 			},
 		},
 		{
 			name: "no credential source at all",
-			mutate: func(tc *cellcastv1alpha1.TrustConfig) {
-				tc.Spec.CredentialSource = cellcastv1alpha1.CredentialSource{}
+			mutate: func(tc *cellcastv1beta1.TrustConfig) {
+				tc.Spec.CredentialSource = cellcastv1beta1.CredentialSource{}
 			},
 			wantErr: ErrTrustConfigInvalid,
 		},
 		{
 			name: "both credential sources",
-			mutate: func(tc *cellcastv1alpha1.TrustConfig) {
-				tc.Spec.CredentialSource.SecretRef = &cellcastv1alpha1.SecretKeyReference{Name: "spoke-kubeconfig"}
+			mutate: func(tc *cellcastv1beta1.TrustConfig) {
+				tc.Spec.CredentialSource.SecretRef = &cellcastv1beta1.SecretKeyReference{Name: "spoke-kubeconfig"}
 			},
 			wantErr: ErrTrustConfigInvalid,
 		},
 		{
 			name:    "the aws provider is not built yet",
-			mutate:  func(tc *cellcastv1alpha1.TrustConfig) { tc.Spec.Provider = cellcastv1alpha1.TrustProviderAWS },
+			mutate:  func(tc *cellcastv1beta1.TrustConfig) { tc.Spec.Provider = cellcastv1beta1.TrustProviderAWS },
 			wantErr: ErrProviderNotImplemented,
 		},
 		{
 			name:    "an unknown provider",
-			mutate:  func(tc *cellcastv1alpha1.TrustConfig) { tc.Spec.Provider = "nomad" },
+			mutate:  func(tc *cellcastv1beta1.TrustConfig) { tc.Spec.Provider = "nomad" },
 			wantErr: ErrTrustConfigInvalid,
 		},
 		{
 			name:    "no service account name",
-			mutate:  func(tc *cellcastv1alpha1.TrustConfig) { tc.Spec.Kubernetes.ServiceAccountName = "" },
+			mutate:  func(tc *cellcastv1beta1.TrustConfig) { tc.Spec.Kubernetes.ServiceAccountName = "" },
 			wantErr: ErrTrustConfigInvalid,
 		},
 		{
 			name:    "no namespace",
-			mutate:  func(tc *cellcastv1alpha1.TrustConfig) { tc.Spec.Kubernetes.Namespace = "" },
+			mutate:  func(tc *cellcastv1beta1.TrustConfig) { tc.Spec.Kubernetes.Namespace = "" },
 			wantErr: ErrTrustConfigInvalid,
 		},
 	}

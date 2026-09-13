@@ -14,7 +14,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 )
@@ -88,7 +88,7 @@ func (s *Server) handleReportCapacity(w http.ResponseWriter, r *http.Request) {
 
 	name := r.PathValue("name")
 
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: s.cfg.Namespace, Name: name}
 	if err := s.k8s.Get(r.Context(), key, &cl); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -213,7 +213,7 @@ var errNoReporterDeclared = errors.New("cell declares no reporter identity")
 // Issuer and subject are both compared literally and both must match. The
 // issuer is the half that separates cells, because the subject is the same
 // string in every cell in the fleet.
-func authorizeReporter(cl *cellcastv1alpha1.Cluster, id *identity.Identity) error {
+func authorizeReporter(cl *cellcastv1beta1.Cluster, id *identity.Identity) error {
 	if id == nil {
 		// Unreachable behind the auth middleware. Refusing rather than
 		// dereferencing keeps that true if the route is ever mounted elsewhere.

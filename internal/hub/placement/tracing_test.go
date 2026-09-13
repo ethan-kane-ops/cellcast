@@ -6,7 +6,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 func TestEachStageOfADecisionIsTimed(t *testing.T) {
@@ -14,8 +14,8 @@ func TestEachStageOfADecisionIsTimed(t *testing.T) {
 	// each a span under the caller's, so a slow decision says which of the
 	// three it was.
 	engine := newEngine(t, loaded(t, map[string]float64{"c-a": 0.5}),
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	sr := tracetest.NewSpanRecorder()
@@ -49,8 +49,8 @@ func TestAnUntracedDecisionStartsNoSpans(t *testing.T) {
 	// With tracing off there is no span in the context, and the stages must not
 	// go looking for a global provider to start one from.
 	engine := newEngine(t, loaded(t, map[string]float64{"c-a": 0.5}),
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 	ctx, span := startSpan(t.Context(), "select policy")
 	defer span.End()

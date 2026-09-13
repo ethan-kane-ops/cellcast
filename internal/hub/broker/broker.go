@@ -17,7 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // Minting outcomes callers distinguish.
@@ -90,9 +90,9 @@ func (c Credential) LogValue() slog.Value {
 // MintRequest is everything a provider needs to issue one credential.
 type MintRequest struct {
 	// Cluster is the chosen cell.
-	Cluster *cellcastv1alpha1.Cluster
+	Cluster *cellcastv1beta1.Cluster
 	// Trust is the configuration governing how to mint for it.
-	Trust *cellcastv1alpha1.TrustConfig
+	Trust *cellcastv1beta1.TrustConfig
 	// TTL is the already-resolved, already-bounded lifetime.
 	TTL time.Duration
 }
@@ -104,7 +104,7 @@ type MintRequest struct {
 // reopen the broker's semantics (docs/architecture.md ADR-004).
 type Provider interface {
 	// Kind is the trust provider this implements.
-	Kind() cellcastv1alpha1.TrustProvider
+	Kind() cellcastv1beta1.TrustProvider
 
 	// MinTTL is the shortest credential this mechanism can issue. Kubernetes
 	// TokenRequest refuses anything under ten minutes; AWS STS AssumeRole
@@ -127,7 +127,7 @@ type Broker struct {
 	ceiling time.Duration
 	log     *slog.Logger
 
-	providers map[cellcastv1alpha1.TrustProvider]Provider
+	providers map[cellcastv1beta1.TrustProvider]Provider
 }
 
 // New builds a broker over the given providers.
@@ -137,7 +137,7 @@ func New(reader client.Reader, namespace string, ceiling time.Duration, log *slo
 		ns:        namespace,
 		ceiling:   ceiling,
 		log:       log,
-		providers: make(map[cellcastv1alpha1.TrustProvider]Provider, len(providers)),
+		providers: make(map[cellcastv1beta1.TrustProvider]Provider, len(providers)),
 	}
 	for _, p := range providers {
 		b.providers[p.Kind()] = p
@@ -153,8 +153,8 @@ func New(reader client.Reader, namespace string, ceiling time.Duration, log *slo
 // (docs/threat-model.md T-03).
 func (b *Broker) Mint(
 	ctx context.Context,
-	cluster *cellcastv1alpha1.Cluster,
-	ttlPolicy *cellcastv1alpha1.TokenTTLPolicy,
+	cluster *cellcastv1beta1.Cluster,
+	ttlPolicy *cellcastv1beta1.TokenTTLPolicy,
 	requested time.Duration,
 	subject string,
 ) (*Credential, Resolution, error) {
@@ -203,9 +203,9 @@ func (b *Broker) Mint(
 }
 
 // trustFor resolves the trust configuration a cell references.
-func (b *Broker) trustFor(ctx context.Context, cluster *cellcastv1alpha1.Cluster) (*cellcastv1alpha1.TrustConfig, error) {
+func (b *Broker) trustFor(ctx context.Context, cluster *cellcastv1beta1.Cluster) (*cellcastv1beta1.TrustConfig, error) {
 	name := cluster.Spec.TrustConfigRef.Name
-	var trust cellcastv1alpha1.TrustConfig
+	var trust cellcastv1beta1.TrustConfig
 	key := client.ObjectKey{Namespace: b.ns, Name: name}
 
 	if err := b.reader.Get(ctx, key, &trust); err != nil {
@@ -227,9 +227,9 @@ func (b *Broker) trustFor(ctx context.Context, cluster *cellcastv1alpha1.Cluster
 // API server. This exists because the broker must not depend on that being the
 // only way a resource got there, and because the TrustConfig controller reports
 // the same answer as a condition before a deploy needs it.
-func ValidateTrust(trust *cellcastv1alpha1.TrustConfig) error {
+func ValidateTrust(trust *cellcastv1beta1.TrustConfig) error {
 	switch trust.Spec.Provider {
-	case cellcastv1alpha1.TrustProviderKubernetes:
+	case cellcastv1beta1.TrustProviderKubernetes:
 		k := trust.Spec.Kubernetes
 		switch {
 		case k == nil:
@@ -239,7 +239,7 @@ func ValidateTrust(trust *cellcastv1alpha1.TrustConfig) error {
 		case k.Namespace == "":
 			return fmt.Errorf("%w: %s has no namespace", ErrTrustConfigInvalid, trust.Name)
 		}
-	case cellcastv1alpha1.TrustProviderAWS:
+	case cellcastv1beta1.TrustProviderAWS:
 		return fmt.Errorf("%w: %s", ErrProviderNotImplemented, trust.Spec.Provider)
 	default:
 		return fmt.Errorf("%w: %s names an unknown provider %q", ErrTrustConfigInvalid, trust.Name, trust.Spec.Provider)

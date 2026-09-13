@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
 
@@ -119,7 +119,7 @@ func (c *clusterStateCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	var cells cellcastv1alpha1.ClusterList
+	var cells cellcastv1beta1.ClusterList
 	if err := c.reader.List(context.Background(), &cells, client.InNamespace(c.namespace)); err != nil {
 		// A scrape that cannot read the registry emits nothing rather than
 		// zeroes. Zeroes would read as "every cell left this state", which is a
@@ -131,10 +131,10 @@ func (c *clusterStateCollector) Collect(ch chan<- prometheus.Metric) {
 	// Every state gets a series, so `cellcast_cluster_state == 1` selects the
 	// current one and a transition moves a 1 to a 0 rather than leaving the old
 	// series to be read as still true.
-	states := []cellcastv1alpha1.ClusterState{
-		cellcastv1alpha1.ClusterStateLive,
-		cellcastv1alpha1.ClusterStateDark,
-		cellcastv1alpha1.ClusterStateDraining,
+	states := []cellcastv1beta1.ClusterState{
+		cellcastv1beta1.ClusterStateLive,
+		cellcastv1beta1.ClusterStateDark,
+		cellcastv1beta1.ClusterStateDraining,
 	}
 
 	for i := range cells.Items {

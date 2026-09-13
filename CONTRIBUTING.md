@@ -47,7 +47,7 @@ Adding support for a CI platform or a second way to mint credentials is document
 
 ## Code generation
 
-`api/v1alpha1` is the source of truth. `zz_generated.deepcopy.go`, everything under `config/crd/bases/`, and the chart's copies are generated:
+`api/v1beta1` is the source of truth. `api/v1alpha1` is still served and mirrors it field for field, so a field added to one is added to the other in the same change; `TestServedVersionsShareOneSchema` fails otherwise. `zz_generated.deepcopy.go`, everything under `config/crd/bases/`, and the chart's copies are generated:
 
 ```bash
 just generate manifests

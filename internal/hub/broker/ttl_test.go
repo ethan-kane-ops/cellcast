@@ -7,7 +7,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 func dur(d time.Duration) *metav1.Duration { return &metav1.Duration{Duration: d} }
@@ -21,7 +21,7 @@ func TestResolveTTL(t *testing.T) {
 	tests := []struct {
 		name        string
 		labels      map[string]string
-		policy      *cellcastv1alpha1.TokenTTLPolicy
+		policy      *cellcastv1beta1.TokenTTLPolicy
 		requested   time.Duration
 		ceiling     time.Duration
 		wantGranted time.Duration
@@ -81,7 +81,7 @@ func TestResolveTTL(t *testing.T) {
 		{
 			name:        "policy overrides the built-in bounds in both directions",
 			labels:      map[string]string{"env": "prod"},
-			policy:      &cellcastv1alpha1.TokenTTLPolicy{Default: dur(20 * time.Minute), Max: dur(45 * time.Minute)},
+			policy:      &cellcastv1beta1.TokenTTLPolicy{Default: dur(20 * time.Minute), Max: dur(45 * time.Minute)},
 			ceiling:     ceiling,
 			wantGranted: 20 * time.Minute,
 			wantMax:     45 * time.Minute,
@@ -89,7 +89,7 @@ func TestResolveTTL(t *testing.T) {
 		{
 			name:        "the hub ceiling caps a policy that asks for more",
 			labels:      map[string]string{"env": "dev"},
-			policy:      &cellcastv1alpha1.TokenTTLPolicy{Default: dur(20 * time.Minute), Max: dur(30 * time.Hour)},
+			policy:      &cellcastv1beta1.TokenTTLPolicy{Default: dur(20 * time.Minute), Max: dur(30 * time.Hour)},
 			ceiling:     ceiling,
 			wantGranted: 20 * time.Minute,
 			wantMax:     ceiling,
@@ -99,7 +99,7 @@ func TestResolveTTL(t *testing.T) {
 			// ceiling, so Granted and Default would disagree in the response.
 			name:        "a policy default above the ceiling is reduced to it",
 			labels:      map[string]string{"env": "dev"},
-			policy:      &cellcastv1alpha1.TokenTTLPolicy{Default: dur(6 * time.Hour), Max: dur(8 * time.Hour)},
+			policy:      &cellcastv1beta1.TokenTTLPolicy{Default: dur(6 * time.Hour), Max: dur(8 * time.Hour)},
 			ceiling:     30 * time.Minute,
 			wantGranted: 30 * time.Minute,
 			wantMax:     30 * time.Minute,
@@ -118,7 +118,7 @@ func TestResolveTTL(t *testing.T) {
 			// Rounding the operator's ceiling up is not fine, so this refuses.
 			name:    "a policy ceiling below the provider floor is refused",
 			labels:  map[string]string{"env": "prod"},
-			policy:  &cellcastv1alpha1.TokenTTLPolicy{Max: dur(5 * time.Minute)},
+			policy:  &cellcastv1beta1.TokenTTLPolicy{Max: dur(5 * time.Minute)},
 			ceiling: ceiling,
 			wantErr: ErrTTLBelowProviderFloor,
 		},
@@ -164,7 +164,7 @@ func TestNoInputGrantsMoreThanTheCeiling(t *testing.T) {
 
 	envs := []string{"prod", "staging", "dev", "", "nonsense"}
 	requests := []time.Duration{0, time.Second, 5 * time.Minute, 19 * time.Minute, time.Hour, 400 * time.Hour}
-	policies := []*cellcastv1alpha1.TokenTTLPolicy{
+	policies := []*cellcastv1beta1.TokenTTLPolicy{
 		nil,
 		{Default: dur(time.Hour)},
 		{Max: dur(90 * 24 * time.Hour)},

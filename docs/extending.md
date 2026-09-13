@@ -137,7 +137,7 @@ written for two, so that a second does not reopen the broker's semantics
 
 ```go
 type Provider interface {
-	Kind() cellcastv1alpha1.TrustProvider
+	Kind() cellcastv1beta1.TrustProvider
 	MinTTL() time.Duration
 	Mint(ctx context.Context, req MintRequest) (*Credential, error)
 }
@@ -172,8 +172,11 @@ rather than holding the pipeline open until something else times out.
 
 ### Wiring one in
 
-1. Add the value to `TrustProvider` in `api/v1alpha1/trustconfig_types.go` and
-   to its `+kubebuilder:validation:Enum` marker, then `just generate manifests`.
+1. Add the value to `TrustProvider` and to its `+kubebuilder:validation:Enum`
+   marker in `api/v1beta1/trustconfig_types.go`, and the same in
+   `api/v1alpha1/trustconfig_types.go`, then `just generate manifests`. Both
+   served versions carry one schema
+   ([ADR-013](architecture.md#adr-013-the-api-graduates-to-v1beta1-and-v1alpha1-stays-served-with-the-same-schema)).
 2. Add a provider-specific block to `TrustConfigSpec` if the mechanism needs
    parameters, with a CEL rule pairing it to the provider value. `kubernetes`
    is the worked example.

@@ -12,20 +12,20 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
-func clusterFixture(name string, generation int64, state cellcastv1alpha1.ClusterState) *cellcastv1alpha1.Cluster {
-	return &cellcastv1alpha1.Cluster{
+func clusterFixture(name string, generation int64, state cellcastv1beta1.ClusterState) *cellcastv1beta1.Cluster {
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
 			Namespace:  testNamespace,
 			Generation: generation,
 		},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       "https://" + name + ".example.test",
-			Provider:       cellcastv1alpha1.ProviderGeneric,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "t1"},
+			Provider:       cellcastv1beta1.ProviderGeneric,
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "t1"},
 			State:          state,
 		},
 	}
@@ -34,14 +34,14 @@ func clusterFixture(name string, generation int64, state cellcastv1alpha1.Cluste
 func TestClusterReconcilerPublishesObservedState(t *testing.T) {
 	tests := []struct {
 		name  string
-		spec  cellcastv1alpha1.ClusterState
-		want  cellcastv1alpha1.ClusterState
+		spec  cellcastv1beta1.ClusterState
+		want  cellcastv1beta1.ClusterState
 		genIn int64
 	}{
-		{name: "live", spec: cellcastv1alpha1.ClusterStateLive, want: cellcastv1alpha1.ClusterStateLive, genIn: 1},
-		{name: "dark", spec: cellcastv1alpha1.ClusterStateDark, want: cellcastv1alpha1.ClusterStateDark, genIn: 4},
-		{name: "draining", spec: cellcastv1alpha1.ClusterStateDraining, want: cellcastv1alpha1.ClusterStateDraining, genIn: 7},
-		{name: "unset defaults to live", spec: "", want: cellcastv1alpha1.ClusterStateLive, genIn: 2},
+		{name: "live", spec: cellcastv1beta1.ClusterStateLive, want: cellcastv1beta1.ClusterStateLive, genIn: 1},
+		{name: "dark", spec: cellcastv1beta1.ClusterStateDark, want: cellcastv1beta1.ClusterStateDark, genIn: 4},
+		{name: "draining", spec: cellcastv1beta1.ClusterStateDraining, want: cellcastv1beta1.ClusterStateDraining, genIn: 7},
+		{name: "unset defaults to live", spec: "", want: cellcastv1beta1.ClusterStateLive, genIn: 2},
 	}
 
 	for _, tt := range tests {
@@ -54,7 +54,7 @@ func TestClusterReconcilerPublishesObservedState(t *testing.T) {
 				t.Fatalf("Reconcile() = %v, want nil", err)
 			}
 
-			var got cellcastv1alpha1.Cluster
+			var got cellcastv1beta1.Cluster
 			if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 				t.Fatalf("Get() = %v, want nil", err)
 			}
@@ -72,7 +72,7 @@ func TestClusterReconcilerPublishesObservedState(t *testing.T) {
 // write. Status here must stay proportional to operator edits, never to
 // reconcile frequency (docs/architecture.md ADR-002).
 func TestClusterReconcilerIsIdempotent(t *testing.T) {
-	k8s := newFakeClient(t, clusterFixture("c1", 3, cellcastv1alpha1.ClusterStateDark))
+	k8s := newFakeClient(t, clusterFixture("c1", 3, cellcastv1beta1.ClusterStateDark))
 	r := &ClusterReconciler{Client: k8s}
 	key := types.NamespacedName{Namespace: testNamespace, Name: "c1"}
 
@@ -82,11 +82,11 @@ func TestClusterReconcilerIsIdempotent(t *testing.T) {
 		}
 	}
 
-	var got cellcastv1alpha1.Cluster
+	var got cellcastv1beta1.Cluster
 	if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}
-	if got.Status.ObservedState != cellcastv1alpha1.ClusterStateDark {
+	if got.Status.ObservedState != cellcastv1beta1.ClusterStateDark {
 		t.Errorf("status.observedState = %q, want DARK", got.Status.ObservedState)
 	}
 	if got.ResourceVersion != "1000" {
@@ -115,27 +115,27 @@ func TestClusterReconcilerIgnoresDeleted(t *testing.T) {
 func TestClusterReconcilerPublishesAcceptingCondition(t *testing.T) {
 	tests := []struct {
 		name       string
-		state      cellcastv1alpha1.ClusterState
+		state      cellcastv1beta1.ClusterState
 		wantStatus metav1.ConditionStatus
 		wantReason string
 	}{
 		{
 			name:       "live",
-			state:      cellcastv1alpha1.ClusterStateLive,
+			state:      cellcastv1beta1.ClusterStateLive,
 			wantStatus: metav1.ConditionTrue,
-			wantReason: cellcastv1alpha1.ClusterReasonLive,
+			wantReason: cellcastv1beta1.ClusterReasonLive,
 		},
 		{
 			name:       "dark",
-			state:      cellcastv1alpha1.ClusterStateDark,
+			state:      cellcastv1beta1.ClusterStateDark,
 			wantStatus: metav1.ConditionFalse,
-			wantReason: cellcastv1alpha1.ClusterReasonDark,
+			wantReason: cellcastv1beta1.ClusterReasonDark,
 		},
 		{
 			name:       "draining",
-			state:      cellcastv1alpha1.ClusterStateDraining,
+			state:      cellcastv1beta1.ClusterStateDraining,
 			wantStatus: metav1.ConditionFalse,
-			wantReason: cellcastv1alpha1.ClusterReasonDraining,
+			wantReason: cellcastv1beta1.ClusterReasonDraining,
 		},
 	}
 
@@ -149,15 +149,15 @@ func TestClusterReconcilerPublishesAcceptingCondition(t *testing.T) {
 				t.Fatalf("Reconcile() = %v, want nil", err)
 			}
 
-			var got cellcastv1alpha1.Cluster
+			var got cellcastv1beta1.Cluster
 			if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 				t.Fatalf("Get() = %v, want nil", err)
 			}
 
-			cond := meta.FindStatusCondition(got.Status.Conditions, cellcastv1alpha1.ClusterConditionAccepting)
+			cond := meta.FindStatusCondition(got.Status.Conditions, cellcastv1beta1.ClusterConditionAccepting)
 			if cond == nil {
 				t.Fatalf("conditions = %+v, want an %s condition",
-					got.Status.Conditions, cellcastv1alpha1.ClusterConditionAccepting)
+					got.Status.Conditions, cellcastv1beta1.ClusterConditionAccepting)
 			}
 			if cond.Status != tt.wantStatus {
 				t.Errorf("condition status = %q, want %q", cond.Status, tt.wantStatus)
@@ -179,18 +179,18 @@ func TestClusterReconcilerPublishesAcceptingCondition(t *testing.T) {
 // this cell been draining". A timestamp rewritten on every reconcile answers
 // nothing.
 func TestStateSinceMovesOnlyOnTransition(t *testing.T) {
-	k8s := newFakeClient(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateLive))
+	k8s := newFakeClient(t, clusterFixture("c1", 1, cellcastv1beta1.ClusterStateLive))
 
 	clock := metav1.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	r := &ClusterReconciler{Client: k8s, Now: func() metav1.Time { return clock }}
 	key := types.NamespacedName{Namespace: testNamespace, Name: "c1"}
 
-	reconcile := func() cellcastv1alpha1.Cluster {
+	reconcile := func() cellcastv1beta1.Cluster {
 		t.Helper()
 		if _, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key}); err != nil {
 			t.Fatalf("Reconcile() = %v, want nil", err)
 		}
-		var got cellcastv1alpha1.Cluster
+		var got cellcastv1beta1.Cluster
 		if err := k8s.Get(t.Context(), client.ObjectKey(key), &got); err != nil {
 			t.Fatalf("Get() = %v, want nil", err)
 		}
@@ -209,18 +209,18 @@ func TestStateSinceMovesOnlyOnTransition(t *testing.T) {
 	}
 
 	// Drain the cell and confirm the clock restarts.
-	var cl cellcastv1alpha1.Cluster
+	var cl cellcastv1beta1.Cluster
 	if err := k8s.Get(t.Context(), client.ObjectKey(key), &cl); err != nil {
 		t.Fatalf("Get() = %v, want nil", err)
 	}
-	cl.Spec.State = cellcastv1alpha1.ClusterStateDraining
+	cl.Spec.State = cellcastv1beta1.ClusterStateDraining
 	if err := k8s.Update(t.Context(), &cl); err != nil {
 		t.Fatalf("Update() = %v, want nil", err)
 	}
 	clock = metav1.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)
 
 	drained := reconcile()
-	if drained.Status.ObservedState != cellcastv1alpha1.ClusterStateDraining {
+	if drained.Status.ObservedState != cellcastv1beta1.ClusterStateDraining {
 		t.Fatalf("status.observedState = %q, want DRAINING", drained.Status.ObservedState)
 	}
 	if drained.Status.StateSince.Equal(&settled) {
@@ -232,7 +232,7 @@ func TestStateSinceMovesOnlyOnTransition(t *testing.T) {
 // trail. A state change that leaves no trace in `kubectl describe` is one an
 // operator has to correlate against hub logs they may not have.
 func TestClusterReconcilerRecordsTransitions(t *testing.T) {
-	k8s := newFakeClient(t, clusterFixture("c1", 1, cellcastv1alpha1.ClusterStateDraining))
+	k8s := newFakeClient(t, clusterFixture("c1", 1, cellcastv1beta1.ClusterStateDraining))
 	rec := events.NewFakeRecorder(4)
 	r := &ClusterReconciler{Client: k8s, Recorder: rec}
 	key := types.NamespacedName{Namespace: testNamespace, Name: "c1"}

@@ -15,7 +15,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/oidc"
@@ -29,30 +29,30 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func cell(name string, state cellcastv1alpha1.ClusterState, labels map[string]string) *cellcastv1alpha1.Cluster {
-	return &cellcastv1alpha1.Cluster{
+func cell(name string, state cellcastv1beta1.ClusterState, labels map[string]string) *cellcastv1beta1.Cluster {
+	return &cellcastv1beta1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Labels: labels},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       "https://" + name + ".example.test",
-			Provider:       cellcastv1alpha1.ProviderEKS,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: "t1"},
+			Provider:       cellcastv1beta1.ProviderEKS,
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: "t1"},
 			State:          state,
 		},
 	}
 }
 
-func policy(name string, subjects []cellcastv1alpha1.SubjectSelector, permitted map[string]string) *cellcastv1alpha1.PlacementPolicy {
-	return &cellcastv1alpha1.PlacementPolicy{
+func policy(name string, subjects []cellcastv1beta1.SubjectSelector, permitted map[string]string) *cellcastv1beta1.PlacementPolicy {
+	return &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
 			Subjects:       subjects,
 			PermittedCells: metav1.LabelSelector{MatchLabels: permitted},
 		},
 	}
 }
 
-func subject(claims map[string]string) cellcastv1alpha1.SubjectSelector {
-	return cellcastv1alpha1.SubjectSelector{Issuer: githubIssuer, Claims: claims}
+func subject(claims map[string]string) cellcastv1beta1.SubjectSelector {
+	return cellcastv1beta1.SubjectSelector{Issuer: githubIssuer, Claims: claims}
 }
 
 func caller(claims map[string]string) *identity.Identity {
@@ -85,7 +85,7 @@ func loaded(t *testing.T, util map[string]float64) *capacity.Registry {
 func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
-	if err := cellcastv1alpha1.AddToScheme(s); err != nil {
+	if err := cellcastv1beta1.AddToScheme(s); err != nil {
 		t.Fatalf("registering cellcast scheme: %v", err)
 	}
 	return s
@@ -106,9 +106,9 @@ func newEngine(t *testing.T, index *capacity.Registry, objs ...client.Object) *E
 func TestDevPipelineCannotReachAProdCell(t *testing.T) {
 	index := loaded(t, map[string]float64{"prod-euw1": 0.05, "dev-euw1": 0.80})
 	engine := newEngine(t, index,
-		cell("prod-euw1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "prd"}),
-		cell("dev-euw1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("dev", []cellcastv1alpha1.SubjectSelector{
+		cell("prod-euw1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "prd"}),
+		cell("dev-euw1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("dev", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app", "environment": "dev"}),
 		}, map[string]string{"env": "dev"}),
 	)
@@ -142,9 +142,9 @@ func TestDevPipelineCannotReachAProdCell(t *testing.T) {
 func TestPermissionIsEvaluatedBeforeState(t *testing.T) {
 	index := loaded(t, map[string]float64{"dev-euw1": 0.1})
 	engine := newEngine(t, index,
-		cell("prod-euw1", cellcastv1alpha1.ClusterStateDraining, map[string]string{"env": "prd"}),
-		cell("dev-euw1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("dev", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("prod-euw1", cellcastv1beta1.ClusterStateDraining, map[string]string{"env": "prd"}),
+		cell("dev-euw1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("dev", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	decision, err := engine.Place(t.Context(), caller(nil), Request{})
@@ -159,8 +159,8 @@ func TestPermissionIsEvaluatedBeforeState(t *testing.T) {
 func TestDenyByDefault(t *testing.T) {
 	index := loaded(t, map[string]float64{"dev-euw1": 0.1})
 	engine := newEngine(t, index,
-		cell("dev-euw1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("dev", []cellcastv1alpha1.SubjectSelector{
+		cell("dev-euw1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("dev", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app"}),
 		}, map[string]string{"env": "dev"}),
 	)
@@ -200,39 +200,39 @@ func TestDenyByDefault(t *testing.T) {
 func TestEligibilityStacksOnPermission(t *testing.T) {
 	tests := []struct {
 		name       string
-		state      cellcastv1alpha1.ClusterState
+		state      cellcastv1beta1.ClusterState
 		targetDark bool
 		allowDark  bool
 		wantCell   string
 		wantErr    error
 	}{
-		{name: "live is placeable", state: cellcastv1alpha1.ClusterStateLive, wantCell: "c1"},
-		{name: "draining is not", state: cellcastv1alpha1.ClusterStateDraining, wantErr: ErrNoEligibleCells},
-		{name: "dark is not, untargeted", state: cellcastv1alpha1.ClusterStateDark, wantErr: ErrNoEligibleCells},
+		{name: "live is placeable", state: cellcastv1beta1.ClusterStateLive, wantCell: "c1"},
+		{name: "draining is not", state: cellcastv1beta1.ClusterStateDraining, wantErr: ErrNoEligibleCells},
+		{name: "dark is not, untargeted", state: cellcastv1beta1.ClusterStateDark, wantErr: ErrNoEligibleCells},
 		{
 			name:  "dark is, when targeted and permitted",
-			state: cellcastv1alpha1.ClusterStateDark, targetDark: true, allowDark: true, wantCell: "c1",
+			state: cellcastv1beta1.ClusterStateDark, targetDark: true, allowDark: true, wantCell: "c1",
 		},
 		{
 			// Refused rather than downgraded to an ordinary placement: a smoke
 			// test that silently lands on a live cell is worse than one that
 			// fails.
 			name:  "targeting dark without permission is refused",
-			state: cellcastv1alpha1.ClusterStateDark, targetDark: true, allowDark: false, wantErr: ErrDarkNotPermitted,
+			state: cellcastv1beta1.ClusterStateDark, targetDark: true, allowDark: false, wantErr: ErrDarkNotPermitted,
 		},
 		{
 			name:  "draining refuses a targeted dark request too",
-			state: cellcastv1alpha1.ClusterStateDraining, targetDark: true, allowDark: true, wantErr: ErrNoEligibleCells,
+			state: cellcastv1beta1.ClusterStateDraining, targetDark: true, allowDark: true, wantErr: ErrNoEligibleCells,
 		},
 		{
 			name:  "live is not a dark target",
-			state: cellcastv1alpha1.ClusterStateLive, targetDark: true, allowDark: true, wantErr: ErrNoEligibleCells,
+			state: cellcastv1beta1.ClusterStateLive, targetDark: true, allowDark: true, wantErr: ErrNoEligibleCells,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pol := policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
+			pol := policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
 			pol.Spec.AllowDarkTargeting = tt.allowDark
 
 			engine := newEngine(t, loaded(t, map[string]float64{"c1": 0.1}),
@@ -269,9 +269,9 @@ func TestStaleCellIsNeverChosen(t *testing.T) {
 	}
 
 	engine := newEngine(t, index,
-		cell("c1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c2", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("c1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c2", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	decision, err := engine.Place(t.Context(), caller(nil), Request{})
@@ -290,7 +290,7 @@ func TestStaleCellIsNeverChosen(t *testing.T) {
 // authorization refusal and a fleet-wide capacity blackout must never be
 // handled the same way by the client.
 func TestRefusalsAreDistinguishable(t *testing.T) {
-	permitting := policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
+	permitting := policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
 
 	tests := []struct {
 		name string
@@ -300,14 +300,14 @@ func TestRefusalsAreDistinguishable(t *testing.T) {
 	}{
 		{
 			name: "no policy",
-			objs: []client.Object{cell("c1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"})},
+			objs: []client.Object{cell("c1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"})},
 			util: map[string]float64{"c1": 0.1},
 			want: ErrNoPolicy,
 		},
 		{
 			name: "policy selector matches no cell",
 			objs: []client.Object{
-				cell("c1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "prd"}),
+				cell("c1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "prd"}),
 				permitting,
 			},
 			util: map[string]float64{"c1": 0.1},
@@ -316,7 +316,7 @@ func TestRefusalsAreDistinguishable(t *testing.T) {
 		{
 			name: "every permitted cell is draining",
 			objs: []client.Object{
-				cell("c1", cellcastv1alpha1.ClusterStateDraining, map[string]string{"env": "dev"}),
+				cell("c1", cellcastv1beta1.ClusterStateDraining, map[string]string{"env": "dev"}),
 				permitting,
 			},
 			util: map[string]float64{"c1": 0.1},
@@ -325,7 +325,7 @@ func TestRefusalsAreDistinguishable(t *testing.T) {
 		{
 			name: "every permitted cell has unusable capacity",
 			objs: []client.Object{
-				cell("c1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
+				cell("c1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
 				permitting,
 			},
 			util: nil,
@@ -348,8 +348,8 @@ func TestRefusalsAreDistinguishable(t *testing.T) {
 // rather than picking arbitrarily.
 func TestNoCapacityIndexFailsClosed(t *testing.T) {
 	engine := newEngine(t, nil,
-		cell("c1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("c1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	if _, err := engine.Place(t.Context(), caller(nil), Request{}); !errors.Is(err, ErrCapacityUnknown) {
@@ -360,10 +360,10 @@ func TestNoCapacityIndexFailsClosed(t *testing.T) {
 func TestLeastLoadedPicksTheEmptiestAndBreaksTiesByName(t *testing.T) {
 	index := loaded(t, map[string]float64{"c-a": 0.5, "c-b": 0.2, "c-c": 0.2})
 	engine := newEngine(t, index,
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c-c", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-c", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	// Repeated so that a map-iteration-order dependency shows up rather than
@@ -381,13 +381,13 @@ func TestLeastLoadedPicksTheEmptiestAndBreaksTiesByName(t *testing.T) {
 
 func TestRoundRobinRotatesDeterministically(t *testing.T) {
 	index := loaded(t, map[string]float64{"c-a": 0.9, "c-b": 0.1, "c-c": 0.5})
-	pol := policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
-	pol.Spec.Strategy = cellcastv1alpha1.ScoringRoundRobin
+	pol := policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
+	pol.Spec.Strategy = cellcastv1beta1.ScoringRoundRobin
 
 	engine := newEngine(t, index,
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c-c", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-c", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
 		pol,
 	)
 
@@ -411,12 +411,12 @@ func TestRoundRobinRotatesDeterministically(t *testing.T) {
 // this asserts the policy's choice is what runs.
 func TestStrategyComesFromPolicyNotTheRequest(t *testing.T) {
 	index := loaded(t, map[string]float64{"c-a": 0.9, "c-b": 0.1})
-	pol := policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
-	pol.Spec.Strategy = cellcastv1alpha1.ScoringRoundRobin
+	pol := policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"})
+	pol.Spec.Strategy = cellcastv1beta1.ScoringRoundRobin
 
 	engine := newEngine(t, index,
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
 		pol,
 	)
 
@@ -424,8 +424,8 @@ func TestStrategyComesFromPolicyNotTheRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
-	if decision.Strategy != cellcastv1alpha1.ScoringRoundRobin {
-		t.Errorf("strategy = %q, want %q", decision.Strategy, cellcastv1alpha1.ScoringRoundRobin)
+	if decision.Strategy != cellcastv1beta1.ScoringRoundRobin {
+		t.Errorf("strategy = %q, want %q", decision.Strategy, cellcastv1beta1.ScoringRoundRobin)
 	}
 	// Round robin starts at the first cell by name, which is the loaded one.
 	// Least-loaded would have returned c-b.
@@ -437,16 +437,16 @@ func TestStrategyComesFromPolicyNotTheRequest(t *testing.T) {
 func TestUnsetStrategyDefaultsToLeastLoaded(t *testing.T) {
 	index := loaded(t, map[string]float64{"c-a": 0.9, "c-b": 0.1})
 	engine := newEngine(t, index,
-		cell("c-a", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("c-b", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("c-a", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("c-b", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	decision, err := engine.Place(t.Context(), caller(nil), Request{})
 	if err != nil {
 		t.Fatalf("Place() = %v, want a placement", err)
 	}
-	if decision.Strategy != cellcastv1alpha1.ScoringLeastLoaded || decision.Cell != "c-b" {
+	if decision.Strategy != cellcastv1beta1.ScoringLeastLoaded || decision.Cell != "c-b" {
 		t.Errorf("decision = %+v, want LeastLoaded on c-b", decision)
 	}
 }
@@ -456,11 +456,11 @@ func TestUnsetStrategyDefaultsToLeastLoaded(t *testing.T) {
 func TestTraceCoversEveryRegisteredCell(t *testing.T) {
 	index := loaded(t, map[string]float64{"live-dev": 0.2})
 	engine := newEngine(t, index,
-		cell("live-dev", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("drain-dev", cellcastv1alpha1.ClusterStateDraining, map[string]string{"env": "dev"}),
-		cell("quiet-dev", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		cell("prod", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "prd"}),
-		policy("p", []cellcastv1alpha1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
+		cell("live-dev", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("drain-dev", cellcastv1beta1.ClusterStateDraining, map[string]string{"env": "dev"}),
+		cell("quiet-dev", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		cell("prod", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "prd"}),
+		policy("p", []cellcastv1beta1.SubjectSelector{subject(nil)}, map[string]string{"env": "dev"}),
 	)
 
 	decision, err := engine.Place(t.Context(), caller(nil), Request{})
@@ -495,12 +495,12 @@ func TestTraceCoversEveryRegisteredCell(t *testing.T) {
 func TestMostSpecificPolicyWins(t *testing.T) {
 	index := loaded(t, map[string]float64{"broad": 0.1, "narrow": 0.9})
 	engine := newEngine(t, index,
-		cell("broad", cellcastv1alpha1.ClusterStateLive, map[string]string{"tier": "broad"}),
-		cell("narrow", cellcastv1alpha1.ClusterStateLive, map[string]string{"tier": "narrow"}),
-		policy("a-broad", []cellcastv1alpha1.SubjectSelector{
+		cell("broad", cellcastv1beta1.ClusterStateLive, map[string]string{"tier": "broad"}),
+		cell("narrow", cellcastv1beta1.ClusterStateLive, map[string]string{"tier": "narrow"}),
+		policy("a-broad", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app"}),
 		}, map[string]string{"tier": "broad"}),
-		policy("b-narrow", []cellcastv1alpha1.SubjectSelector{
+		policy("b-narrow", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app", "environment": "production"}),
 		}, map[string]string{"tier": "narrow"}),
 	)
@@ -525,12 +525,12 @@ func TestMostSpecificPolicyWins(t *testing.T) {
 func TestEquallySpecificPoliciesResolveByName(t *testing.T) {
 	index := loaded(t, map[string]float64{"a-cell": 0.5, "z-cell": 0.1})
 	engine := newEngine(t, index,
-		cell("a-cell", cellcastv1alpha1.ClusterStateLive, map[string]string{"tier": "a"}),
-		cell("z-cell", cellcastv1alpha1.ClusterStateLive, map[string]string{"tier": "z"}),
-		policy("aaa", []cellcastv1alpha1.SubjectSelector{
+		cell("a-cell", cellcastv1beta1.ClusterStateLive, map[string]string{"tier": "a"}),
+		cell("z-cell", cellcastv1beta1.ClusterStateLive, map[string]string{"tier": "z"}),
+		policy("aaa", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app"}),
 		}, map[string]string{"tier": "a"}),
-		policy("zzz", []cellcastv1alpha1.SubjectSelector{
+		policy("zzz", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app"}),
 		}, map[string]string{"tier": "z"}),
 	)
@@ -575,7 +575,7 @@ func TestPolicyClaimKeysMatchWhatTheAuthenticatorProduces(t *testing.T) {
 
 		for _, claim := range p.Claims {
 			id := &identity.Identity{Issuer: githubIssuer, Claims: map[string]string{claim: "value"}}
-			sel := cellcastv1alpha1.SubjectSelector{
+			sel := cellcastv1beta1.SubjectSelector{
 				Issuer: githubIssuer,
 				Claims: map[string]string{claim: "value"},
 			}
@@ -615,7 +615,7 @@ func TestSubjectSelectorPinsTheSubClaim(t *testing.T) {
 	agent := &identity.Identity{Issuer: issuer, Subject: "system:serviceaccount:cellcast-system:cellcast-agent"}
 	deployer := &identity.Identity{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
 
-	sel := cellcastv1alpha1.SubjectSelector{Issuer: issuer, Subject: deployer.Subject}
+	sel := cellcastv1beta1.SubjectSelector{Issuer: issuer, Subject: deployer.Subject}
 
 	if matchSubject(sel, agent) {
 		t.Error("a policy naming apps/deployer matched the cellcast agent from the same issuer")
@@ -626,14 +626,14 @@ func TestSubjectSelectorPinsTheSubClaim(t *testing.T) {
 
 	// And an unpinned selector still matches everything from the issuer, which
 	// is why pinning has to be available rather than merely advisable.
-	if !matchSubject(cellcastv1alpha1.SubjectSelector{Issuer: issuer}, agent) {
+	if !matchSubject(cellcastv1beta1.SubjectSelector{Issuer: issuer}, agent) {
 		t.Error("an issuer-only selector did not match a caller from that issuer")
 	}
 }
 
 func TestSubjectSelectorSubjectIsExactNotPrefix(t *testing.T) {
 	const issuer = "https://oidc.cell-1.example.test"
-	sel := cellcastv1alpha1.SubjectSelector{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
+	sel := cellcastv1beta1.SubjectSelector{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
 
 	for _, sub := range []string{
 		"system:serviceaccount:apps:deployer2",
@@ -654,12 +654,12 @@ func TestPinnedSubjectBeatsAnIssuerWidePolicy(t *testing.T) {
 	const issuer = "https://oidc.cell-1.example.test"
 	id := &identity.Identity{Issuer: issuer, Subject: "system:serviceaccount:apps:deployer"}
 
-	broad := policy("all-callers", []cellcastv1alpha1.SubjectSelector{{Issuer: issuer}}, map[string]string{"env": "dev"})
-	pinned := policy("just-deployer", []cellcastv1alpha1.SubjectSelector{
+	broad := policy("all-callers", []cellcastv1beta1.SubjectSelector{{Issuer: issuer}}, map[string]string{"env": "dev"})
+	pinned := policy("just-deployer", []cellcastv1beta1.SubjectSelector{
 		{Issuer: issuer, Subject: id.Subject},
 	}, map[string]string{"env": "prod"})
 
-	got, ambiguous, err := selectPolicy([]cellcastv1alpha1.PlacementPolicy{*broad, *pinned}, id)
+	got, ambiguous, err := selectPolicy([]cellcastv1beta1.PlacementPolicy{*broad, *pinned}, id)
 	if err != nil {
 		t.Fatalf("selectPolicy() = %v, want nil", err)
 	}
@@ -682,10 +682,10 @@ func TestPinnedSubjectBeatsAnIssuerWidePolicy(t *testing.T) {
 func TestARefusalCarriesItsReasoning(t *testing.T) {
 	index := loaded(t, map[string]float64{"dev-euw1": 0.10})
 	engine := newEngine(t, index,
-		cell("prod-euw1", cellcastv1alpha1.ClusterStateDraining, map[string]string{"env": "prd"}),
-		cell("prod-euw2", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "prd"}),
-		cell("dev-euw1", cellcastv1alpha1.ClusterStateLive, map[string]string{"env": "dev"}),
-		policy("prod", []cellcastv1alpha1.SubjectSelector{
+		cell("prod-euw1", cellcastv1beta1.ClusterStateDraining, map[string]string{"env": "prd"}),
+		cell("prod-euw2", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "prd"}),
+		cell("dev-euw1", cellcastv1beta1.ClusterStateLive, map[string]string{"env": "dev"}),
+		policy("prod", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app"}),
 		}, map[string]string{"env": "prd"}),
 	)
@@ -732,8 +732,8 @@ func TestARefusalCarriesItsReasoning(t *testing.T) {
 func TestDarkRefusalNamesThePolicy(t *testing.T) {
 	index := loaded(t, map[string]float64{"dark-euw1": 0.10})
 	engine := newEngine(t, index,
-		cell("dark-euw1", cellcastv1alpha1.ClusterStateDark, map[string]string{"env": "prd"}),
-		policy("prod", []cellcastv1alpha1.SubjectSelector{
+		cell("dark-euw1", cellcastv1beta1.ClusterStateDark, map[string]string{"env": "prd"}),
+		policy("prod", []cellcastv1beta1.SubjectSelector{
 			subject(map[string]string{"repository": "example/app"}),
 		}, map[string]string{"env": "prd"}),
 	)

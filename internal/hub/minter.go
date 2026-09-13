@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/broker"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/identity"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/placement"
@@ -49,8 +49,8 @@ func WithPlacer(p Placer) Option {
 type Minter interface {
 	Mint(
 		ctx context.Context,
-		cluster *cellcastv1alpha1.Cluster,
-		ttlPolicy *cellcastv1alpha1.TokenTTLPolicy,
+		cluster *cellcastv1beta1.Cluster,
+		ttlPolicy *cellcastv1beta1.TokenTTLPolicy,
 		requested time.Duration,
 		subject string,
 	) (*broker.Credential, broker.Resolution, error)

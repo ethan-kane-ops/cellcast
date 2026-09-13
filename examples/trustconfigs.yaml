@@ -7,7 +7,7 @@
 #
 # One per cell, in the hub's own namespace.
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: TrustConfig
 metadata:
   name: prod-euw1
@@ -32,7 +32,7 @@ spec:
     # audience, which is what makes the token usable as a kubeconfig
     # credential. Any other value mints a token that cell will refuse.
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: TrustConfig
 metadata:
   name: prod-use1
@@ -47,7 +47,7 @@ spec:
     serviceAccountName: deployer
     namespace: apps
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: TrustConfig
 metadata:
   name: prod-apse1
@@ -62,7 +62,7 @@ spec:
     serviceAccountName: deployer
     namespace: apps
 ---
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: TrustConfig
 metadata:
   name: staging-euw1

@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 )
@@ -70,8 +70,8 @@ func startManager(t *testing.T, ns string, index *capacity.Registry) {
 }
 
 // accepting reads the AcceptingPlacements condition off a cell.
-func accepting(cl *cellcastv1alpha1.Cluster) *metav1.Condition {
-	return meta.FindStatusCondition(cl.Status.Conditions, cellcastv1alpha1.ClusterConditionAccepting)
+func accepting(cl *cellcastv1beta1.Cluster) *metav1.Condition {
+	return meta.FindStatusCondition(cl.Status.Conditions, cellcastv1beta1.ClusterConditionAccepting)
 }
 
 // TestClusterStateMachineThroughAManager drives the three states through a real
@@ -107,10 +107,10 @@ func TestClusterStateMachineThroughAManager(t *testing.T) {
 	// placement engine reads. A condition that moved while observedState did
 	// not would leave kubectl telling the truth and the hub acting on the old
 	// state.
-	awaitState := func(t *testing.T, want cellcastv1alpha1.ClusterState, wantStatus metav1.ConditionStatus, wantReason string) {
+	awaitState := func(t *testing.T, want cellcastv1beta1.ClusterState, wantStatus metav1.ConditionStatus, wantReason string) {
 		t.Helper()
 		eventually(t, 20*time.Second, fmt.Sprintf("waiting for %s/%s", want, wantReason), func() error {
-			var got cellcastv1alpha1.Cluster
+			var got cellcastv1beta1.Cluster
 			if err := c.Get(ctx, key, &got); err != nil {
 				return err
 			}
@@ -119,7 +119,7 @@ func TestClusterStateMachineThroughAManager(t *testing.T) {
 			}
 			cond := accepting(&got)
 			if cond == nil {
-				return fmt.Errorf("no %s condition", cellcastv1alpha1.ClusterConditionAccepting)
+				return fmt.Errorf("no %s condition", cellcastv1beta1.ClusterConditionAccepting)
 			}
 			if cond.Status != wantStatus || cond.Reason != wantReason {
 				return fmt.Errorf("condition = %s/%s, want %s/%s", cond.Status, cond.Reason, wantStatus, wantReason)
@@ -134,9 +134,9 @@ func TestClusterStateMachineThroughAManager(t *testing.T) {
 		})
 	}
 
-	setState := func(t *testing.T, state cellcastv1alpha1.ClusterState) {
+	setState := func(t *testing.T, state cellcastv1beta1.ClusterState) {
 		t.Helper()
-		var got cellcastv1alpha1.Cluster
+		var got cellcastv1beta1.Cluster
 		if err := c.Get(ctx, key, &got); err != nil {
 			t.Fatalf("get: %v", err)
 		}
@@ -147,22 +147,22 @@ func TestClusterStateMachineThroughAManager(t *testing.T) {
 	}
 
 	t.Run("a new cell accepts placements", func(t *testing.T) {
-		awaitState(t, cellcastv1alpha1.ClusterStateLive, metav1.ConditionTrue, "Live")
+		awaitState(t, cellcastv1beta1.ClusterStateLive, metav1.ConditionTrue, "Live")
 	})
 
 	t.Run("draining stops new placements", func(t *testing.T) {
-		setState(t, cellcastv1alpha1.ClusterStateDraining)
-		awaitState(t, cellcastv1alpha1.ClusterStateDraining, metav1.ConditionFalse, "Draining")
+		setState(t, cellcastv1beta1.ClusterStateDraining)
+		awaitState(t, cellcastv1beta1.ClusterStateDraining, metav1.ConditionFalse, "Draining")
 	})
 
 	t.Run("dark is distinguishable from draining", func(t *testing.T) {
-		setState(t, cellcastv1alpha1.ClusterStateDark)
-		awaitState(t, cellcastv1alpha1.ClusterStateDark, metav1.ConditionFalse, "Dark")
+		setState(t, cellcastv1beta1.ClusterStateDark)
+		awaitState(t, cellcastv1beta1.ClusterStateDark, metav1.ConditionFalse, "Dark")
 	})
 
 	t.Run("a cell comes back", func(t *testing.T) {
-		setState(t, cellcastv1alpha1.ClusterStateLive)
-		awaitState(t, cellcastv1alpha1.ClusterStateLive, metav1.ConditionTrue, "Live")
+		setState(t, cellcastv1beta1.ClusterStateLive)
+		awaitState(t, cellcastv1beta1.ClusterStateLive, metav1.ConditionTrue, "Live")
 	})
 
 }
@@ -195,7 +195,7 @@ func TestDeletingACellReleasesItsCapacitySlot(t *testing.T) {
 	// Precondition: without this, a manager that never started would fail the
 	// delete assertion below and read as a broken delete watch.
 	eventually(t, 20*time.Second, "waiting for the controller to observe the new cell", func() error {
-		var got cellcastv1alpha1.Cluster
+		var got cellcastv1beta1.Cluster
 		if err := c.Get(ctx, client.ObjectKey{Name: "doomed", Namespace: ns}, &got); err != nil {
 			return err
 		}
@@ -247,10 +247,10 @@ func TestPolicyReadinessFollowsTheFleet(t *testing.T) {
 	startManager(t, ns, nil)
 	ctx := context.Background()
 
-	pol := &cellcastv1alpha1.PlacementPolicy{
+	pol := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "prod-only", Namespace: ns},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{
 				{Issuer: "https://token.actions.githubusercontent.com"},
 			},
 			PermittedCells: metav1.LabelSelector{
@@ -266,7 +266,7 @@ func TestPolicyReadinessFollowsTheFleet(t *testing.T) {
 	awaitReady := func(t *testing.T, wantStatus metav1.ConditionStatus, wantReason string) {
 		t.Helper()
 		eventually(t, 20*time.Second, "waiting for Ready="+string(wantStatus)+"/"+wantReason, func() error {
-			var got cellcastv1alpha1.PlacementPolicy
+			var got cellcastv1beta1.PlacementPolicy
 			if err := c.Get(ctx, polKey, &got); err != nil {
 				return err
 			}
@@ -295,7 +295,7 @@ func TestPolicyReadinessFollowsTheFleet(t *testing.T) {
 	})
 
 	t.Run("relabelling the cell away makes it unready again", func(t *testing.T) {
-		var cl cellcastv1alpha1.Cluster
+		var cl cellcastv1beta1.Cluster
 		key := client.ObjectKey{Name: "prod-euw1", Namespace: ns}
 		if err := c.Get(ctx, key, &cl); err != nil {
 			t.Fatalf("get cell: %v", err)
@@ -317,10 +317,10 @@ func TestAPolicyNamingAnUntrustedIssuerSaysSo(t *testing.T) {
 	ns := newNamespace(t, c)
 	startManager(t, ns, nil)
 
-	policy := &cellcastv1alpha1.PlacementPolicy{
+	policy := &cellcastv1beta1.PlacementPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "app-prod", Namespace: ns},
-		Spec: cellcastv1alpha1.PlacementPolicySpec{
-			Subjects: []cellcastv1alpha1.SubjectSelector{{
+		Spec: cellcastv1beta1.PlacementPolicySpec{
+			Subjects: []cellcastv1beta1.SubjectSelector{{
 				Issuer:  "https://gitlab.example.com",
 				Subject: "project_path:acme/checkout:ref_type:branch:ref:main",
 			}},
@@ -356,7 +356,7 @@ func awaitPolicyCondition(t *testing.T, c client.Client, ns, name, condition str
 	var found *metav1.Condition
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		var policy cellcastv1alpha1.PlacementPolicy
+		var policy cellcastv1beta1.PlacementPolicy
 		if err := c.Get(context.Background(),
 			client.ObjectKey{Namespace: ns, Name: name}, &policy); err != nil {
 			t.Fatalf("reading the policy: %v", err)

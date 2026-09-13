@@ -13,7 +13,7 @@ from that.
 ## The shape
 
 ```yaml
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: app-prod

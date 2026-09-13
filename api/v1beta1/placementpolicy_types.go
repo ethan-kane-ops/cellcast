@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -149,7 +149,7 @@ type PlacementPolicyStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=ccpol
-// +kubebuilder:deprecatedversion:warning="cellcast.io/v1alpha1 is deprecated; use cellcast.io/v1beta1"
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="Strategy",type=string,JSONPath=`.spec.strategy`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Issuers",type=string,JSONPath=`.status.conditions[?(@.type=="IssuerTrusted")].status`

@@ -7,7 +7,7 @@
 ---
 # The ordinary case: one pipeline, one branch, the two regions currently serving
 # production.
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: checkout-prod
@@ -48,7 +48,7 @@ spec:
 ---
 # The reason DARK exists. A smoke test targets the new region by name before
 # anything routes to it, and only this policy permits that.
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: checkout-smoke-apse1
@@ -73,7 +73,7 @@ spec:
 ---
 # Staging, where the cells are interchangeable and even distribution is more
 # useful than chasing the emptiest one.
-apiVersion: cellcast.io/v1alpha1
+apiVersion: cellcast.io/v1beta1
 kind: PlacementPolicy
 metadata:
   name: checkout-staging

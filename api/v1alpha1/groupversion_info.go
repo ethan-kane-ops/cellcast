@@ -1,11 +1,9 @@
 // Package v1alpha1 contains the v1alpha1 API types for cellcast.
 //
-// The API is versioned from the start so that a v1beta1 can be additive rather
-// than breaking. Field-level semantics live on the types themselves.
-//
-// This package depends only on apimachinery. Keeping controller-runtime out of
-// it means anything that needs the types (the client CLI, a downstream
-// consumer) can import them without pulling a controller framework along.
+// Deprecated: use package v1beta1. This version is still served so that
+// manifests written against it keep applying, and it mirrors v1beta1 field for
+// field because conversion between the two is None. Nothing in this repository
+// reads it; it exists so that controller-gen emits the served version.
 //
 // +kubebuilder:object:generate=true
 // +groupName=cellcast.io

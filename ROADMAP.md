@@ -51,14 +51,17 @@ different cells as utilisation shifts. The record is a `WorkloadPlacement` in th
 survives the hub's own rolling update. The explain table says when a cell was kept, and the client
 says when a workload moved.
 
+**A stable API.** Every resource is served at `v1beta1`, which is also the version stored.
+`v1alpha1` is still served with the same schema and a deprecation warning, so manifests written
+against it keep applying and an upgrade touches no object. A test installs the previous release from
+GHCR, builds a fleet on it, upgrades to the current chart and checks that every object and the
+placement answer survive, then migrates storage and removes `v1alpha1` to prove the procedure a
+future release will need.
+
 ## Next
 
-What a fleet that has been running for a while needs next: a schema that stops moving, and less
-stored trust.
-
-**A stable API.** Every resource is `v1alpha1`, which says the schema may change without notice.
-Graduating it comes with a test that upgrades a running fleet from the previous release rather than
-installing onto an empty cluster.
+What a fleet that has been running for a while needs next: a second way to mint, and less stored
+trust.
 
 **A second trust provider.** The broker interface exists and Kubernetes `TokenRequest` is its only
 implementation, so nothing has tested whether it is an interface or a description of that one case.

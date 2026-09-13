@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub"
 )
 
@@ -32,7 +32,7 @@ func TestEndToEndPipelineRegistersACluster(t *testing.T) {
 	}
 	k8s := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&cellcastv1alpha1.Cluster{}).
+		WithStatusSubresource(&cellcastv1beta1.Cluster{}).
 		Build()
 
 	authn := testAuthenticator(t, iss, "github")
@@ -83,7 +83,7 @@ func TestEndToEndPipelineRegistersACluster(t *testing.T) {
 			t.Fatalf("POST with a valid token = %d, want %d", resp, http.StatusCreated)
 		}
 
-		var stored cellcastv1alpha1.Cluster
+		var stored cellcastv1beta1.Cluster
 		key := client.ObjectKey{Namespace: cfg.Namespace, Name: "eks-prod-euw1"}
 		if err := k8s.Get(t.Context(), key, &stored); err != nil {
 			t.Fatalf("Get(%v) = %v, want the registered cluster", key, err)

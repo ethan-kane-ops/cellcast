@@ -15,7 +15,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/yaml"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // cellToken stands in for the operator's credential in the cell. It has to
@@ -107,11 +107,11 @@ func runCellAddCmd(t *testing.T, args ...string) (stdout, stderr string, err err
 // decodeEnrolment parses what cell add printed into the real API types,
 // strictly. Strict is the point: a field name that drifted from the CRD would
 // otherwise decode as nothing, and the assertions would check an empty value.
-func decodeEnrolment(t *testing.T, stdout string) (cellcastv1alpha1.TrustConfig, cellcastv1alpha1.Cluster) {
+func decodeEnrolment(t *testing.T, stdout string) (cellcastv1beta1.TrustConfig, cellcastv1beta1.Cluster) {
 	t.Helper()
 
-	var trust cellcastv1alpha1.TrustConfig
-	var cluster cellcastv1alpha1.Cluster
+	var trust cellcastv1beta1.TrustConfig
+	var cluster cellcastv1beta1.Cluster
 	var kinds []string
 	for _, doc := range strings.Split(stdout, "---\n") {
 		if strings.TrimSpace(doc) == "" {
@@ -281,13 +281,13 @@ func TestCellAddRefusesWhatTheAPIServerWould(t *testing.T) {
 }
 
 func TestProviderIsInferredOnlyWhereTheAddressSaysSo(t *testing.T) {
-	for endpoint, want := range map[string]cellcastv1alpha1.Provider{
-		"https://ABCDEF1234.gr7.eu-west-1.eks.amazonaws.com":   cellcastv1alpha1.ProviderEKS,
-		"https://prod-dns-1a2b3c.hcp.westeurope.azmk8s.io:443": cellcastv1alpha1.ProviderAKS,
+	for endpoint, want := range map[string]cellcastv1beta1.Provider{
+		"https://ABCDEF1234.gr7.eu-west-1.eks.amazonaws.com":   cellcastv1beta1.ProviderEKS,
+		"https://prod-dns-1a2b3c.hcp.westeurope.azmk8s.io:443": cellcastv1beta1.ProviderAKS,
 		// GKE's usual shape. There is nothing in it to infer from, and guessing
 		// would be worse than saying generic.
-		"https://34.77.12.9":     cellcastv1alpha1.ProviderGeneric,
-		"https://127.0.0.1:6451": cellcastv1alpha1.ProviderGeneric,
+		"https://34.77.12.9":     cellcastv1beta1.ProviderGeneric,
+		"https://127.0.0.1:6451": cellcastv1beta1.ProviderGeneric,
 	} {
 		if got := inferProvider(endpoint); got != want {
 			t.Errorf("inferProvider(%q) = %s, want %s", endpoint, got, want)

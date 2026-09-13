@@ -15,7 +15,8 @@ detector and a real kube-apiserver.
 ## Layout
 
 ```
-api/v1alpha1/          Cluster, PlacementPolicy and TrustConfig types + generated deepcopy
+api/v1beta1/           the API types the hub reads and the API server stores
+api/v1alpha1/          the deprecated version, still served, mirroring v1beta1
 cmd/
   cellcast/            client CLI; must not link controller-runtime
   cellcast-hub/        API + controllers; the ONLY binary that can mint
@@ -44,8 +45,15 @@ binaries, or moves minting into a package the agent imports, fails the build.
 
 ## Code generation
 
-`api/v1alpha1` is the source of truth. Generated: `zz_generated.deepcopy.go`,
+`api/v1beta1` is the source of truth. Generated: `zz_generated.deepcopy.go`,
 everything under `config/crd/bases/`, and the copies the chart installs.
+
+`api/v1alpha1` is the previous version, still served so that manifests written
+against it keep applying. Conversion between the two is None, so its types
+mirror `api/v1beta1` field for field: a field added to one is added to the
+other in the same change, and `TestServedVersionsShareOneSchema` fails
+otherwise
+([ADR-013](architecture.md#adr-013-the-api-graduates-to-v1beta1-and-v1alpha1-stays-served-with-the-same-schema)).
 
 ```bash
 just generate manifests
@@ -118,6 +126,7 @@ just verify-e2e       # place a workload, then kill the hub and check every fall
 just verify-agent     # three real cells with real agents; watch one drop out of scoring
 just verify-mint      # mint a real credential and check what it can and cannot do
 just verify-chart     # install both charts for real and check what they install stays up
+just verify-upgrade   # install the last release, build a fleet on it, upgrade it to this tree
 ```
 
 Each builds its own kind clusters and tears them down. They are not part of

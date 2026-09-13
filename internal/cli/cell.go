@@ -20,7 +20,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // stockIssuer is the service account issuer of every kubeadm and kind cluster
@@ -36,9 +36,9 @@ const maxDiscoveryBytes = 64 << 10
 // and the key the Secret command on stderr stores it under.
 const credentialKey = "kubeconfig"
 
-var knownProviders = []cellcastv1alpha1.Provider{
-	cellcastv1alpha1.ProviderEKS, cellcastv1alpha1.ProviderGKE,
-	cellcastv1alpha1.ProviderAKS, cellcastv1alpha1.ProviderGeneric,
+var knownProviders = []cellcastv1beta1.Provider{
+	cellcastv1beta1.ProviderEKS, cellcastv1beta1.ProviderGKE,
+	cellcastv1beta1.ProviderAKS, cellcastv1beta1.ProviderGeneric,
 }
 
 type cellAddOptions struct {
@@ -62,7 +62,7 @@ type cellAddOptions struct {
 type resolvedCell struct {
 	endpoint string
 	ca       []byte
-	provider cellcastv1alpha1.Provider
+	provider cellcastv1beta1.Provider
 	issuer   string
 }
 
@@ -111,7 +111,7 @@ and the hub flag this cell's agent needs, go to stderr.`,
 	f.StringVar(&opts.hubNamespace, "hub-namespace", "cellcast-system", "namespace the hub runs in, where both objects are created")
 	f.StringToStringVar(&opts.labels, "labels", nil, "labels policies select the cell by, for example env=prod,region=euw1")
 	f.StringVar(&opts.provider, "provider", "", "eks, gke, aks or generic (default: inferred from the API server address, else generic)")
-	f.StringVar(&opts.state, "state", string(cellcastv1alpha1.ClusterStateLive), "LIVE, DARK or DRAINING")
+	f.StringVar(&opts.state, "state", string(cellcastv1beta1.ClusterStateLive), "LIVE, DARK or DRAINING")
 	f.StringVar(&opts.issuer, "issuer", "", "the cell's service account issuer, instead of reading it from the cell")
 	// No defaults for what gets minted. A default here would decide, without
 	// anybody choosing it, what every pipeline deploying to this cell may do.
@@ -156,13 +156,13 @@ func (o *cellAddOptions) validate() error {
 	if errs := validation.IsDNS1123Subdomain(o.name); len(errs) > 0 {
 		return fmt.Errorf("--name %q cannot name a Kubernetes object: %s", o.name, strings.Join(errs, "; "))
 	}
-	states := []cellcastv1alpha1.ClusterState{
-		cellcastv1alpha1.ClusterStateLive, cellcastv1alpha1.ClusterStateDark, cellcastv1alpha1.ClusterStateDraining,
+	states := []cellcastv1beta1.ClusterState{
+		cellcastv1beta1.ClusterStateLive, cellcastv1beta1.ClusterStateDark, cellcastv1beta1.ClusterStateDraining,
 	}
-	if !slices.Contains(states, cellcastv1alpha1.ClusterState(o.state)) {
+	if !slices.Contains(states, cellcastv1beta1.ClusterState(o.state)) {
 		return fmt.Errorf("--state must be LIVE, DARK or DRAINING, not %q", o.state)
 	}
-	if o.provider != "" && !slices.Contains(knownProviders, cellcastv1alpha1.Provider(o.provider)) {
+	if o.provider != "" && !slices.Contains(knownProviders, cellcastv1beta1.Provider(o.provider)) {
 		return fmt.Errorf("--provider must be eks, gke, aks or generic, not %q", o.provider)
 	}
 	return nil
@@ -196,7 +196,7 @@ func (o *cellAddOptions) resolve(ctx context.Context, cfg *rest.Config) (resolve
 	}
 	cell.ca = ca
 
-	cell.provider = cellcastv1alpha1.Provider(o.provider)
+	cell.provider = cellcastv1beta1.Provider(o.provider)
 	if cell.provider == "" {
 		cell.provider = inferProvider(cell.endpoint)
 	}
@@ -230,18 +230,18 @@ func caBundle(cfg *rest.Config) ([]byte, error) {
 // EKS and AKS endpoints carry the provider's domain. A GKE endpoint is
 // usually a bare IP with nothing to infer from, so a GKE cell needs
 // --provider gke.
-func inferProvider(endpoint string) cellcastv1alpha1.Provider {
+func inferProvider(endpoint string) cellcastv1beta1.Provider {
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return cellcastv1alpha1.ProviderGeneric
+		return cellcastv1beta1.ProviderGeneric
 	}
 	switch host := u.Hostname(); {
 	case strings.HasSuffix(host, ".eks.amazonaws.com"):
-		return cellcastv1alpha1.ProviderEKS
+		return cellcastv1beta1.ProviderEKS
 	case strings.HasSuffix(host, ".azmk8s.io"):
-		return cellcastv1alpha1.ProviderAKS
+		return cellcastv1beta1.ProviderAKS
 	}
-	return cellcastv1alpha1.ProviderGeneric
+	return cellcastv1beta1.ProviderGeneric
 }
 
 // discoverIssuer reads the cell's service account issuer from its OIDC
@@ -293,39 +293,39 @@ func discoverIssuer(ctx context.Context, cfg *rest.Config, timeout time.Duration
 
 func (o *cellAddOptions) secretName() string { return o.name + "-kubeconfig" }
 
-func (o *cellAddOptions) objects(cell resolvedCell) (*cellcastv1alpha1.TrustConfig, *cellcastv1alpha1.Cluster) {
+func (o *cellAddOptions) objects(cell resolvedCell) (*cellcastv1beta1.TrustConfig, *cellcastv1beta1.Cluster) {
 	typeMeta := func(kind string) metav1.TypeMeta {
-		return metav1.TypeMeta{APIVersion: cellcastv1alpha1.GroupVersion.String(), Kind: kind}
+		return metav1.TypeMeta{APIVersion: cellcastv1beta1.GroupVersion.String(), Kind: kind}
 	}
 
-	trust := &cellcastv1alpha1.TrustConfig{
+	trust := &cellcastv1beta1.TrustConfig{
 		TypeMeta:   typeMeta("TrustConfig"),
 		ObjectMeta: metav1.ObjectMeta{Name: o.name, Namespace: o.hubNamespace},
-		Spec: cellcastv1alpha1.TrustConfigSpec{
-			Provider: cellcastv1alpha1.TrustProviderKubernetes,
-			CredentialSource: cellcastv1alpha1.CredentialSource{
-				SecretRef: &cellcastv1alpha1.SecretKeyReference{Name: o.secretName(), Key: credentialKey},
+		Spec: cellcastv1beta1.TrustConfigSpec{
+			Provider: cellcastv1beta1.TrustProviderKubernetes,
+			CredentialSource: cellcastv1beta1.CredentialSource{
+				SecretRef: &cellcastv1beta1.SecretKeyReference{Name: o.secretName(), Key: credentialKey},
 			},
-			Kubernetes: &cellcastv1alpha1.KubernetesTrust{
+			Kubernetes: &cellcastv1beta1.KubernetesTrust{
 				ServiceAccountName: o.mintServiceAccount,
 				Namespace:          o.mintNamespace,
 			},
 		},
 	}
 
-	cluster := &cellcastv1alpha1.Cluster{
+	cluster := &cellcastv1beta1.Cluster{
 		TypeMeta:   typeMeta("Cluster"),
 		ObjectMeta: metav1.ObjectMeta{Name: o.name, Namespace: o.hubNamespace, Labels: o.labels},
-		Spec: cellcastv1alpha1.ClusterSpec{
+		Spec: cellcastv1beta1.ClusterSpec{
 			Endpoint:       cell.endpoint,
 			CABundle:       cell.ca,
 			Provider:       cell.provider,
-			TrustConfigRef: cellcastv1alpha1.TrustConfigReference{Name: o.name},
-			Reporter: &cellcastv1alpha1.ReporterIdentity{
+			TrustConfigRef: cellcastv1beta1.TrustConfigReference{Name: o.name},
+			Reporter: &cellcastv1beta1.ReporterIdentity{
 				Issuer:  cell.issuer,
 				Subject: fmt.Sprintf("system:serviceaccount:%s:%s", o.agentNamespace, o.agentServiceAccount),
 			},
-			State: cellcastv1alpha1.ClusterState(o.state),
+			State: cellcastv1beta1.ClusterState(o.state),
 		},
 	}
 	return trust, cluster

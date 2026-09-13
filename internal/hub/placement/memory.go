@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 )
 
 // Bounds on what the hub remembers about where workloads were placed.
@@ -91,7 +91,7 @@ func NewMemory(c client.Client, namespace string, opts MemoryOptions, log *slog.
 // Indexing starts the informer with the cache, so a replica is not ready until
 // it can read what earlier replicas remembered.
 func (m *Memory) SetupWithManager(ctx context.Context, mgr manager.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &cellcastv1alpha1.WorkloadPlacement{}, PolicyIndex, IndexPolicy); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &cellcastv1beta1.WorkloadPlacement{}, PolicyIndex, IndexPolicy); err != nil {
 		return fmt.Errorf("indexing workload placements by policy: %w", err)
 	}
 	if err := mgr.Add(m); err != nil {
@@ -102,7 +102,7 @@ func (m *Memory) SetupWithManager(ctx context.Context, mgr manager.Manager) erro
 
 // IndexPolicy is the value PolicyIndex holds for a record.
 func IndexPolicy(o client.Object) []string {
-	wp, ok := o.(*cellcastv1alpha1.WorkloadPlacement)
+	wp, ok := o.(*cellcastv1beta1.WorkloadPlacement)
 	if !ok {
 		return nil
 	}
@@ -116,7 +116,7 @@ type memo struct {
 	// record is the object as the decision read it, nil when there was none.
 	// An expired one is kept, so the write updates it rather than failing to
 	// create it.
-	record *cellcastv1alpha1.WorkloadPlacement
+	record *cellcastv1beta1.WorkloadPlacement
 }
 
 // recall returns the record for a workload under a policy, or nil.
@@ -124,8 +124,8 @@ type memo struct {
 // Read from the informer cache, so deciding still does not write. A record
 // whose spec names another policy or workload is not this workload's, whatever
 // its name, and reads as none.
-func (m *Memory) recall(ctx context.Context, policy, workload string) *cellcastv1alpha1.WorkloadPlacement {
-	var wp cellcastv1alpha1.WorkloadPlacement
+func (m *Memory) recall(ctx context.Context, policy, workload string) *cellcastv1beta1.WorkloadPlacement {
+	var wp cellcastv1beta1.WorkloadPlacement
 	key := client.ObjectKey{Namespace: m.namespace, Name: recordName(policy, workload)}
 	if err := m.client.Get(ctx, key, &wp); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -148,7 +148,7 @@ func (m *Memory) recall(ctx context.Context, policy, workload string) *cellcastv
 // live reports whether a record is inside its expiry. An expired record reads
 // as absent whether or not the sweep has deleted it yet, so a stalled sweep
 // cannot keep a workload somewhere past its expiry.
-func (m *Memory) live(wp *cellcastv1alpha1.WorkloadPlacement) bool {
+func (m *Memory) live(wp *cellcastv1beta1.WorkloadPlacement) bool {
 	return m.now().Sub(wp.Spec.LastPlacedAt.Time) < m.opts.ExpireAfter
 }
 
@@ -204,7 +204,7 @@ func (m *Memory) create(ctx context.Context, d *Decision, now time.Time) error {
 	// Counted from the cache before the write, so replicas racing for the last
 	// places can overshoot by one each. The cap bounds what callers can make the
 	// hub store, and nobody is billed against it.
-	var held cellcastv1alpha1.WorkloadPlacementList
+	var held cellcastv1beta1.WorkloadPlacementList
 	if err := m.client.List(ctx, &held,
 		client.InNamespace(m.namespace),
 		client.MatchingFields{PolicyIndex: d.Policy},
@@ -216,7 +216,7 @@ func (m *Memory) create(ctx context.Context, d *Decision, now time.Time) error {
 		return fmt.Errorf("%w: %s holds %d", ErrMemoryFull, d.Policy, len(held.Items))
 	}
 
-	wp := &cellcastv1alpha1.WorkloadPlacement{
+	wp := &cellcastv1beta1.WorkloadPlacement{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      recordName(d.Policy, d.memo.workload),
 			Namespace: m.namespace,
@@ -224,13 +224,13 @@ func (m *Memory) create(ctx context.Context, d *Decision, now time.Time) error {
 			// recreated policy of the same name starts with nothing, which is
 			// right: it is not the same authorisation any more.
 			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: cellcastv1alpha1.GroupVersion.String(),
+				APIVersion: cellcastv1beta1.GroupVersion.String(),
 				Kind:       "PlacementPolicy",
 				Name:       d.Policy,
 				UID:        d.memo.policyUID,
 			}},
 		},
-		Spec: cellcastv1alpha1.WorkloadPlacementSpec{
+		Spec: cellcastv1beta1.WorkloadPlacementSpec{
 			Policy:       d.Policy,
 			Workload:     d.memo.workload,
 			Cell:         d.Cell,
@@ -268,7 +268,7 @@ func (m *Memory) NeedLeaderElection() bool { return true }
 
 // sweep deletes every expired record.
 func (m *Memory) sweep(ctx context.Context) {
-	var all cellcastv1alpha1.WorkloadPlacementList
+	var all cellcastv1beta1.WorkloadPlacementList
 	if err := m.client.List(ctx, &all, client.InNamespace(m.namespace)); err != nil {
 		m.log.WarnContext(ctx, "listing workload placements to expire failed", slog.Any("error", err))
 		return

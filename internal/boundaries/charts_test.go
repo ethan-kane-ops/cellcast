@@ -269,6 +269,76 @@ func TestTheHubChartInstallsTheGeneratedSchemaUnaltered(t *testing.T) {
 	}
 }
 
+func TestTheHubChartListsEveryCRDAtItsStorageVersion(t *testing.T) {
+	// Artifact Hub renders the resources a chart installs from a hand-written
+	// annotation. Nothing that installs the chart reads it, so a new resource
+	// or a new storage version leaves the listing describing an API that no
+	// longer matches what the chart puts in the cluster.
+	root := repoRoot(t)
+
+	raw, err := os.ReadFile(filepath.Join(root, "charts", "cellcast", "Chart.yaml"))
+	if err != nil {
+		t.Fatalf("reading Chart.yaml: %v", err)
+	}
+	var chart struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := yaml.Unmarshal(raw, &chart); err != nil {
+		t.Fatalf("parsing Chart.yaml: %v", err)
+	}
+
+	type listing struct {
+		Kind    string `json:"kind"`
+		Version string `json:"version"`
+		Name    string `json:"name"`
+	}
+	var listed []listing
+	if err := yaml.Unmarshal([]byte(chart.Annotations["artifacthub.io/crds"]), &listed); err != nil {
+		t.Fatalf("parsing the artifacthub.io/crds annotation: %v", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(root, "config", "crd", "bases", "*.yaml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no generated CRDs found (%v); run `just manifests`", err)
+	}
+	var generated []listing
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		var def struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Spec struct {
+				Names struct {
+					Kind string `json:"kind"`
+				} `json:"names"`
+				Versions []struct {
+					Name    string `json:"name"`
+					Storage bool   `json:"storage"`
+				} `json:"versions"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal(raw, &def); err != nil {
+			t.Fatalf("parsing %s: %v", file, err)
+		}
+		for _, v := range def.Spec.Versions {
+			if v.Storage {
+				generated = append(generated, listing{Kind: def.Spec.Names.Kind, Version: v.Name, Name: def.Metadata.Name})
+			}
+		}
+	}
+
+	byName := func(a, b listing) int { return strings.Compare(a.Name, b.Name) }
+	slices.SortFunc(listed, byName)
+	slices.SortFunc(generated, byName)
+	if diff := cmp.Diff(generated, listed); diff != "" {
+		t.Errorf("Chart.yaml's artifacthub.io/crds does not list what the chart installs (-generated +listed):\n%s", diff)
+	}
+}
+
 func TestTheHubChartCanLeaveTheCRDsAlone(t *testing.T) {
 	// Plenty of shops manage CRDs out of band, and a chart that cannot be
 	// installed without them is a chart those shops cannot install.

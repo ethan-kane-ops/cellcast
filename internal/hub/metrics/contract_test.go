@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/capacity"
 	"github.com/ethan-kane-ops/cellcast/internal/refusal"
@@ -54,11 +54,11 @@ func seeded(t *testing.T) *prometheus.Registry {
 	}
 
 	scheme := runtime.NewScheme()
-	if err := cellcastv1alpha1.AddToScheme(scheme); err != nil {
+	if err := cellcastv1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() = %v, want nil", err)
 	}
 	k8s := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(cell("c", cellcastv1alpha1.ClusterStateLive)).Build()
+		WithObjects(cell("c", cellcastv1beta1.ClusterStateLive)).Build()
 	if err := reg.Register(NewClusterStateCollector(k8s, testNamespace, discardLogger())); err != nil {
 		t.Fatalf("Register() = %v, want nil", err)
 	}

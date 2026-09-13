@@ -8,7 +8,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	cellcastv1alpha1 "github.com/ethan-kane-ops/cellcast/api/v1alpha1"
+	cellcastv1beta1 "github.com/ethan-kane-ops/cellcast/api/v1beta1"
 	"github.com/ethan-kane-ops/cellcast/internal/hub/audit"
 )
 
@@ -54,7 +54,7 @@ func (c *clusterEvents) Notify(ctx context.Context, rec audit.Record) {
 	// hung up is an event an operator needed.
 	ctx = context.WithoutCancel(ctx)
 
-	var cell cellcastv1alpha1.Cluster
+	var cell cellcastv1beta1.Cluster
 	key := client.ObjectKey{Namespace: c.namespace, Name: rec.Cell}
 	if err := c.reader.Get(ctx, key, &cell); err != nil {
 		// Best effort by construction. The read is served from the informer
