@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -151,6 +152,13 @@ func (m *Memory) live(wp *cellcastv1alpha1.WorkloadPlacement) bool {
 	return m.now().Sub(wp.Spec.LastPlacedAt.Time) < m.opts.ExpireAfter
 }
 
+// sanitizeForLog removes line breaks so caller-controlled values cannot forge
+// additional log lines when included in error messages.
+func sanitizeForLog(v string) string {
+	v = strings.ReplaceAll(v, "\n", "")
+	return strings.ReplaceAll(v, "\r", "")
+}
+
 // remember writes back the cell a decision chose, when anything changed.
 func (m *Memory) remember(ctx context.Context, d *Decision) error {
 	if m == nil || d.memo == nil {
@@ -186,7 +194,7 @@ func (m *Memory) remember(ctx context.Context, d *Decision) error {
 		// that had just passed the filter, so neither answer is wrong.
 		return nil
 	case err != nil:
-		return fmt.Errorf("updating where %s was last placed: %w", d.memo.workload, err)
+		return fmt.Errorf("updating where %s was last placed: %w", sanitizeForLog(d.memo.workload), err)
 	}
 	return nil
 }
