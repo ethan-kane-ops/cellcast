@@ -97,8 +97,15 @@ workload may go. A cell moved to `DRAINING`, or dropped from the policy, fails
 the hook and the sync does not run.
 
 ```bash
+kubectl -n apps create configmap cellcast-hook \
+  --from-literal=hub=https://cellcast.example.com
 kubectl apply -f argocd/presync-job.yaml
 ```
+
+The hub's address is the one value that differs between installations, so the
+Job reads it from that ConfigMap rather than carrying it. Without the ConfigMap
+the pod does not start, which is better than a hook answering confidently about
+a fleet nobody is deploying to.
 
 That works as a gate because of the policy beside it: the identity the Job
 carries is permitted exactly one cell, so "where should this go" and "may this
@@ -130,6 +137,11 @@ The policy matches on claims rather than on the subject, because Buildkite's
 `sub` carries the commit and is therefore different on every build. See
 [`buildkite/policy.yaml`](buildkite/policy.yaml).
 
+This is the one integration checked for schema and no further. Running it needs
+a Buildkite agent and an organisation token, and a check resting on a
+third-party account is one a fork cannot run and one that goes red during
+somebody else's outage.
+
 ## The hub has to trust the issuer
 
 A policy naming an issuer does not add it. The hub verifies signatures only
@@ -156,6 +168,13 @@ the app reached the cell cellcast named and neither of the other two.
 
 The policy that run applies is `github-actions/policy.yaml`, unedited, so an
 example that stops working stops the build.
+
+The same run then applies [`argocd/presync-job.yaml`](argocd/presync-job.yaml)
+in one of those cells and waits on the Job twice: it has to succeed while the
+cell is `LIVE`, and fail once the cell is set to `DRAINING`, which is the
+behaviour the hook exists for. One field is substituted, the policy's issuer,
+because a kind cluster issues as its own API server address and no test fleet
+can own `example.com`.
 
 ## Related
 

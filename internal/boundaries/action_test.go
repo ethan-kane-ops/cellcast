@@ -118,7 +118,7 @@ func TestTheIntegrationExamplesOnlyNameFlagsThatExist(t *testing.T) {
 	// reading, they are pasting, and the error arrives in a deploy.
 	accepted := append(clientFlags(t), binaryFlags(t, "cellcast-hub")...)
 	// Flags belonging to the other programs the examples legitimately call.
-	foreign := []string{"--audience", "--lifetime", "--kubeconfig", "--jq"}
+	foreign := []string{"--audience", "--lifetime", "--kubeconfig", "--jq", "--from-literal"}
 
 	root := filepath.Join(repoRoot(t), "examples", "integrations")
 	var checked int
@@ -187,6 +187,39 @@ func TestEveryExamplePinsTheActionToATagThatContainsIt(t *testing.T) {
 
 	if found == 0 {
 		t.Fatal("no example pins the action to a released tag, so this test checked nothing")
+	}
+}
+
+// clientImage matches the client image an example tells a reader to run.
+var clientImage = regexp.MustCompile(`ghcr\.io/ethan-kane-ops/cellcast:(v[0-9]+\.[0-9]+\.[0-9]+)`)
+
+func TestEveryExamplePinsTheClientImageTheChartsDeclare(t *testing.T) {
+	// The third release number in the examples, after the action's ref and its
+	// version input. An Argo CD hook runs the client as a container rather than
+	// installing it, so this pin is to that reader what `version:` is to an
+	// Actions caller.
+	//
+	// It sat at v0.2.0 through two releases because release-version rewrote
+	// every other release number in these files and not this one. Stale is quiet
+	// here: an old client against a new hub keeps placing, right up to the
+	// release that moves the wire.
+	want := chartYAML(t, "cellcast").AppVersion
+
+	var found int
+	for _, name := range trackedFiles(t) {
+		if !slices.Contains([]string{".md", ".yml", ".yaml"}, filepath.Ext(name)) {
+			continue
+		}
+		for _, ref := range clientImage.FindAllStringSubmatch(readRepoFile(t, name), -1) {
+			found++
+			if ref[1] != want {
+				t.Errorf("%s runs the client image at %s and the charts declare %s; run `just release-version`", name, ref[1], want)
+			}
+		}
+	}
+
+	if found == 0 {
+		t.Fatal("no example runs the client image, so this test checked nothing")
 	}
 }
 

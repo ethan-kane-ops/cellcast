@@ -44,10 +44,28 @@ spec:
           type: RuntimeDefault
       containers:
         - name: place
-          image: ghcr.io/ethan-kane-ops/cellcast:v0.2.0
+          image: ghcr.io/ethan-kane-ops/cellcast:v0.4.0
+          env:
+            # The hub's address is the one thing here that differs between
+            # installations, so it is read from a ConfigMap rather than written
+            # into this file:
+            #
+            #   kubectl -n apps create configmap cellcast-hook \
+            #     --from-literal=hub=https://cellcast.example.com
+            #
+            # Without that ConfigMap the pod does not start, which is the right
+            # failure: a hook pointed at the wrong hub would answer confidently
+            # about a fleet nobody is deploying to. It is also what lets
+            # .github/workflows/integration.yml apply this file unedited against
+            # a real cell on every push.
+            - name: CELLCAST_HUB
+              valueFrom:
+                configMapKeyRef:
+                  name: cellcast-hook
+                  key: hub
           args:
             - place
-            - --hub=https://cellcast.example.com
+            - --hub=$(CELLCAST_HUB)
             - --workload=checkout-api
             # Nothing is minted and nothing is deployed. The decision is the
             # whole point, and a hook that minted a credential would be handing
