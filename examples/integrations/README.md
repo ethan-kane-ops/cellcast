@@ -86,7 +86,7 @@ fail on a missing kubeconfig rather than on anything cellcast said.
 | `dry-run` | `false` | Run the whole decision without minting |
 | `explain` | `false` | Log every candidate cell and why it was or was not chosen |
 | `export-kubeconfig` | `true` | Set `KUBECONFIG` for the rest of the job |
-| `version` | `v0.2.0` | Release of the client to install |
+| `version` | `v0.5.0` | Release of the client to install |
 | `client-path` | | Use this binary instead of downloading one |
 
 ## Argo CD

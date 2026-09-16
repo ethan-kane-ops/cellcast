@@ -190,6 +190,28 @@ func TestEveryExamplePinsTheActionToATagThatContainsIt(t *testing.T) {
 	}
 }
 
+// documentedActionVersion matches the default the integrations README gives for
+// the action's version input.
+var documentedActionVersion = regexp.MustCompile("`version` \\| `(v[0-9]+\\.[0-9]+\\.[0-9]+)`")
+
+func TestTheDocumentedActionVersionIsTheOneItInstalls(t *testing.T) {
+	// The inputs table is where a caller reads what pinning nothing gets them,
+	// and it is a hand-copy of the action's own default. It was written once and
+	// left: it still said v0.2.0 three releases later, while the action
+	// installed the current client. A wrong default here is read by exactly the
+	// people who are not going to check it against action.yml.
+	want := placeAction(t).Inputs["version"].Default
+	readme := readRepoFile(t, filepath.Join("examples", "integrations", "README.md"))
+
+	found := documentedActionVersion.FindStringSubmatch(readme)
+	if found == nil {
+		t.Fatal("examples/integrations/README.md documents no default for the action's version input")
+	}
+	if found[1] != want {
+		t.Errorf("examples/integrations/README.md documents %s and the action installs %s; run `just release-version`", found[1], want)
+	}
+}
+
 // clientImage matches the client image an example tells a reader to run.
 var clientImage = regexp.MustCompile(`ghcr\.io/ethan-kane-ops/cellcast:(v[0-9]+\.[0-9]+\.[0-9]+)`)
 

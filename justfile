@@ -395,6 +395,15 @@ release-version tag:
         rm -f "${images[@]/%/.bak}"
         echo "${images[*]} -> run the client image at $tag"
     fi
+    # The integrations README documents the action's version default in a table,
+    # which is a copy of a number that moves every release. It said v0.2.0 three
+    # releases on, telling a caller who pins nothing that they get a client the
+    # action stopped installing long ago.
+    bt='`'
+    sed -i.bak -E "s/(${bt}version${bt} \| ${bt})v[0-9]+\.[0-9]+\.[0-9]+/\1$tag/" \
+        examples/integrations/README.md
+    rm -f examples/integrations/README.md.bak
+    echo "examples/integrations/README.md -> documents the action installing $tag"
     # The charts' READMEs carry the version in a badge, so they go stale on
     # every release unless they are regenerated here. A contract test holds
     # them to Chart.yaml, which is how that was found.
