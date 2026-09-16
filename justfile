@@ -1466,7 +1466,9 @@ integration-argo:
             hub_host=$(colima ssh -- ip route show default 2> /dev/null | awk '{print $3}' | head -1)
             ;;
         *)
-            hub_host=$(docker network inspect kind | jq -r '[.[0].IPAM.Config[].Gateway | select(test("^[0-9.]+$"))] | first // ""')
+            # A config entry can carry a subnet and no gateway at all, and jq
+            # aborts rather than skipping when test() is handed that null.
+            hub_host=$(docker network inspect kind | jq -r '[.[0].IPAM.Config[] | select(.Gateway != null) | .Gateway | select(test("^[0-9.]+$"))] | first // ""')
             ;;
     esac
     [ -n "$hub_host" ] || fail "cannot work out the address a pod in a cell reaches the hub at"
