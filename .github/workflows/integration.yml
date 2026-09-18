@@ -59,6 +59,9 @@ jobs:
       - run: just integration-up
         env:
           CELLCAST_LOG_LEVEL: info
+          # The Argo CD hook is a pod in one of these cells, and a pod cannot
+          # reach a hub bound to the runner's loopback.
+          CELLCAST_HUB_ADDR: 0.0.0.0:18080
 
       - name: Place the workload
         id: cellcast
@@ -80,6 +83,11 @@ jobs:
         run: kubectl -n apps apply -f examples/integrations/github-actions/app.yaml
 
       - run: just integration-check ${{ steps.cellcast.outputs.cell }}
+
+      # The Argo CD hook, run as the Job it is. No Argo CD is involved: applying
+      # the Job in a cell and reading its exit code is what a sync does before
+      # it starts. It runs twice, and the second run has to fail.
+      - run: just integration-argo
 
       # The half of the action the step above skips. It used the build in bin/,
       # so nothing here has yet downloaded a published archive or checked it

@@ -165,6 +165,11 @@ question. Moving a workload is then a change to the Application's destination,
 reviewed in a pull request. The Job and its policy are in
 [examples/integrations/argocd](https://github.com/ethan-kane-ops/cellcast/tree/main/examples/integrations/argocd).
 
+The Job reads the hub's address from a `cellcast-hook` ConfigMap in its own
+namespace, so the manifest is identical in every cell and only that one object
+differs. The integration workflow applies it in a real cell on every push, first
+with the cell `LIVE` and then `DRAINING`.
+
 ## Branching on the result
 
 The human-readable output is for a build log. Anything the pipeline decides on

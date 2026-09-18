@@ -11,7 +11,13 @@ cd "$(dirname "$0")/.."
 
 work="demo/.work"
 cells="euw1 use1 apse1"
-hub_addr="127.0.0.1:18080"
+# Loopback for the recording and for a laptop. The integration workflow sets
+# 0.0.0.0:18080 instead, because the Argo CD PreSync hook runs as a pod inside a
+# cell and reaches the hub across the kind network rather than over loopback.
+hub_addr="${CELLCAST_HUB_ADDR:-127.0.0.1:18080}"
+# What a client dials, which is never what the hub binds to: 0.0.0.0 is an
+# address to listen on, not one to connect to.
+hub_url="http://127.0.0.1:${hub_addr##*:}"
 
 [ -d "$work" ] || { echo "no fleet; run: just demo-setup" >&2; exit 1; }
 
@@ -72,7 +78,7 @@ probe=18082
 for cell in $cells; do
     echo "==> starting the $cell agent"
     nohup ./bin/cellcast-agent \
-        --hub-endpoint "http://$hub_addr" \
+        --hub-endpoint "$hub_url" \
         --cell-name "$cell" \
         --kubeconfig "$work/$cell.kubeconfig" \
         --token-path "$work/$cell.agent.jwt" \
@@ -98,7 +104,7 @@ echo "==> waiting for the fleet to report"
 #
 # A placement that succeeds is the only thing that means what this needs it to
 # mean, so ask for one.
-export CELLCAST_HUB="http://$hub_addr"
+export CELLCAST_HUB="$hub_url"
 export CELLCAST_TOKEN="$(cat "$work/caller.jwt")"
 for _ in $(seq 1 60); do
     # Checked every time round, so a hub that died on startup is reported as

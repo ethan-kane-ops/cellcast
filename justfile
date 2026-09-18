@@ -385,6 +385,25 @@ release-version tag:
         rm -f "${refs[@]/%/.bak}"
         echo "${refs[*]} -> use the action at $tag"
     fi
+    # The client image an example runs as a container, which is what the Argo CD
+    # hook does. The same staleness as the ref above and a quieter one: an old
+    # client against a new hub goes on placing until the release that moves the
+    # wire. Found rather than listed, for the same reason.
+    mapfile -t images < <(git grep -lE '{{registry}}/{{owner}}/cellcast:v[0-9]+\.[0-9]+\.[0-9]+' -- '*.md' '*.yml' '*.yaml')
+    if [ ${#images[@]} -gt 0 ]; then
+        sed -i.bak -E "s|({{registry}}/{{owner}}/cellcast:)v[0-9]+\.[0-9]+\.[0-9]+|\1$tag|g" "${images[@]}"
+        rm -f "${images[@]/%/.bak}"
+        echo "${images[*]} -> run the client image at $tag"
+    fi
+    # The integrations README documents the action's version default in a table,
+    # which is a copy of a number that moves every release. It said v0.2.0 three
+    # releases on, telling a caller who pins nothing that they get a client the
+    # action stopped installing long ago.
+    bt='`'
+    sed -i.bak -E "s/(${bt}version${bt} \| ${bt})v[0-9]+\.[0-9]+\.[0-9]+/\1$tag/" \
+        examples/integrations/README.md
+    rm -f examples/integrations/README.md.bak
+    echo "examples/integrations/README.md -> documents the action installing $tag"
     # The charts' READMEs carry the version in a badge, so they go stale on
     # every release unless they are regenerated here. A contract test holds
     # them to Chart.yaml, which is how that was found.
@@ -1398,6 +1417,121 @@ integration-check cell:
         exit 1
     fi
     echo "sample-app is in {{ cell }} and nowhere else"
+
+# Run the Argo CD PreSync hook in a real cell, LIVE and then DRAINING
+integration-argo:
+    #!/usr/bin/env bash
+    # The hook is a Job, so checking it needs no Argo CD: applying it in a cell
+    # and reading its exit code is exactly what a sync does before it starts.
+    #
+    # Both halves are the test. Succeeding while the cell is LIVE proves the
+    # client image runs, the projected token reaches the hub and the one-cell
+    # policy admits it. Failing once the cell is DRAINING is the whole reason
+    # the hook is written as a gate, and a green run on its own says nothing
+    # about it.
+    set -euo pipefail
+    fail() { echo "$1" >&2; exit 1; }
+
+    cell=euw1
+    ns=apps
+    job="examples/integrations/argocd/presync-job.yaml"
+    policy="examples/integrations/argocd/policy.yaml"
+    export KUBECONFIG="demo/.work/$cell.kubeconfig"
+
+    [ -f "demo/.work/$cell.issuer" ] || fail "no fleet; run: just integration-up"
+
+    # The example pins a published release, because that is what a reader
+    # copies. Building that same tag from this tree and loading it into the cell
+    # is what makes this run exercise the client in this commit instead.
+    tag=$(grep -oE 'cellcast:v[0-9]+\.[0-9]+\.[0-9]+' "$job" | head -1 | cut -d: -f2)
+    [ -n "$tag" ] || fail "$job pins no client image"
+    just image cellcast "$tag" > /dev/null
+    kind load docker-image "{{registry}}/{{owner}}/cellcast:$tag" --name "cellcast-demo-$cell" > /dev/null
+
+    # A pod reaches the hub across the kind network rather than over loopback,
+    # which is why integration-up binds it to 0.0.0.0. Which address that is
+    # depends on where the containers are.
+    #
+    # On a Linux runner they are on the machine the hub runs on, so the kind
+    # network's gateway is the hub's host. The IPv4 one specifically: a
+    # dual-stack network lists its IPv6 config first on some machines, and that
+    # address has to be bracketed before it is a URL at all.
+    #
+    # On macOS the containers are inside a Colima VM and the hub is not, so that
+    # same gateway is the VM, where nothing is listening. What a pod needs there
+    # is the address the VM reaches the host at, which is the VM's default
+    # route.
+    case "$(uname -s)" in
+        Darwin)
+            hub_host=$(colima ssh -- ip route show default 2> /dev/null | awk '{print $3}' | head -1)
+            ;;
+        *)
+            # A config entry can carry a subnet and no gateway at all, and jq
+            # aborts rather than skipping when test() is handed that null.
+            hub_host=$(docker network inspect kind | jq -r '[.[0].IPAM.Config[] | select(.Gateway != null) | .Gateway | select(test("^[0-9.]+$"))] | first // ""')
+            ;;
+    esac
+    [ -n "$hub_host" ] || fail "cannot work out the address a pod in a cell reaches the hub at"
+    kubectl -n "$ns" create configmap cellcast-hook \
+        --from-literal="hub=http://$hub_host:18080" \
+        --dry-run=client -o yaml | kubectl apply -f - > /dev/null
+
+    # One substitution, and a field rather than a line: a kind cluster issues as
+    # its own API server address, and no test fleet can own example.com.
+    # Everything else is applied as written, so an example that has drifted from
+    # the schema stops the build here rather than stopping a reader.
+    kubectl patch --local --type=json -f "$policy" -o yaml \
+        -p "[{\"op\": \"replace\", \"path\": \"/spec/subjects/0/issuer\", \"value\": \"$(cat "demo/.work/$cell.issuer")\"}]" \
+        | kubectl apply -f - > /dev/null
+
+    run() {
+        kubectl -n "$ns" delete job cellcast-presync --ignore-not-found --wait > /dev/null
+        kubectl apply -f "$job" > /dev/null
+        for _ in $(seq 1 60); do
+            if [ "$(kubectl -n "$ns" get job cellcast-presync -o jsonpath='{.status.succeeded}')" = "1" ]; then
+                echo succeeded
+                return 0
+            fi
+            if [ -n "$(kubectl -n "$ns" get job cellcast-presync -o jsonpath='{.status.failed}')" ]; then
+                echo failed
+                return 0
+            fi
+            sleep 2
+        done
+        echo "never finished"
+    }
+
+    # --explain is on the hook, so this is every candidate cell and why it was
+    # or was not chosen. It is the only explanation of a refusal anybody gets.
+    hook_log() { kubectl -n "$ns" logs job/cellcast-presync 2>/dev/null || true; }
+
+    echo "==> the hook, with $cell LIVE"
+    got=$(run)
+    log=$(hook_log)
+    printf '%s\n' "$log"
+    [ "$got" = "succeeded" ] || fail "the hook $got while $cell is LIVE; it would have stopped a sync that should have run"
+    printf '%s\n' "$log" | grep -q "on $cell" \
+        || fail "the hook succeeded but does not name $cell; the one-cell policy is not the thing being answered"
+
+    echo "==> the hook, with $cell DRAINING"
+    # Restored whatever happens: the fleet outlives this recipe, and a cell left
+    # draining makes every later placement in the same run refuse for a reason
+    # that has nothing to do with what is being tested.
+    restore() { kubectl -n cellcast-system patch clusters.cellcast.io "$cell" --type=merge -p '{"spec":{"state":"LIVE"}}' > /dev/null 2>&1 || true; }
+    trap restore EXIT
+    kubectl -n cellcast-system patch clusters.cellcast.io "$cell" --type=merge -p '{"spec":{"state":"DRAINING"}}' > /dev/null
+    got=$(run)
+    log=$(hook_log)
+    printf '%s\n' "$log"
+    [ "$got" = "failed" ] || fail "the hook $got while $cell is DRAINING; the gate does not gate"
+    # Failed, and failed for the right reason. A pod that cannot pull its image
+    # or cannot reach the hub fails too, and either would read here as a gate
+    # that works, which is the one way this check could pass while proving
+    # nothing.
+    printf '%s\n' "$log" | grep -q NoEligibleCells \
+        || fail "the hook failed while $cell is DRAINING, but not with a refusal; something other than the gate stopped it"
+
+    echo "the hook allowed the sync while $cell was LIVE and stopped it once $cell was DRAINING"
 
 # --- Demo ---------------------------------------------------------------------
 #
