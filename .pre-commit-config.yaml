@@ -12,6 +12,8 @@ repos:
       - id: check-yaml
         # Generated CRDs are large and valid; helm templates are not plain YAML.
         exclude: ^(config/crd/bases/|charts/.*/templates/)
+        # examples/ holds multi-document manifests for kubectl apply
+        args: [--allow-multiple-documents]
       - id: check-merge-conflict
       - id: detect-private-key
 

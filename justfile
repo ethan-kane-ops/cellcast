@@ -1332,14 +1332,13 @@ vuln-binaries: build
 # Everything check does, plus vulnerabilities, the race detector and a real API server
 check-all: check vuln test-race envtest
 
-# Install pre-commit hooks into .git/hooks
+# Install the git hooks (prek if present, else pre-commit; same config)
 hooks:
-    pre-commit install
-    @echo "pre-commit hooks installed"
+    if command -v prek >/dev/null 2>&1; then prek install; else pre-commit install; fi
 
-# Run pre-commit against every file, not just staged ones
+# Run every hook against every file, not just staged ones
 hooks-all:
-    pre-commit run --all-files
+    if command -v prek >/dev/null 2>&1; then prek run --all-files; else pre-commit run --all-files; fi
 
 # Remove build artifacts
 clean:
