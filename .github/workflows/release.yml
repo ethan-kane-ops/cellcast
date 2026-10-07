@@ -43,7 +43,7 @@ jobs:
           fetch-depth: 0
 
       # go, just, helm, helm-docs, golangci-lint, syft.
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
 
       # `just release` runs the full gate and the end-to-end suite before it
       # publishes anything, and the e2e suite builds real kind clusters.
