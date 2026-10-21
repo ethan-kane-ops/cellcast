@@ -41,7 +41,7 @@ jobs:
       # go, just and uv. The build itself is `just docs-build`, the same
       # command a contributor runs, so the site CI publishes and the site a
       # contributor previews cannot drift.
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
 
       # --strict, so a broken internal link fails here rather than shipping as
       # a 404 on the published site.
