@@ -6,7 +6,7 @@ helm-docs = "latest"
 # The release attaches an SBOM to every artifact, so the tool that produces one
 # is part of the toolchain rather than something a release host might have.
 syft = "latest"
-go = "1.26"
+go = "1.26.10"
 # The docs site is built with `just docs-build`, and CI runs that same recipe
 # rather than a second pip invocation that could resolve differently.
 uv = "latest"

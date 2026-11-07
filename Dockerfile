@@ -11,7 +11,7 @@
 # builds" that resolve their own compiler at build time are not reproducible.
 # Both digests are refreshed by hand; `just image-bases` prints the current
 # ones for the two tags below.
-ARG GO_IMAGE=golang:1.26-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628
+ARG GO_IMAGE=golang:1.26-alpine@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 # --platform=$BUILDPLATFORM keeps the compiler on the builder's own
