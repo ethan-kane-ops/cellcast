@@ -66,7 +66,8 @@ func flagLine(t *testing.T, help, name string) string {
 	for _, raw := range strings.Split(help, "\n") {
 		line := strings.TrimSpace(raw)
 		switch {
-		case strings.HasPrefix(line, "--"+name+" ") || line == "--"+name:
+		// pflag >= 1.1 prints bool flags as --name[=true|false].
+		case strings.HasPrefix(line, "--"+name+" ") || strings.HasPrefix(line, "--"+name+"[") || line == "--"+name:
 			capturing = true
 			out = append(out, line)
 		case capturing && strings.HasPrefix(line, "--"):
