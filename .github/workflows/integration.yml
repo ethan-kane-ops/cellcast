@@ -32,7 +32,8 @@ concurrency:
 jobs:
   github-action:
     name: deploy through the action
-    runs-on: ubuntu-latest
+    # kind clusters fail kubeadm init on ubuntu-26.04 runners; pinned until that is fixed.
+    runs-on: ubuntu-24.04
     # A fork's pull request is granted no id-token permission, so this job
     # cannot run for one. Skipped rather than failed: a contributor's first
     # pull request should not open with a red cross they cannot fix.
