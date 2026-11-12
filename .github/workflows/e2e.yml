@@ -21,7 +21,8 @@ concurrency:
 jobs:
   e2e:
     name: ${{ matrix.recipe }}
-    runs-on: ubuntu-latest
+    # kind clusters fail kubeadm init on ubuntu-26.04 runners; pinned until that is fixed.
+    runs-on: ubuntu-24.04
     # Each recipe creates and destroys its own clusters, so they are
     # independent and the matrix is free parallelism. fail-fast is off because
     # knowing that three of them broke is more useful than knowing one did.
